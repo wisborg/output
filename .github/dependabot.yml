@@ -1,0 +1,22 @@
+# Pinning actions to a commit SHA stops a moved tag from running new code
+# without review. It also stops legitimate security fixes from arriving, so
+# something has to move the pins: that is this file. Dependabot rewrites the
+# SHA and the trailing "# v7.0.1" comment together, which is the reason the
+# comment is worth keeping in the workflow.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+
+  # go-runewidth and its own dependency are the entire graph, but "small" is
+  # not the same as "does not need patching".
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "deps"

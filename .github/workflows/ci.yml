@@ -29,11 +29,27 @@ jobs:
           - stable
     name: go ${{ matrix.go }}
     steps:
-      - uses: actions/checkout@v7
+      # Actions are pinned to a commit SHA, not a tag. A tag is mutable: if
+      # the action's repository or a maintainer's account is compromised, v7
+      # can be moved to point at anything, and it then runs inside this
+      # workflow. The blast radius here is small -- read-only token, no
+      # secrets, public code -- but the runner still has network egress and
+      # can be used against others. The trailing comment is the human-readable
+      # version; update both together, or let Dependabot do it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token has no business being written
+          # into .git/config where every later step can reach it.
+          persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ matrix.go }}
+          # setup-go caches modules by default. The whole dependency graph
+          # here is go-runewidth and uax29, so the cache saves almost nothing
+          # while adding a store that is written by one run and read by
+          # another -- worth avoiding for the saving involved.
+          cache: false
 
       - name: gofmt
         # Capture and test for emptiness rather than piping gofmt into
