@@ -105,3 +105,25 @@ func ExampleTable_AppendSeparator() {
 	// second      22
 	// third      333
 }
+
+// ExampleTable_WriteCSV renders the same table as data rather than as text.
+// Align and MaxWidth are display concessions and do not apply; Column.Format
+// does, because it says how a value should be written.
+func ExampleTable_WriteCSV() {
+	t := table.New(
+		table.Column{Header: "clip"},
+		table.Column{Header: "offset", Align: table.Right, Format: "%+.2f"},
+		table.Column{Header: "note", MaxWidth: 4},
+	)
+	t.MustAppend("corner_1", 2.70, "the corner")
+	t.AppendSeparator() // no meaning in CSV; skipped
+	t.MustAppend("corner_3", 2.75, "also, a corner")
+
+	if err := t.WriteCSV(os.Stdout, table.CSVStyle{}); err != nil {
+		fmt.Println("csv:", err)
+	}
+	// Output:
+	// clip,offset,note
+	// corner_1,+2.70,the corner
+	// corner_3,+2.75,"also, a corner"
+}

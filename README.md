@@ -29,6 +29,25 @@ corner_3   +2.75s   0.366
 `Style{Multiline: true}` gives each line of a multi-line cell its own row;
 `Style{Spacing: n}` sets the gap between columns.
 
+The same table writes CSV, over the same rows:
+
+```go
+t.WriteCSV(os.Stdout, table.CSVStyle{})
+```
+
+```
+clip,offset,score
+corner_1,+2.70s,0.821
+corner_3,+2.75s,0.366
+```
+
+`Align` and `MaxWidth` do not apply there — padding and truncation are
+concessions to a fixed-width display, and silently shortening a value on its
+way into a file someone will compute with is how you lose it. `Format` does
+apply, because that is you saying how the value should be written. Separators
+are skipped, and an empty table still writes its header, where the text
+renderer writes nothing: a program reading CSV usually needs that line.
+
 ## Three decisions worth knowing about
 
 **Cells are stored as you pass them, and formatted only when rendered.** An
@@ -66,7 +85,8 @@ means for them, so only the caller should say it.
 
 ## Status
 
-Text tables. CSV next, from the same row model. The API is not yet frozen.
+Text tables and CSV. JSON and YAML are deliberately not here — see above.
+The API is not yet frozen.
 
 ## Dependencies
 

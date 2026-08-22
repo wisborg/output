@@ -1,2 +1,14 @@
-/output
-.scratch/
+# macOS Finder metadata. Not anchored: these appear in any directory.
+.DS_Store
+
+# Scratch space for anything a working session produces -- captured output,
+# throwaway probe programs, benchmark logs. One fixed directory per checkout
+# rather than a per-session temp path, so artifacts are always somewhere
+# obvious to inspect and to delete.
+/.scratch/
+
+# Local Claude Code configuration: the permission allowlist and any agent
+# definitions. Machine- and person-specific rather than a property of the
+# library, and the allowlist in particular names absolute paths that mean
+# nothing in another checkout.
+/.claude/
