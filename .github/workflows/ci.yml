@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: this workflow only reads the code. A public repository's
+# default token is otherwise writable, which a compromised dependency of an
+# action could use.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Report both legs. Which Go version broke is the useful half of the
+      # answer, and fail-fast throws it away by cancelling the other job.
+      fail-fast: false
+      matrix:
+        go:
+          # The floor declared in go.mod. A library's stated minimum is a
+          # promise, and the only way to keep it is to build against it --
+          # it is otherwise very easy to use something newer and not notice.
+          - "1.23"
+          # ...and current, so a change in the toolchain shows up here rather
+          # than in someone's build.
+          - stable
+    name: go ${{ matrix.go }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: gofmt
+        # Capture and test for emptiness rather than piping gofmt into
+        # something that decides the exit status. `gofmt -l` exits 0 whether
+        # or not it printed a filename, so any check that reads an exit code
+        # from a pipeline containing it silently passes on unformatted code.
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        # -race even though the package documents that a Table is not safe for
+        # concurrent use: the cost is trivial at this size, and the detector
+        # is what would catch a future change that starts sharing state.
+        #
+        # This also runs the Example functions, whose "// Output:" blocks are
+        # the package documentation. That is the main thing this workflow is
+        # here for -- documentation that is executable rots silently the
+        # moment an output format changes and nobody runs the tests.
+        run: go test -race ./...
