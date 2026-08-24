@@ -2,6 +2,9 @@ module github.com/wisborg/output
 
 go 1.23
 
-require github.com/mattn/go-runewidth v0.0.28
+require (
+	github.com/mattn/go-runewidth v0.0.28
+	go.yaml.in/yaml/v3 v3.0.5
+)
 
 require github.com/clipperhouse/uax29/v2 v2.2.0 // indirect

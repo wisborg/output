@@ -1,8 +1,9 @@
 # output
 
-Go packages for producing program output in more than one shape.
+Go packages for producing program output in more than one shape: aligned
+text, CSV, JSON or YAML, chosen when the program runs.
 
-`table` is the first: it builds tabular data and renders it as aligned text.
+`table` builds tabular data and renders it as aligned text.
 
 ```go
 import "github.com/wisborg/output/table"
@@ -48,6 +49,106 @@ apply, because that is you saying how the value should be written. Separators
 are skipped, and an empty table still writes its header, where the text
 renderer writes nothing: a program reading CSV usually needs that line.
 
+## Choosing the format when the program runs
+
+The root package writes one result in whichever format was asked for. The
+premise is that the program builds **two** representations of that result and
+lets the format choose between them:
+
+```go
+import "github.com/wisborg/output"
+
+doc := output.Document{
+    Data:  results, // the object: for JSON and YAML
+    Table: summary, // the simplified table: for text and CSV
+}
+if err := doc.Write(os.Stdout, format); err != nil {
+    return err
+}
+```
+
+They are built independently on purpose. Deriving one from the other forces
+the richer shape through the poorer one and makes both worse: JSON grows
+stringly-typed cells and pre-formatted numbers, while the table grows columns
+nobody wanted to read on a terminal. Writing both is a few lines in the
+program that has the data, and each comes out shaped for its reader — the
+object can carry the checksum and the detector settings, the table can show
+three columns and stop.
+
+A `Document` only needs the representation the chosen format uses: JSON of a
+document with no `Table` is fine, CSV of one with no `Data` is fine. Asking
+for a format whose representation is missing is an error naming the format —
+`ErrNoData` or `ErrNoTable` — and nothing is written. Nothing is written on
+any other failure either: whatever the format, the output is either empty or
+a whole document ending in exactly one newline. A table with **no rows**
+is not a missing table: it is a supplied answer that happens to be empty, and
+it keeps `table`'s own rules, so text writes nothing and CSV writes its
+header.
+
+`Format` is a `flag.Value`, so the flag is one line and an unknown name is
+refused where the user typed it rather than quietly falling back to text:
+
+```go
+format := output.Text // the default; the zero Format is Text
+flag.Var(&format, "format", "output format: text, csv, json or yaml")
+```
+
+`text`, `csv`, `json` and `yaml`, case-insensitively, plus `table` for text
+and `yml` for YAML. `Format(99)`, from a cast or a decoded config file, is an
+error too: there is no `default:` arm falling through to text, because a
+program that prints a table when its caller asked for JSON has produced
+output that cannot be parsed and no message saying why.
+
+### JSON and YAML
+
+`WriteJSON` and `WriteYAML` are the same encoders without the `Document`, for
+a program that has only the object. Both end their output with exactly one
+newline, as text and CSV do.
+
+JSON is indented two spaces by default, and **does not escape HTML**, which
+inverts `encoding/json`'s default. That default is right when the JSON is
+embedded in a web page and wrong here: a URL in a CLI's output should read
+`https://x/?a&b`, not `https://x/?a\u0026b`, which stays wrong when the
+reader copies it out of their terminal. `JSONStyle{EscapeHTML: true}` puts it
+back. Marshalling errors are wrapped, not flattened, so
+`errors.As(err, new(*json.UnsupportedTypeError))` still reaches the type that
+could not be encoded.
+
+YAML is indented two spaces, against the library's default of four, and gets
+no `---` marker for a single document. `YAMLStyle{Indent: n}` takes 2 to 9,
+which is the emitter's own range: it *resets* anything outside that to 2
+rather than clamping to the nearer bound, so `Indent: 10` would produce
+output identical to never having set it. That is refused with an error naming
+the value and the range, rather than being clamped to 9 — a quieter version
+of the same surprise.
+
+`WriteYAML` writes all of a document or none of it. The encoder streams, so a
+value it rejects part-way through would otherwise leave tens of kilobytes of
+truncated YAML on the writer; the document is rendered into a buffer first
+and copied out only once it is known to be good. That keeps the invariant
+above true for every format instead of true for three of them.
+
+Two things about YAML are worth knowing before you offer it as a format:
+
+- The library **panics** on a type it cannot marshal — a channel or a
+  function — where `encoding/json` returns an error. `WriteYAML` recovers
+  that one panic and returns an error naming the type. The recovery is
+  narrow: any other panic is re-raised, because anything else is a bug in the
+  encoder and swallowing it would hide it.
+- A **cyclic value still takes the process down**, and cannot be fixed here.
+  The encoder follows pointers with no visited set, so a value pointing back
+  at itself is encoded again at every level, for ever. It does not fail
+  quickly: it spins, emitting an ever-deeper nesting of the same data and
+  consuming CPU and memory without bound, until the buffer cannot grow or the
+  recursion overflows the stack — and a stack overflow in Go is fatal, not a
+  panic, not recoverable. `encoding/json` detects cycles and reports them as
+  errors, so the same `Document` that writes as JSON can take the program
+  down as YAML. Break cycles before handing data to any encoder.
+
+Both encoders sort mapping keys their own way — `encoding/json` alphabetically
+for maps and in declaration order for structs, the YAML library likewise —
+and this package adds no knob for that.
+
 ## Three decisions worth knowing about
 
 **Cells are stored as you pass them, and formatted only when rendered.** An
@@ -61,10 +162,10 @@ t.Columns[1].Align = table.Right
 ```
 
 It is also what leaves room for renderers other than text. CSV shares this row
-model exactly and is the obvious next one. JSON and YAML deliberately do not:
-they are far more flexible than a grid of cells, so forcing them through a
-row-and-column model would make both worse. They belong to a separate data
-source, converted from a table only when someone actually wants that.
+model exactly. JSON and YAML deliberately do not: they are far more flexible
+than a grid of cells, so forcing them through a row-and-column model would
+make both worse. They read a separate data source instead — see below — and
+are never derived from a table.
 
 **Column widths are measured in terminal columns, not bytes or runes.** These
 are three different numbers. `len("café")` is 5 or 6 depending on whether the
@@ -85,15 +186,32 @@ means for them, so only the caller should say it.
 
 ## Status
 
-Text tables and CSV. JSON and YAML are deliberately not here — see above.
+Text and CSV in `table`; text, CSV, JSON and YAML through `output.Document`.
+
+JSON and YAML are still not *table* renderers, and that is the same decision
+as before rather than a reversal of it: nothing converts a table into an
+object, there is no row accessor for a converter to use, and asking a
+`Document` for JSON reads `Data` and never looks at `Table`. What has been
+added is the other data source that argument always implied, and the
+dispatch that picks between the two.
+
 The API is not yet frozen.
 
 ## Dependencies
 
-One: [`mattn/go-runewidth`](https://github.com/mattn/go-runewidth) (MIT), for
-display-width measurement, which in turn uses
-[`clipperhouse/uax29`](https://github.com/clipperhouse/uax29) (MIT). Both are
-compatible with this project's Apache-2.0 licence.
+Two, both compatible with this project's Apache-2.0 licence:
+
+- [`mattn/go-runewidth`](https://github.com/mattn/go-runewidth) (MIT), for
+  display-width measurement, which in turn uses
+  [`clipperhouse/uax29`](https://github.com/clipperhouse/uax29) (MIT).
+- [`go.yaml.in/yaml/v3`](https://github.com/yaml/go-yaml) (**MIT and
+  Apache-2.0** — the eight files ported from libyaml are MIT, the rest is
+  Apache-2.0, and there is a NOTICE file), for YAML. This is the YAML
+  organisation's maintained fork of `gopkg.in/yaml.v3`, which was archived in
+  April 2025. It has no dependencies of its own.
+
+`table` does not import the YAML library, so a program that only builds
+tables does not link it.
 
 ## Licence
 
