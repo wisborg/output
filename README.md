@@ -263,6 +263,13 @@ rendering 44% 4800/10800 frames 7482/s
 encoding 22% 2300/10800 frames 3585/s
 ```
 
+**The trough is a fixed width.** Each field's room is reserved before the run
+starts — including for the rate and the estimate, which only appear once there
+is enough work to measure them — so the bar does not shrink as the counts gain
+a digit or lurch when those fields arrive. A width that turns out to be too
+small grows once and never shrinks back, so the trough can narrow but never
+oscillate.
+
 **Bars never wrap.** A live line that exceeded the terminal's width would
 occupy two rows while the erase arithmetic counted one, and the display would
 then eat the log above it on every redraw. Lines are measured in terminal

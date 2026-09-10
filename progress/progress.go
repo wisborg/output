@@ -47,7 +47,6 @@ package progress
 import (
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -373,11 +372,11 @@ func (d *Display) draw() {
 	now := d.now()
 	if d.live {
 		labels := make([]string, len(d.bars))
-		fields := make([][]string, len(d.bars))
+		fields := make([][numSlots]string, len(d.bars))
 		for i, b := range d.bars {
-			labels[i], fields[i] = b.fields(now, true)
+			labels[i], fields[i] = b.slots(now)
 		}
-		l := d.resolveLayout(labels, fields)
+		l := d.resolveLayout(labels)
 
 		var buf []byte
 		for i, b := range d.bars {
@@ -413,7 +412,7 @@ func (d *Display) draw() {
 // overflowed. Dropping per-bar would misalign them again, and inconsistently:
 // a reader would see an ETA on one line and not the next for no reason
 // visible on screen.
-func (d *Display) resolveLayout(labels []string, fields [][]string) layout {
+func (d *Display) resolveLayout(labels []string) layout {
 	cols := d.Columns()
 	l := layout{cols: cols, ascii: d.ascii}
 
@@ -423,25 +422,15 @@ func (d *Display) resolveLayout(labels []string, fields [][]string) layout {
 		}
 	}
 
-	// Start with every field and give them up from the right.
-	l.fields = 0
-	for _, f := range fields {
-		if len(f) > l.fields {
-			l.fields = len(f)
-		}
-	}
+	l.slots = numSlots
 	head := l.labelWidth
 	if head > 0 {
 		head += 2 // the gap after the label column
 	}
 	for {
 		textWidth := 0
-		for _, f := range fields {
-			n := l.fields
-			if n > len(f) {
-				n = len(f)
-			}
-			if w := d.measure(strings.Join(f[:n], "  ")); w > textWidth {
+		for _, b := range d.bars {
+			if w := b.reservedWidth(l.slots, d.measure); w > textWidth {
 				textWidth = w
 			}
 		}
@@ -451,13 +440,13 @@ func (d *Display) resolveLayout(labels []string, fields [][]string) layout {
 			l.barWidth = room
 			return l
 		}
-		if l.fields <= 1 {
+		if l.slots <= 1 {
 			// No trough at all: the text keeps the room, and composeLine
 			// truncates whatever still does not fit.
 			l.barWidth = 0
 			return l
 		}
-		l.fields--
+		l.slots--
 	}
 }
 

@@ -390,3 +390,112 @@ func TestDisplay_DoesNotTruncateWhatWouldHaveFitted(t *testing.T) {
 		}
 	}
 }
+
+// troughColumn is where the bar currently on screen closes its trough, in
+// display columns, or -1 when there is no trough.
+//
+// It is sampled after each update rather than parsed out of the whole stream,
+// because a redraw REPLACES the region: replaying the finished stream shows
+// only the last state, which is exactly the one frame that cannot reveal the
+// trough moving.
+func troughColumn(t *testing.T, out string) int {
+	t.Helper()
+	lines := replay(out).text()
+	if len(lines) == 0 {
+		return -1
+	}
+	return columnOf(lines[len(lines)-1], barClose)
+}
+
+// TestDisplay_TroughWidthIsStaticThroughoutTheRun is the reason the field
+// widths are reserved up front rather than measured each redraw.
+//
+// Sized from the current values, the trough is re-fitted around whatever the
+// numbers happen to be at that instant: it shrinks a column every time the
+// counts gain a digit, and lurches when the rate and the estimate appear a
+// second in -- which is the most visible of the lot, because by then the eye
+// has settled on a bar that is not moving sideways any more.
+//
+// The run below deliberately spans all three: the first redraw before any
+// rate has been measured, the moment the estimate becomes available, and the
+// counts growing from one digit to six.
+func TestDisplay_TroughWidthIsStaticThroughoutTheRun(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Live, Columns: 100, Now: c.now, Interval: 100 * time.Millisecond})
+	bar := d.Bar(BarSpec{Label: "rendering", Total: 108000, Unit: "frames"})
+
+	var cols []int
+	sample := func() { cols = append(cols, troughColumn(t, buf.String())) }
+	sample() // the first draw, before any rate or estimate exists
+
+	for done := int64(1); done <= 108000; done *= 3 {
+		c.add(300 * time.Millisecond)
+		bar.Set(done)
+		sample()
+	}
+	c.add(300 * time.Millisecond)
+	bar.Set(108000)
+	sample()
+
+	if len(cols) < 6 {
+		t.Fatalf("only %d samples; this test needs the run to cover the rate and estimate appearing", len(cols))
+	}
+	for i, got := range cols {
+		if got < 0 {
+			t.Fatalf("sample %d has no trough at all; widths seen: %v", i, cols)
+		}
+		if got != cols[0] {
+			t.Errorf("sample %d closes its trough at column %d, want %d (fixed for the whole run); widths seen: %v",
+				i, got, cols[0], cols)
+			break
+		}
+	}
+}
+
+// TestDisplay_TroughNeverWidensAfterNarrowing covers the cases a reservation
+// cannot predict: a rate larger than the room kept for it, and a total that
+// only arrives once the job is under way.
+//
+// Neither can be estimated in advance, so the trough does have to give up
+// room when they happen. What it must never do is take that room back, which
+// would leave it oscillating for the rest of the run -- so the widths only
+// ever grow and the trough only ever narrows.
+func TestDisplay_TroughNeverWidensAfterNarrowing(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Live, Columns: 100, Now: c.now, Interval: 100 * time.Millisecond})
+	bar := d.Bar(BarSpec{Label: "encoding", Unit: "frames"}) // no total yet
+
+	var cols []int
+	step := func(f func()) {
+		c.add(time.Second)
+		f()
+		cols = append(cols, troughColumn(t, buf.String()))
+	}
+	step(func() { bar.Set(50) })
+	step(func() { bar.Set(4_000_000) })      // a rate far past what was reserved
+	step(func() { bar.SetTotal(9_000_000) }) // a total, bringing a percentage and an estimate
+	step(func() { bar.Set(5_000_000) })
+	step(func() { bar.Set(6_000_000) })
+
+	// Samples before a total arrives have no trough at all (an unsized job
+	// draws none, see Bar.hasBar), so they are dropped rather than compared:
+	// a trough appearing where there was none is the job's shape changing,
+	// not the width oscillating.
+	var seen []int
+	for _, c := range cols {
+		if c >= 0 {
+			seen = append(seen, c)
+		}
+	}
+	if len(seen) < 2 {
+		t.Fatalf("only %d samples had a trough; widths seen: %v", len(seen), cols)
+	}
+	for i := 1; i < len(seen); i++ {
+		if seen[i] > seen[i-1] {
+			t.Errorf("the trough grew back from column %d to %d; widths seen: %v", seen[i-1], seen[i], cols)
+			break
+		}
+	}
+}

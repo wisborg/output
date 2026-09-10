@@ -196,6 +196,25 @@ documented API but is **not exercised by this project's testing**, so every
 uncertainty there fails closed: anything that does not succeed reports "not a
 terminal" and the display falls back to plain lines.
 
+**Each field's width is reserved before the run starts, and only ever grows.**
+Sizing the trough from what the fields currently measure re-fits it around
+whatever the numbers happen to be at that instant: it loses a column every
+time the counts gain a digit, and lurches when the rate and the estimate
+appear a second in — the most visible of the lot, because by then the eye has
+settled on a bar that had stopped moving sideways. Two of the four widths are
+known exactly up front (a percentage is always four columns; the counts are
+widest when done equals the total). The other two cannot be, and their
+estimates matter *more* rather than less, because those are the fields that
+are not there yet. `widen` covers whatever outruns an estimate, and never
+shrinks a slot, so the trough can narrow once but never oscillate. The cost is
+a few columns held for a field that a short run never shows, which is the
+price of the width being fixed.
+
+This is also why `formatRate` abbreviates past ten thousand. An unabbreviated
+rate has no bound on its width, so the field would keep outgrowing its
+reservation and take another column off the trough each time — the very
+jitter the reservations exist to prevent.
+
 **The rate window is much longer than the redraw interval.** Redrawing twelve
 times a second is what makes a bar look continuous, but a rate measured over
 80ms is dominated by whatever the scheduler was doing and swings by an order

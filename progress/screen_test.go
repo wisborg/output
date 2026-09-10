@@ -147,15 +147,20 @@ func (sc *screen) widest() (int, string) {
 // offset: the block glyphs are three bytes each and a space is one, so
 // comparing byte indexes across two bars says they are misaligned when they
 // are not. Returns -1 when the rune is absent.
+//
+// It reports the LAST occurrence, which matters for barClose: U+258F is both
+// the trough's right bracket and the one-eighth fill glyph, so a bar sitting
+// at a fraction just over an eighth contains two of them and the first is
+// inside the bar rather than at its end.
 func columnOf(line string, want rune) int {
-	col := 0
+	col, found := 0, -1
 	for _, r := range line {
 		if r == want {
-			return col
+			found = col
 		}
 		col += runewidth.RuneWidth(r)
 	}
-	return -1
+	return found
 }
 
 func min(a, b int) int {

@@ -25,6 +25,17 @@ type BarSpec struct {
 	Unit string
 }
 
+// The right-hand fields, in display order. They are SLOTS rather than a list
+// that grows and shrinks, because the width of each one is reserved up front
+// and held for the whole run -- see reserveSlots.
+const (
+	slotPercent = iota
+	slotCounts
+	slotRate
+	slotETA
+	numSlots
+)
+
 // Bar is one line of a Display.
 //
 // A nil *Bar is usable and does nothing, so a caller holding one from a
@@ -48,13 +59,74 @@ type Bar struct {
 	lastTime time.Time
 	lastDone int64
 	lastRate float64
+
+	// reserve is the column width held for each slot, whether or not that
+	// slot has anything to show yet. It is what keeps the trough from
+	// resizing: without it the bar is re-fitted around whatever the fields
+	// happen to measure this instant, so it shrinks a little every time the
+	// counts gain a digit, and lurches when the rate and the estimate first
+	// appear a second into the run. A width may only ever GROW (see widen),
+	// so the trough can never oscillate.
+	//
+	// Guarded by the Display's mutex, like the rate window above it.
+	reserve [numSlots]int
 }
 
 func newBar(d *Display, spec BarSpec) *Bar {
 	b := &Bar{d: d, label: spec.Label, unit: spec.Unit, start: d.now()}
 	b.total.Store(spec.Total)
 	b.lastTime = b.start
+	b.reserveSlots()
 	return b
+}
+
+// reserveSlots estimates, before any work has been reported, how wide each
+// field will ever get. It only ever widens a slot, so it is safe to re-run
+// when the job's shape changes under SetTotal.
+//
+// Two of the four can be known exactly. A percentage is always three digits
+// and a sign, and the counts are widest when the job is finished -- at which
+// point "done" has exactly as many digits as the total, which is known now.
+//
+// The other two cannot be, and their estimates matter MORE rather than less,
+// because they are the fields that are not there yet: the rate needs a
+// measurement window and the estimate needs a second of work, so both appear
+// part-way through a run that has already settled. Reserving their room from
+// the start is what stops the trough jumping when they arrive. The figures
+// are derived from the formatters rather than written as constants, so they
+// cannot drift away from what those actually produce, and widen covers
+// whatever exceeds them.
+func (b *Bar) reserveSlots() {
+	measure := b.d.widthFunc()
+	total := b.total.Load()
+
+	if total > 0 {
+		b.widen(slotPercent, measure("100%"))
+		b.widen(slotCounts, measure(b.counts(total, total)))
+		// A duration long enough to need every part it can print. An
+		// estimate wider than this is possible and simply widens the slot
+		// once; one narrower is the ordinary case and costs a few columns
+		// of trough.
+		b.widen(slotETA, measure(formatETA(59*time.Minute+59*time.Second)))
+	} else {
+		// No total means no percentage and no estimate, ever -- neither can
+		// be computed without one -- so they take no room at all. If a total
+		// arrives later (SetTotal), the slots open then.
+		b.widen(slotCounts, measure(b.counts(0, 0)))
+	}
+	// The widest a rate prints below ten million a second -- see formatRate,
+	// which abbreviates precisely so this has an answer.
+	b.widen(slotRate, measure(formatRate(9_999_000)))
+}
+
+// widen grows a slot to fit a value that outran its reservation, and never
+// shrinks one. Growing is a one-off jump; shrinking would let the trough
+// oscillate for the rest of the run, which is the thing this whole mechanism
+// exists to prevent.
+func (b *Bar) widen(slot int, w int) {
+	if w > b.reserve[slot] {
+		b.reserve[slot] = w
+	}
 }
 
 // Set records that done units are complete and redraws if the display is due.
@@ -87,6 +159,14 @@ func (b *Bar) SetTotal(total int64) {
 		return
 	}
 	b.total.Store(total)
+	// A total arriving late brings a percentage and an estimate with it, and
+	// widens the counts to their finished size. Reserving that room now costs
+	// the trough one adjustment here rather than one when each field first
+	// appears -- and the reservations only grow, so the trough cannot go back
+	// and forth afterwards. The lock is what reserve is guarded by.
+	b.d.mu.Lock()
+	b.reserveSlots()
+	b.d.mu.Unlock()
 	b.d.redraw(false)
 }
 
@@ -135,28 +215,34 @@ const (
 // fields returns this bar's label and its right-hand text fields, most- to
 // least- important. It advances the rate window as a side effect, so it is
 // called exactly once per redraw. The caller holds the Display's mutex.
-// pad widens the percentage to a fixed three digits, which keeps a live bar's
-// right-hand fields from shuffling sideways as it crosses 10% and 100%. A
-// plain line is not aligned against anything and takes the number bare.
-func (b *Bar) fields(now time.Time, pad bool) (label string, fields []string) {
+// slots fills this bar's four fields for the current instant, leaving a slot
+// empty when it has nothing to say yet, and updates the reservations for
+// anything that outgrew them.
+//
+// An empty slot still occupies its reserved width when the line is composed,
+// which is the whole point: the rate and the estimate arrive a second into a
+// run, and a layout that made room for them only once they existed would move
+// everything to their left at that moment.
+func (b *Bar) slots(now time.Time) (label string, out [numSlots]string) {
 	done, total := b.done.Load(), b.total.Load()
 	b.observe(now, done)
+	measure := b.d.widthFunc()
 
 	if total > 0 {
-		if pad {
-			fields = append(fields, fmt.Sprintf("%3d%%", percent(done, total)))
-		} else {
-			fields = append(fields, fmt.Sprintf("%d%%", percent(done, total)))
+		// Three digits wide always, so the fields to its right do not shuffle
+		// as it crosses 10% and 100%.
+		out[slotPercent] = fmt.Sprintf("%3d%%", percent(done, total))
+	}
+	out[slotCounts] = b.counts(done, total)
+	out[slotRate] = formatRate(b.lastRate)
+	out[slotETA] = b.eta(now, done, total)
+
+	for i, v := range out {
+		if v != "" {
+			b.widen(i, measure(v))
 		}
 	}
-	fields = append(fields, b.counts(done, total))
-	if r := formatRate(b.lastRate); r != "" {
-		fields = append(fields, r)
-	}
-	if eta := b.eta(now, done, total); eta != "" {
-		fields = append(fields, eta)
-	}
-	return b.label, fields
+	return b.label, out
 }
 
 // hasBar reports whether this bar has a trough to draw at all.
@@ -172,13 +258,56 @@ func (b *Bar) hasBar() bool { return b != nil && b.total.Load() > 0 }
 type layout struct {
 	labelWidth int // every label padded to this, so the troughs line up
 	barWidth   int // 0 when there is no room for a trough at all
-	fields     int // how many of each bar's fields survived the width
+	slots      int // how many field slots survived the width, from the left
 	cols       int
 	ascii      bool
 }
 
+// reservedWidth is the room this bar's fields occupy when the first n slots
+// are shown: each at its reserved width, joined by two spaces, and slots this
+// bar will never fill skipped entirely.
+//
+// The layout is sized from THIS rather than from what the fields currently
+// measure, which is the whole mechanism. Sizing from the current values
+// re-fits the trough around whatever the numbers happen to be this instant,
+// so it shrinks a little as the counts gain a digit and jumps when the rate
+// and the estimate appear.
+func (b *Bar) reservedWidth(n int, measure func(string) int) int {
+	total, shown := 0, 0
+	for i := 0; i < numSlots && i < n; i++ {
+		if b.reserve[i] == 0 {
+			continue
+		}
+		total += b.reserve[i]
+		shown++
+	}
+	if shown > 1 {
+		total += 2 * (shown - 1)
+	}
+	return total
+}
+
 // composeLine renders one bar against the shared layout.
-func (b *Bar) composeLine(label string, fields []string, l layout, measure func(string) int) string {
+// composeFields lays the slots out at their reserved widths, joined by two
+// spaces, skipping any slot this bar will never fill and any the layout has
+// dropped for want of room.
+//
+// A value is padded on the LEFT, so the numbers line up at their right-hand
+// edge as they grow -- the same reason a table right-aligns a numeric column.
+func (b *Bar) composeFields(fields [numSlots]string, l layout, measure func(string) int) string {
+	var parts []string
+	for i := 0; i < numSlots && i < l.slots; i++ {
+		w := b.reserve[i]
+		if w == 0 {
+			continue
+		}
+		v := fields[i]
+		parts = append(parts, strings.Repeat(" ", w-measure(v))+v)
+	}
+	return strings.TrimRight(strings.Join(parts, "  "), " ")
+}
+
+func (b *Bar) composeLine(label string, fields [numSlots]string, l layout, measure func(string) int) string {
 	var sb strings.Builder
 	if l.labelWidth > 0 {
 		sb.WriteString(label)
@@ -195,10 +324,7 @@ func (b *Bar) composeLine(label string, fields []string, l layout, measure func(
 		}
 		sb.WriteString("  ")
 	}
-	if n := l.fields; n < len(fields) {
-		fields = fields[:n]
-	}
-	sb.WriteString(strings.Join(fields, "  "))
+	sb.WriteString(b.composeFields(fields, l, measure))
 
 	line := sb.String()
 	if measure(line) > l.cols {
@@ -214,11 +340,28 @@ func (b *Bar) composeLine(label string, fields []string, l layout, measure func(
 // already wrote to their logs, so adopting this does not silently change the
 // shape of anybody's log file.
 func (b *Bar) renderPlain(now time.Time) string {
-	label, fields := b.fields(now, false)
+	label, slots := b.slots(now)
+
+	// Neither padded nor reserved. These lines accumulate in a log rather
+	// than replacing each other, so nothing is aligned against anything and
+	// a column of blanks held open for a field that is not there yet would
+	// be noise in a file somebody greps.
+	parts := make([]string, 0, numSlots+1)
 	if label != "" {
-		fields = append([]string{label}, fields...)
+		parts = append(parts, label)
 	}
-	return strings.Join(fields, " ")
+	for i, v := range slots {
+		if v == "" {
+			continue
+		}
+		if i == slotPercent {
+			// The live line pads this to three digits to stop the fields
+			// shuffling; a log line has no such problem and takes it bare.
+			v = strings.TrimLeft(v, " ")
+		}
+		parts = append(parts, v)
+	}
+	return strings.Join(parts, " ")
 }
 
 // minRateWindow is the shortest span a displayed rate may be measured over.
@@ -250,6 +393,12 @@ func (b *Bar) observe(now time.Time, done int64) {
 		b.lastRate = 0
 	}
 	b.lastTime, b.lastDone = now, done
+}
+
+// formatETA renders a remaining time. It is a function rather than an inline
+// format so reserveSlots can measure exactly what eta will later produce.
+func formatETA(left time.Duration) string {
+	return "~" + formatDuration(left) + " left"
 }
 
 func (b *Bar) counts(done, total int64) string {
@@ -290,7 +439,7 @@ func (b *Bar) eta(now time.Time, done, total int64) string {
 		// percentage already beside it.
 		return ""
 	}
-	return "~" + formatDuration(left) + " left"
+	return formatETA(left)
 }
 
 // glyphBar draws the trough and its fill at eighth-of-a-cell resolution,
@@ -363,16 +512,27 @@ func percent(done, total int64) int {
 }
 
 // formatRate renders a rate per second, or "" when there is not yet one worth
-// showing. Precision falls away as the number grows, because the third
-// significant digit of a rate is never the point.
+// showing.
+//
+// Precision falls away as the number grows, because the third significant
+// digit of a rate is never the point, and past ten thousand the number is
+// abbreviated. That is not only for readability: an unabbreviated rate has no
+// bound on its WIDTH, so the field would keep growing past whatever room was
+// reserved for it and take a column off the trough each time -- the jitter
+// this package reserves widths to avoid. Abbreviating bounds it at seven
+// columns for any rate below ten million a second.
 func formatRate(perSecond float64) string {
 	switch {
 	case perSecond <= 0:
 		return ""
 	case perSecond < 10:
 		return fmt.Sprintf("%.1f/s", perSecond)
-	default:
+	case perSecond < 10_000:
 		return fmt.Sprintf("%.0f/s", perSecond)
+	case perSecond < 10_000_000:
+		return fmt.Sprintf("%.0fk/s", perSecond/1000)
+	default:
+		return fmt.Sprintf("%.0fM/s", perSecond/1_000_000)
 	}
 }
 
