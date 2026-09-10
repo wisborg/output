@@ -1,7 +1,8 @@
 # output
 
 Go packages for producing program output in more than one shape: aligned
-text, CSV, JSON or YAML, chosen when the program runs.
+text, CSV, JSON or YAML, chosen when the program runs — and, while the program
+is still working, live progress on the terminal.
 
 `table` builds tabular data and renders it as aligned text.
 
@@ -216,3 +217,62 @@ tables does not link it.
 ## Licence
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+
+## progress
+
+`progress` puts one or more bars at the bottom of a terminal and lets ordinary
+output scroll above them, so a program can log and show progress at once.
+
+```go
+import "github.com/wisborg/output/progress"
+
+d := progress.New(os.Stderr, progress.Options{})
+defer d.Stop()
+
+bar := d.Bar(progress.BarSpec{Label: "rendering", Total: 10800, Unit: "frames"})
+for i := 0; i < 10800; i++ {
+    render(i)
+    bar.Set(int64(i + 1))
+}
+```
+
+```
+info  merged 5 files into one activity
+warn  clip-0043 has no GPS fixes
+rendering  ▕███████████████████████▍                 ▏   56%  6100/10800 frames  7375/s  ~1m02s left
+encoding   ▕████████▏                                ▏   19%  2100/10800 frames  3688/s  ~2m21s left
+```
+
+**A `Display` is an `io.Writer`.** That is the whole mechanism for the two
+living together: a write erases the bars, emits the line, and redraws beneath
+it. Any logger over an `io.Writer` composes with it, which is why this package
+contains no logger of its own.
+
+```go
+log := slog.New(slog.NewTextHandler(d, nil))
+```
+
+**It degrades on its own.** When the writer is not a terminal — redirected,
+piped, or a platform it cannot ask — it emits plain periodic lines with no
+escape sequences at all, so `program 2>log` collects a readable log rather
+than a file full of cursor movements. A caller does not branch on where its
+output is going.
+
+```
+rendering 44% 4800/10800 frames 7482/s
+encoding 22% 2300/10800 frames 3585/s
+```
+
+**Bars never wrap.** A live line that exceeded the terminal's width would
+occupy two rows while the erase arithmetic counted one, and the display would
+then eat the log above it on every redraw. Lines are measured in terminal
+columns and a bar with too little room drops fields from the right instead.
+
+A job whose `Total` is unknown reports its count and rate and shows no
+percentage, no estimate and no empty trough: a bar that never fills reads as
+one that is stuck rather than as a measurement nobody has.
+
+`Bar.Set` is meant to be called once per unit of work — it does not allocate
+when it is not redrawing — and a nil `*Display` is usable and does nothing, so
+a `--quiet` flag is one decision at construction rather than a condition at
+every call site.

@@ -3,7 +3,8 @@
 Go packages for producing program output in more than one shape. The root
 package `output` writes one result as text, CSV, JSON or YAML, chosen when
 the program runs; `table` is the tabular half of that — data rendered as
-aligned text or written as CSV.
+aligned text or written as CSV; `progress` is the live half — bars pinned to
+the bottom of a terminal while ordinary output scrolls above them.
 
 ## Building and testing
 
@@ -36,6 +37,15 @@ from reality is a test failure.
 - `table/render.go` — text rendering: `Style`, `Render`, `String`, and the
   unexported `layout` that resolves a table for one style.
 - `table/csv.go` — `CSVStyle` and `WriteCSV`, over the same rows.
+- `progress/progress.go` — the package doc, `Display`, `Options`, `Mode`, and
+  the redraw/erase/layout machinery.
+- `progress/bar.go` — `Bar`, `BarSpec`, and the rendering of one line: the
+  trough, the counts, the rate and the estimate.
+- `progress/term_unix.go`, `term_windows.go`, `term_other.go` — build-tagged
+  terminal detection and size.
+
+`progress` imports neither the root package nor `table`, the same way `table`
+imports neither of the others.
 
 `table` does not import the root package, and nothing imports the YAML
 library twice: a program that only builds tables does not link it.
@@ -144,6 +154,67 @@ growth from the writer into memory. A reflective pre-walk to detect cycles was
 considered and rejected, since it would cost that walk on every write. It is
 documented in `WriteYAML` and in the README.
 
+**`progress` renders live only on a terminal, and never wraps.** These are one
+decision. A live line that exceeds the terminal's width occupies two rows,
+while the cursor arithmetic that erases the region counts one — so from the
+next redraw onward the display eats the log line above it, permanently. Every
+line is therefore measured in terminal columns and truncated, and a bar with
+too little room drops fields from the right rather than wrapping. `Display`
+degrades to plain periodic lines with no escape sequences whenever the writer
+is not a terminal, which is what makes `program 2>log` safe and what lets a
+caller use it without branching on where its output is going.
+
+**A redraw REPLACES the region; it does not append.** `draw` erases first,
+unconditionally. Appending looks very nearly right on a terminal, because the
+old copies scroll away — and is unmistakably wrong the moment output is
+captured. This is asserted by replaying the escape sequences onto a model
+screen (`progress/screen_test.go`) rather than by matching bytes: the property
+is about what a terminal ends up showing, and a golden byte string would both
+need rewriting for every cosmetic change and still pass if the sequences were
+internally inconsistent.
+
+**`Display` is an `io.Writer`, and `progress` contains no logger.** That
+writer is the entire mechanism for combining log output with live bars, and
+any logger built over an `io.Writer` composes with it. Adding a logger here —
+or importing one — would couple the two for no gain; the seam already works.
+
+**The bars on one display share a label column and a trough width.** Laid out
+independently each line sizes its trough from its own text, so two bars whose
+counts differ in length close at different columns and the region jitters
+sideways as the numbers grow. When the width is tight the last field is
+dropped from *every* bar, not from the one that overflowed, for the same
+reason.
+
+**Terminal detection is one `TIOCGWINSZ` ioctl, not `Stat` and
+`ModeCharDevice`.** "Is this a terminal" and "how wide is it" have the same
+answer, and the usual `ModeCharDevice` shortcut is wrong in ordinary use:
+`/dev/null` is a character device, so it reports a terminal and the program
+writes escape sequences into it. The platform files use only `syscall`; adding
+`golang.org/x/term` for this was considered and rejected to keep the
+dependency list where it is. The Windows file is written against the
+documented API but is **not exercised by this project's testing**, so every
+uncertainty there fails closed: anything that does not succeed reports "not a
+terminal" and the display falls back to plain lines.
+
+**The rate window is much longer than the redraw interval.** Redrawing twelve
+times a second is what makes a bar look continuous, but a rate measured over
+80ms is dominated by whatever the scheduler was doing and swings by an order
+of magnitude between redraws. The previous figure is held until half a second
+has passed. Relatedly, the displayed rate is a *trailing* measurement while the
+estimate is derived from the *cumulative* average: the two answer different
+questions, and an estimate that lurches by minutes on every hiccup is one
+nobody can use.
+
+**An unknown total gets no percentage, no estimate and no empty trough.** A
+full-width bar that never fills reads as a bar that is stuck rather than as a
+measurement nobody has. The count and the rate are the honest report, and they
+move, which is what a viewer reads a bar for.
+
+**`Bar.Set` must not allocate when it does not redraw.** It is called once per
+unit of work — per video frame, in the intended consumers — so the
+non-redrawing path is an atomic store, a clock read and a comparison, with the
+throttle checked outside the mutex.
+
 ## Testing conventions
 
 The characteristic bug here is output that *looks* right, so a test asserting
@@ -156,7 +227,13 @@ The characteristic bug here is output that *looks* right, so a test asserting
 - Mutation-test anything load-bearing before trusting it: break the production
   code deliberately, confirm the test fails, restore. The width handling, the
   CSV flush-error path and the sign of every deliberate asymmetry were all
-  checked this way.
+  checked this way, as were `progress`'s erase-before-draw, its
+  trailing-newline guard and its layout arithmetic.
+- In `progress`, note that `composeLine` truncates as a backstop, so an error
+  in the layout arithmetic does NOT show up as an over-wide line — it shows up
+  as a line quietly missing its right-hand fields on a terminal with room to
+  spare. `TestDisplay_DoesNotTruncateWhatWouldHaveFitted` is the assertion
+  that catches that class; the width invariant alone cannot.
 - Examples are tests. Add one for anything a user would reach for first.
 
 ## Git
