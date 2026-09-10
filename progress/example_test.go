@@ -76,3 +76,26 @@ func ExampleBarSpec_unknownTotal() {
 	// Output:
 	// encoding 500 frames 250/s
 }
+
+// The filled part of a bar can be coloured. A Palette chooses between no
+// colour at all (the zero value), one colour, or a gradient across the
+// trough.
+//
+// Asking is not the same as getting: colour is emitted only on a live
+// display whose terminal will take it, and never when NO_COLOR or TERM=dumb
+// says otherwise, so this is safe to pass unconditionally.
+func ExampleOptions_palette() {
+	d := progress.New(os.Stderr, progress.Options{
+		Palette: progress.DefaultGradient(),
+	})
+	defer d.Stop()
+
+	bar := d.Bar(progress.BarSpec{Label: "rendering", Total: 10800, Unit: "frames"})
+	bar.Set(5400)
+
+	// One colour instead of a ramp:
+	//   progress.SolidPalette(progress.RGB{R: 0x22, G: 0xC5, B: 0x5E})
+	// Or a ramp of your own:
+	//   progress.GradientPalette(progress.RGB{R: 0x7C, G: 0x3A, B: 0xED}, progress.RGB{R: 0xEC, G: 0x48, B: 0x99})
+	// Output:
+}

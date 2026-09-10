@@ -20,9 +20,9 @@ import (
 // were internally inconsistent.
 //
 // It understands only what this package emits: CSI nA (cursor up), CSI J
-// (clear to end of screen), CSI K (clear to end of line), carriage return and
-// newline. Anything else is a bug in the display, so it is reported rather
-// than skipped.
+// (clear to end of screen), CSI K (clear to end of line), CSI m (colour),
+// carriage return and newline. Anything else is a bug in the display, so it
+// is reported rather than skipped.
 type screen struct {
 	lines []string
 	row   int
@@ -30,7 +30,8 @@ type screen struct {
 	junk  []string // escape sequences this replay did not expect
 }
 
-var csi = regexp.MustCompile(`^\x1b\[([0-9]*)([A-Za-z])`)
+// Parameters may be semicolon-separated: a 24-bit colour is CSI 38;2;R;G;B m.
+var csi = regexp.MustCompile(`^\x1b\[([0-9;]*)([A-Za-z])`)
 
 func replay(s string) *screen {
 	sc := &screen{}
@@ -42,7 +43,7 @@ func replay(s string) *screen {
 				i++
 				continue
 			}
-			n, _ := strconv.Atoi(m[1])
+			n, _ := strconv.Atoi(m[1]) // 0 for a multi-parameter sequence, which is fine: only A uses it
 			if m[1] == "" {
 				n = 1
 			}
@@ -59,6 +60,12 @@ func replay(s string) *screen {
 				}
 			case "K":
 				sc.truncateLine()
+			case "m":
+				// Colour. It changes how cells look and never how many
+				// there are, so a model of the screen's CONTENT ignores it
+				// -- which is also the assertion that matters: if colour
+				// ever affected the width, the invariant tests would see
+				// the difference here.
 			default:
 				sc.junk = append(sc.junk, strconv.Quote(m[0]))
 			}

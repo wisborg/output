@@ -121,6 +121,15 @@ type Options struct {
 	// nearly universal but not guaranteed.
 	ASCII bool
 
+	// Palette colours the filled part of every bar. The zero value is
+	// monochrome; see Palette, SolidPalette, GradientPalette and
+	// DefaultGradient.
+	//
+	// Asking for colour is not the same as getting it. Colour is emitted
+	// only on a live display whose terminal will take it -- never in plain
+	// mode, and never when NO_COLOR or TERM=dumb says otherwise.
+	Palette Palette
+
 	// Now stands in for time.Now so a test can drive throttling and rates
 	// without sleeping.
 	Now func() time.Time
@@ -145,6 +154,8 @@ type Display struct {
 	live  bool
 	ascii bool
 
+	palette  Palette
+	depth    depth
 	interval time.Duration
 	now      func() time.Time
 	measure  func(string) int
@@ -173,6 +184,7 @@ func New(w io.Writer, opts Options) *Display {
 	d := &Display{
 		w:       w,
 		ascii:   opts.ASCII,
+		palette: opts.Palette,
 		now:     opts.Now,
 		measure: opts.Width,
 		columns: opts.Columns,
@@ -194,6 +206,15 @@ func New(w io.Writer, opts Options) *Display {
 		d.live = false
 	default:
 		d.live = d.detectTerminal()
+	}
+
+	// Resolved once, here, for the same reason live-versus-plain is: the
+	// environment does not change part-way through a run, and a bar that
+	// started colouring and stopped would leave the terminal's foreground
+	// wherever the last sequence put it. Plain mode never colours at all --
+	// those lines go into log files.
+	if d.live && d.palette.Mode != Monochrome {
+		d.depth = detectDepth(osGetenv)
 	}
 
 	d.interval = opts.Interval

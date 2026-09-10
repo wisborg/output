@@ -307,12 +307,23 @@ func (b *Bar) composeFields(fields [numSlots]string, l layout, measure func(stri
 	return strings.TrimRight(strings.Join(parts, "  "), " ")
 }
 
+// The composed line's width is ACCUMULATED as it is built rather than
+// measured afterwards, and that is not an optimisation. Once the trough can
+// carry colour, the assembled string holds escape sequences, and measuring it
+// would count their digits as columns -- so the bar would be judged too wide,
+// truncated, and cut off mid-sequence.
+//
+// The width of the coloured part is known without measuring it: a trough is
+// always barWidth+2 columns whatever it is painted in, because the colouring
+// step adds sequences and never characters.
 func (b *Bar) composeLine(label string, fields [numSlots]string, l layout, measure func(string) int) string {
 	var sb strings.Builder
+	width := 0
 	if l.labelWidth > 0 {
 		sb.WriteString(label)
 		sb.WriteString(strings.Repeat(" ", l.labelWidth-measure(label)))
 		sb.WriteString("  ")
+		width += l.labelWidth + 2
 	}
 	if l.barWidth > 0 {
 		// A bar with no trough still takes the room, so a sized bar beside
@@ -323,11 +334,19 @@ func (b *Bar) composeLine(label string, fields [numSlots]string, l layout, measu
 			sb.WriteString(strings.Repeat(" ", l.barWidth+2))
 		}
 		sb.WriteString("  ")
+		width += l.barWidth + 4
 	}
-	sb.WriteString(b.composeFields(fields, l, measure))
+	text := b.composeFields(fields, l, measure)
+	sb.WriteString(text)
+	width += measure(text)
 
 	line := sb.String()
-	if measure(line) > l.cols {
+	if width > l.cols {
+		// Reachable only when there is no trough: resolveLayout sizes one to
+		// leave the line exactly cols wide, and gives up on it entirely when
+		// that cannot be done. No trough means no colour, so truncate never
+		// has to cut an escape sequence in half -- which it has no way to do
+		// safely.
 		return truncate(line, l.cols, measure)
 	}
 	return line
@@ -464,23 +483,26 @@ func (b *Bar) glyphBar(done, total int64, width int, ascii bool) string {
 		if frac > 1 {
 			frac = 1
 		}
+		var filled []rune
 		if ascii {
 			full := int(frac * float64(width))
-			sb.WriteString(strings.Repeat("=", full))
-			sb.WriteString(strings.Repeat(" ", width-full))
+			filled = make([]rune, 0, full)
+			for i := 0; i < full; i++ {
+				filled = append(filled, '=')
+			}
 		} else {
 			eighths := int(frac * float64(width) * 8)
 			full := eighths / 8
-			sb.WriteString(strings.Repeat(string(barGlyphs[8]), full))
-			rest := width - full
-			if rest > 0 {
-				if part := eighths % 8; part > 0 {
-					sb.WriteRune(barGlyphs[part])
-					rest--
-				}
-				sb.WriteString(strings.Repeat(" ", rest))
+			filled = make([]rune, 0, full+1)
+			for i := 0; i < full; i++ {
+				filled = append(filled, barGlyphs[8])
+			}
+			if part := eighths % 8; part > 0 && full < width {
+				filled = append(filled, barGlyphs[part])
 			}
 		}
+		sb.WriteString(b.paint(filled, width))
+		sb.WriteString(strings.Repeat(" ", width-len(filled)))
 	} else {
 		sb.WriteString(strings.Repeat(" ", width))
 	}
@@ -495,6 +517,48 @@ func (b *Bar) glyphBar(done, total int64, width int, ascii bool) string {
 	// up as the right-hand field being truncated on a line that had room for
 	// it.
 	return sb.String()
+}
+
+// paint writes the filled cells with the palette applied, emitting a colour
+// sequence only where the colour actually changes.
+//
+// Cell-by-cell sequences would be correct and wasteful: a fifty-cell
+// gradient redrawn twelve times a second is a great many escape sequences,
+// and adjacent cells of a gentle ramp usually round to the same colour --
+// always, under the 256-colour palette. Coalescing them is what keeps the
+// output a few hundred bytes a redraw rather than a few thousand.
+//
+// It returns the cells unchanged in monochrome, which is what makes
+// monochrome the same code path as the other modes rather than a second
+// renderer alongside them.
+func (b *Bar) paint(filled []rune, width int) string {
+	d := b.d
+	if len(filled) == 0 {
+		return ""
+	}
+	if d == nil || d.depth == depthNone || d.palette.Mode == Monochrome {
+		return string(filled)
+	}
+
+	out := make([]byte, 0, len(filled)*4+32)
+	var last RGB
+	var started bool
+	for i, r := range filled {
+		c, ok := d.palette.at(i, width)
+		if !ok {
+			out = append(out, string(r)...)
+			continue
+		}
+		if !started || c != last {
+			out = d.depth.sgr(out, c)
+			last, started = c, true
+		}
+		out = append(out, string(r)...)
+	}
+	if started {
+		out = append(out, colourReset...)
+	}
+	return string(out)
 }
 
 func percent(done, total int64) int {

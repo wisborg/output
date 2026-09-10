@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -497,5 +498,179 @@ func TestDisplay_TroughNeverWidensAfterNarrowing(t *testing.T) {
 			t.Errorf("the trough grew back from column %d to %d; widths seen: %v", seen[i-1], seen[i], cols)
 			break
 		}
+	}
+}
+
+// sgrPattern matches the colour sequences a Display emits.
+var sgrPattern = regexp.MustCompile(`\x1b\[(38;2;\d+;\d+;\d+|38;5;\d+|39)m`)
+
+// coloursIn returns every distinct colour sequence in the output, in the
+// order they first appear, ignoring the resets between them.
+func coloursIn(out string) []string {
+	var seen []string
+	index := map[string]bool{}
+	for _, m := range sgrPattern.FindAllString(out, -1) {
+		if m == colourReset || index[m] {
+			continue
+		}
+		index[m] = true
+		seen = append(seen, m)
+	}
+	return seen
+}
+
+// TestDisplay_PaletteModes covers the three shapes a caller can ask for, and
+// that the default is none of them.
+//
+// Monochrome is the zero value deliberately: a program's output should not
+// acquire escape sequences because a library thought they would look nice.
+func TestDisplay_PaletteModes(t *testing.T) {
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("NO_COLOR", "")
+
+	cases := []struct {
+		name    string
+		palette Palette
+		want    int // distinct colours expected
+	}{
+		{"the zero value is monochrome", Palette{}, 0},
+		{"solid uses exactly one colour", SolidPalette(RGB{0x11, 0x22, 0x33}), 1},
+		{"a gradient uses many", DefaultGradient(), 2}, // at least
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clk := newClock()
+			var buf bytes.Buffer
+			d := New(&buf, Options{Mode: Live, Columns: 100, Now: clk.now, Interval: time.Second, Palette: c.palette})
+			bar := d.Bar(BarSpec{Label: "rendering", Total: 100, Unit: "frames"})
+			clk.add(time.Second)
+			bar.Set(80)
+
+			got := coloursIn(buf.String())
+			switch {
+			case c.want == 0 && len(got) != 0:
+				t.Errorf("monochrome emitted colour: %v", got)
+			case c.want == 1 && len(got) != 1:
+				t.Errorf("solid emitted %d distinct colours, want exactly 1: %v", len(got), got)
+			case c.want == 2 && len(got) < 2:
+				t.Errorf("a gradient emitted %d distinct colours, want several: %v", len(got), got)
+			}
+			if c.want > 0 && !strings.Contains(buf.String(), colourReset) {
+				t.Error("colour was left set: no reset was emitted")
+			}
+		})
+	}
+}
+
+// TestDisplay_ColourNeverChangesTheWidth is the invariant colour was deferred
+// for when this package was first written.
+//
+// A line's width is now accumulated as it is built rather than measured
+// afterwards, precisely because the assembled string holds escape sequences:
+// measuring it would count their digits as columns, judge the bar too wide,
+// and truncate it -- cutting an escape sequence in half. The replayed screen
+// ignores colour, so this compares what a terminal would actually show.
+func TestDisplay_ColourNeverChangesTheWidth(t *testing.T) {
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("NO_COLOR", "")
+
+	specs := []BarSpec{
+		{Label: "rendering", Total: 108000, Unit: "frames"},
+		{Label: "描画中", Total: 500, Unit: "コマ"},
+		{Label: "encoding", Total: 0, Unit: "frames"},
+	}
+	for _, palette := range []Palette{{}, SolidPalette(RGB{0, 200, 0}), DefaultGradient()} {
+		for _, cols := range []int{12, 30, 60, 100, 160} {
+			clk := newClock()
+			var buf bytes.Buffer
+			d := New(&buf, Options{Mode: Live, Columns: cols, Now: clk.now, Interval: time.Second, Palette: palette})
+			bars := make([]*Bar, len(specs))
+			for i, sp := range specs {
+				bars[i] = d.Bar(sp)
+			}
+			for step := 1; step <= 4; step++ {
+				clk.add(time.Second)
+				for i, b := range bars {
+					b.Set(int64(step * (i + 1) * 997))
+				}
+			}
+			d.Stop()
+
+			sc := replay(buf.String())
+			if len(sc.junk) > 0 {
+				t.Errorf("mode=%v cols=%d: unmodelled escape sequences %v", palette.Mode, cols, sc.junk)
+			}
+			if w, worst := sc.widest(); w > cols {
+				t.Errorf("mode=%v cols=%d: a line is %d columns wide: %q", palette.Mode, cols, w, worst)
+			}
+		}
+	}
+}
+
+// TestDisplay_ColourIsRefusedWhereItDoesNotBelong covers every case where a
+// caller asks for colour and must not get it. Each is a place escape
+// sequences would end up somewhere they cannot be seen and cannot be removed
+// -- a log file, a pipe, or the terminal of someone who asked for none.
+func TestDisplay_ColourIsRefusedWhereItDoesNotBelong(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		mode Mode
+	}{
+		{"NO_COLOR is set", map[string]string{"NO_COLOR": "1"}, Live},
+		{"TERM is dumb", map[string]string{"TERM": "dumb"}, Live},
+		{"the display is not live", nil, Plain},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("NO_COLOR", "")
+			t.Setenv("TERM", "xterm-256color")
+			t.Setenv("COLORTERM", "truecolor")
+			for k, v := range c.env {
+				t.Setenv(k, v)
+			}
+
+			clk := newClock()
+			var buf bytes.Buffer
+			d := New(&buf, Options{Mode: c.mode, Columns: 100, Now: clk.now, Interval: time.Second, Palette: DefaultGradient()})
+			bar := d.Bar(BarSpec{Label: "rendering", Total: 100, Unit: "frames"})
+			clk.add(2 * time.Second)
+			bar.Set(50)
+			d.Stop()
+
+			if got := coloursIn(buf.String()); len(got) != 0 {
+				t.Errorf("colour was emitted anyway: %v", got)
+			}
+		})
+	}
+}
+
+// TestDisplay_FallsBackTo256Colours pins that a 24-bit sequence is only sent
+// where COLORTERM claims it will be understood. The failure is silent and
+// ugly: a terminal that does not know the form prints its digits across the
+// bar.
+func TestDisplay_FallsBackTo256Colours(t *testing.T) {
+	for _, c := range []struct{ colorterm, want string }{
+		{"truecolor", "38;2;"},
+		{"24bit", "38;2;"},
+		{"", "38;5;"},
+		{"something else", "38;5;"},
+	} {
+		t.Run("COLORTERM="+c.colorterm, func(t *testing.T) {
+			t.Setenv("NO_COLOR", "")
+			t.Setenv("TERM", "xterm-256color")
+			t.Setenv("COLORTERM", c.colorterm)
+
+			clk := newClock()
+			var buf bytes.Buffer
+			d := New(&buf, Options{Mode: Live, Columns: 100, Now: clk.now, Interval: time.Second, Palette: DefaultGradient()})
+			bar := d.Bar(BarSpec{Label: "rendering", Total: 100})
+			clk.add(time.Second)
+			bar.Set(50)
+
+			if !strings.Contains(buf.String(), c.want) {
+				t.Errorf("want %q sequences; colours seen: %v", c.want, coloursIn(buf.String()))
+			}
+		})
 	}
 }

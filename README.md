@@ -263,6 +263,24 @@ rendering 44% 4800/10800 frames 7482/s
 encoding 22% 2300/10800 frames 3585/s
 ```
 
+**The fill can be coloured.** A `Palette` chooses between no colour (the zero
+value), one colour, or a gradient across the trough.
+
+```go
+d := progress.New(os.Stderr, progress.Options{Palette: progress.DefaultGradient()})
+
+// or
+progress.SolidPalette(progress.RGB{R: 0x22, G: 0xC5, B: 0x5E})
+progress.GradientPalette(from, to)
+```
+
+Only the fill is coloured — the brackets, the label and the numbers are left in
+the terminal's own foreground, which is what its user chose for reading. Colour
+is emitted only on a live display whose terminal will take it: never in plain
+mode, never when `NO_COLOR` is set or `TERM=dumb`, and 24-bit sequences only
+where `COLORTERM` claims them, falling back to the 256-colour palette
+everywhere else. So it is safe to ask for unconditionally.
+
 **The trough is a fixed width.** Each field's room is reserved before the run
 starts — including for the rate and the estimate, which only appear once there
 is enough work to measure them — so the bar does not shrink as the counts gain

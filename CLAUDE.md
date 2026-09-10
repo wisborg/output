@@ -215,6 +215,32 @@ rate has no bound on its width, so the field would keep outgrowing its
 reservation and take another column off the trough each time — the very
 jitter the reservations exist to prevent.
 
+**Colour applies to the fill only, and never enters the width arithmetic.**
+This is why colour was not in the package's first version: every cell has to
+be measurable in terminal columns, and escape sequences are not. The line's
+width is now *accumulated as it is built* rather than measured afterwards — a
+trough is `barWidth+2` columns whatever it is painted in, because colouring
+adds sequences and never characters. Measuring the assembled string instead
+counts the digits of an SGR as columns, decides the line is too wide, and
+truncates it mid-sequence; that is mutation-tested. Truncation and colour can
+never meet in any case: `resolveLayout` gives up the trough entirely when it
+cannot fit, and no trough means no colour.
+
+Monochrome is the same code path as the coloured modes with `paint` returning
+its cells unchanged, rather than a second renderer that could drift from them.
+The gradient spans the whole trough, not the filled part, so a cell keeps its
+colour as the bar grows past it — blending across only the fill would recolour
+every cell on every redraw, so a bar filling up would also shimmer. Sequences
+are emitted only where the colour changes, which under the 256-colour palette
+coalesces most of them away.
+
+Colour is refused wherever it would end up somewhere it cannot be seen or
+removed: never in plain mode (those lines go to log files), never when
+`NO_COLOR` is set or `TERM=dumb`, and 24-bit sequences only when `COLORTERM`
+claims them — a terminal that does not know that form prints its digits across
+the bar, so 256-colour is the default and truecolor the opt-in, not the other
+way round.
+
 **The rate window is much longer than the redraw interval.** Redrawing twelve
 times a second is what makes a bar look continuous, but a rate measured over
 80ms is dominated by whatever the scheduler was doing and swings by an order
