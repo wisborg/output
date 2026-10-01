@@ -3,7 +3,7 @@ module github.com/wisborg/output
 go 1.23
 
 require (
-	github.com/mattn/go-runewidth v0.0.28
+	github.com/mattn/go-runewidth v0.0.30
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
