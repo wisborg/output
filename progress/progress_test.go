@@ -674,3 +674,46 @@ func TestDisplay_FallsBackTo256Colours(t *testing.T) {
 		})
 	}
 }
+
+// TestBar_DoneClosesAPlainLogAtItsFinalState is the log of a redirected run
+// telling the truth about where a job finished. Plain lines are periodic
+// snapshots, so the last one a bar wrote can be up to an interval short of
+// the end; Done writes one more, at the bar's final state. A job that
+// finished inside one interval wrote nothing and still writes nothing, and
+// a bar whose last line was already its final state is not repeated.
+func TestBar_DoneClosesAPlainLogAtItsFinalState(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Plain, Now: c.now, Interval: time.Second})
+	bar := d.Bar(BarSpec{Label: "fetching", Total: 100, Unit: "B"})
+	c.add(time.Second)
+	bar.Set(99) // due: written
+	bar.Set(100)
+	bar.Done()
+	d.Stop()
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "fetching 99%") || !strings.HasPrefix(lines[1], "fetching 100%") {
+		t.Errorf("a bar that logged 99%% and finished: %q, want a closing line at 100%%", lines)
+	}
+
+	buf.Reset()
+	quick := New(&buf, Options{Mode: Plain, Now: c.now, Interval: time.Second})
+	b := quick.Bar(BarSpec{Label: "quick", Total: 10})
+	b.Set(10)
+	b.Done()
+	quick.Stop()
+	if buf.Len() != 0 {
+		t.Errorf("a job inside one interval wrote %q, want nothing", buf.String())
+	}
+
+	buf.Reset()
+	same := New(&buf, Options{Mode: Plain, Now: c.now, Interval: time.Second})
+	s := same.Bar(BarSpec{Label: "same", Total: 10})
+	c.add(time.Second)
+	s.Set(10) // due: written, and already final
+	s.Done()
+	same.Stop()
+	if n := strings.Count(buf.String(), "same 100%"); n != 1 {
+		t.Errorf("a bar whose last line was final: %q, want it once", buf.String())
+	}
+}

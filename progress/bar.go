@@ -2,6 +2,7 @@ package progress
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -70,10 +71,14 @@ type Bar struct {
 	//
 	// Guarded by the Display's mutex, like the rate window above it.
 	reserve [numSlots]int
+
+	// plainDone is how far the bar had got when a plain display last wrote
+	// a line for it, and -1 until one has. See Done.
+	plainDone int64
 }
 
 func newBar(d *Display, spec BarSpec) *Bar {
-	b := &Bar{d: d, label: spec.Label, unit: spec.Unit, start: d.now()}
+	b := &Bar{d: d, label: spec.Label, unit: spec.Unit, start: d.now(), plainDone: -1}
 	b.total.Store(spec.Total)
 	b.lastTime = b.start
 	b.reserveSlots()
@@ -187,6 +192,17 @@ func (b *Bar) Done() {
 			d.bars = append(d.bars[:i], d.bars[i+1:]...)
 			break
 		}
+	}
+	// A plain display's lines stay in the log, so the last one a bar wrote
+	// is what the log says it reached -- and that is a periodic snapshot,
+	// taken up to an interval before the end. Without this, a bar that
+	// finished leaves its log reading 99%. One closing line, then, but only
+	// for a bar that has written a line before and has moved since: a job
+	// that finished inside one interval still says nothing, which is the
+	// rule for plain lines, and one whose last line was already its last
+	// state does not say it twice.
+	if !d.live && !d.stopped && b.plainDone >= 0 && b.done.Load() != b.plainDone {
+		_, _ = io.WriteString(d.w, b.renderPlain(d.now())+"\n")
 	}
 	// Erase before releasing the lock: the region just lost a line, and
 	// leaving the old one on screen until the next redraw would show a

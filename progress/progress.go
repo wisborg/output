@@ -33,6 +33,11 @@
 // can use this unconditionally rather than branching on where its output is
 // going.
 //
+// Those lines are snapshots, written once an interval, so the last one can
+// fall short of where the job ended; Bar.Done writes one closing line at the
+// final state for a bar that has written any. A job that finishes within an
+// interval writes nothing at all, as before.
+//
 // # The one rule
 //
 // A live line is NEVER allowed to exceed the terminal's width. Everything
@@ -415,6 +420,7 @@ func (d *Display) draw() {
 	// state to keep and nothing to undo.
 	for _, b := range d.bars {
 		_, _ = io.WriteString(d.w, b.renderPlain(now)+"\n")
+		b.plainDone = b.done.Load()
 	}
 }
 
