@@ -243,6 +243,13 @@ rendering  ▕██████████████████████
 encoding   ▕████████▏                                ▏   19%  2100/10800 frames  3688/s  ~2m21s left
 ```
 
+A bar counting bytes says so with `Bytes: true`, and writes its counts and rate with binary
+prefixes rather than as a count of units:
+
+```
+map data   ▕██████████▉                              ▏   31%  297.5/945.0 MiB  3.4 MiB/s  ~3m12s left
+```
+
 **A `Display` is an `io.Writer`.** That is the whole mechanism for the two
 living together: a write erases the bars, emits the line, and redraws beneath
 it. Any logger over an `io.Writer` composes with it, which is why this package

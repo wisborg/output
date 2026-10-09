@@ -24,6 +24,13 @@ type BarSpec struct {
 	// Unit names what is being counted, e.g. "frames". Empty prints the
 	// counts bare.
 	Unit string
+
+	// Bytes says the counts are bytes, written as bytes are read: in
+	// KiB, MiB or GiB, with the rate in the same, rather than as a count of
+	// units. Unit is not printed. A download of 945 MiB counted as
+	// 990904320 B is a number nobody reads at a glance, and its rate --
+	// "3412k/s" -- does not say what it is a rate of.
+	Bytes bool
 }
 
 // The right-hand fields, in display order. They are SLOTS rather than a list
@@ -45,6 +52,7 @@ type Bar struct {
 	d     *Display
 	label string
 	unit  string
+	bytes bool
 
 	done  atomic.Int64
 	total atomic.Int64
@@ -78,7 +86,7 @@ type Bar struct {
 }
 
 func newBar(d *Display, spec BarSpec) *Bar {
-	b := &Bar{d: d, label: spec.Label, unit: spec.Unit, start: d.now(), plainDone: -1}
+	b := &Bar{d: d, label: spec.Label, unit: spec.Unit, bytes: spec.Bytes, start: d.now(), plainDone: -1}
 	b.total.Store(spec.Total)
 	b.lastTime = b.start
 	b.reserveSlots()
@@ -120,8 +128,13 @@ func (b *Bar) reserveSlots() {
 		b.widen(slotCounts, measure(b.counts(0, 0)))
 	}
 	// The widest a rate prints below ten million a second -- see formatRate,
-	// which abbreviates precisely so this has an answer.
-	b.widen(slotRate, measure(formatRate(9_999_000)))
+	// which abbreviates precisely so this has an answer; for bytes, the
+	// widest any prefix prints.
+	if b.bytes {
+		b.widen(slotRate, measure(formatByteRate(1023.9*1024*1024)))
+	} else {
+		b.widen(slotRate, measure(formatRate(9_999_000)))
+	}
 }
 
 // widen grows a slot to fit a value that outran its reservation, and never
@@ -250,7 +263,11 @@ func (b *Bar) slots(now time.Time) (label string, out [numSlots]string) {
 		out[slotPercent] = fmt.Sprintf("%3d%%", percent(done, total))
 	}
 	out[slotCounts] = b.counts(done, total)
-	out[slotRate] = formatRate(b.lastRate)
+	if b.bytes {
+		out[slotRate] = formatByteRate(b.lastRate)
+	} else {
+		out[slotRate] = formatRate(b.lastRate)
+	}
 	out[slotETA] = b.eta(now, done, total)
 
 	for i, v := range out {
@@ -437,6 +454,9 @@ func formatETA(left time.Duration) string {
 }
 
 func (b *Bar) counts(done, total int64) string {
+	if b.bytes {
+		return formatBytes(done, total)
+	}
 	unit := b.unit
 	if unit != "" {
 		unit = " " + unit
@@ -614,6 +634,57 @@ func formatRate(perSecond float64) string {
 	default:
 		return fmt.Sprintf("%.0fM/s", perSecond/1_000_000)
 	}
+}
+
+// byteUnits are the binary prefixes bytes are written in, smallest first.
+var byteUnits = []string{"B", "KiB", "MiB", "GiB", "TiB"}
+
+// bytePrefix is the largest prefix n is at least one of, and its size.
+func bytePrefix(n float64) (name string, size float64) {
+	name, size = byteUnits[0], 1
+	for _, u := range byteUnits[1:] {
+		if n < size*1024 {
+			break
+		}
+		name, size = u, size*1024
+	}
+	return name, size
+}
+
+// formatBytes renders a byte count, and with a total, as "done/total" both
+// in the total's prefix: "297.5/944.1 MiB". One prefix for both, chosen from
+// the total, so the field does not change its shape as done grows past a
+// prefix boundary on its way there. Plain bytes are whole; anything larger
+// has one decimal.
+func formatBytes(done, total int64) string {
+	ref := float64(total)
+	if total <= 0 {
+		ref = float64(done)
+	}
+	name, size := bytePrefix(ref)
+	f := func(n int64) string {
+		if size == 1 {
+			return fmt.Sprintf("%d", n)
+		}
+		return fmt.Sprintf("%.1f", float64(n)/size)
+	}
+	if total > 0 {
+		return f(done) + "/" + f(total) + " " + name
+	}
+	return f(done) + " " + name
+}
+
+// formatByteRate renders a rate of bytes a second in its own prefix,
+// "3.4 MiB/s", or "" when there is not yet one worth showing.
+func formatByteRate(perSecond float64) string {
+	if perSecond <= 0 {
+		return ""
+	}
+	name, size := bytePrefix(perSecond)
+	if size == 1 {
+		return fmt.Sprintf("%.0f B/s", perSecond)
+	}
+	return fmt.Sprintf("%.1f %s/s", perSecond/size, name)
 }
 
 // formatDuration renders a duration compactly and without false precision:

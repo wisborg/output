@@ -198,3 +198,50 @@ func TestBar_ASCIIAvoidsTheBlockGlyphs(t *testing.T) {
 		t.Errorf("ASCII mode drew no bar at all: %q", line)
 	}
 }
+
+// A bar counting bytes writes them as bytes are read: both counts in the
+// total's prefix, so the field keeps its shape as the done figure grows
+// through the prefixes on its way to the total, and the rate in its own.
+// Counted as units, a 945 MiB download read "312475648/990904320 B" and
+// "3412k/s".
+func TestBar_BytesAreWrittenInBinaryPrefixes(t *testing.T) {
+	for _, c := range []struct {
+		done, total int64
+		want        string
+	}{
+		{311_951_360, 990_904_320, "297.5/945.0 MiB"},
+		{0, 990_904_320, "0.0/945.0 MiB"},
+		{512, 2048, "0.5/2.0 KiB"},
+		{100, 900, "100/900 B"},
+		{3 << 30, 0, "3.0 GiB"},
+	} {
+		if got := formatBytes(c.done, c.total); got != c.want {
+			t.Errorf("formatBytes(%d, %d) = %q, want %q", c.done, c.total, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		rate float64
+		want string
+	}{
+		{3.4 * 1024 * 1024, "3.4 MiB/s"},
+		{512, "512 B/s"},
+		{0, ""},
+	} {
+		if got := formatByteRate(c.rate); got != c.want {
+			t.Errorf("formatByteRate(%g) = %q, want %q", c.rate, got, c.want)
+		}
+	}
+
+	clk := newClock()
+	d, buf := liveDisplay(100, clk)
+	bar := d.Bar(BarSpec{Label: "map data", Total: 990_904_320, Unit: "B", Bytes: true})
+	clk.add(time.Second)
+	bar.Set(311_951_360)
+	line := replay(buf.String()).text()[0]
+	if !strings.Contains(line, "297.5/945.0 MiB") || !strings.Contains(line, "MiB/s") {
+		t.Errorf("a byte bar's line: %q", line)
+	}
+	if strings.Contains(line, " B") && !strings.Contains(line, "MiB") {
+		t.Errorf("the unit was printed beside the prefix: %q", line)
+	}
+}
