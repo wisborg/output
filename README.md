@@ -1,8 +1,9 @@
 # output
 
 Go packages for producing program output in more than one shape: aligned
-text, CSV, JSON or YAML, chosen when the program runs — and, while the program
-is still working, live progress on the terminal.
+text, CSV, JSON or YAML, chosen when the program runs — while the program
+is still working, live progress on the terminal — and charts, drawn in the
+terminal in braille or as a picture.
 
 `table` builds tabular data and renders it as aligned text.
 
@@ -200,7 +201,7 @@ The API is not yet frozen.
 
 ## Dependencies
 
-Two, both compatible with this project's Apache-2.0 licence:
+Three, all compatible with this project's Apache-2.0 licence:
 
 - [`mattn/go-runewidth`](https://github.com/mattn/go-runewidth) (MIT), for
   display-width measurement, which in turn uses
@@ -210,9 +211,14 @@ Two, both compatible with this project's Apache-2.0 licence:
   Apache-2.0, and there is a NOTICE file), for YAML. This is the YAML
   organisation's maintained fork of `gopkg.in/yaml.v3`, which was archived in
   April 2025. It has no dependencies of its own.
+- [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image) (BSD-3-Clause),
+  for drawing a chart as a picture: its vector rasteriser and the Go Mono
+  font it embeds, whose licence is the same BSD-style one as Go's. It uses
+  `golang.org/x/text` (BSD-3-Clause).
 
 `table` does not import the YAML library, so a program that only builds
-tables does not link it.
+tables does not link it; and only `chart/picture` imports `golang.org/x/image`,
+so a program that draws charts in text, or none, does not link that.
 
 ## Licence
 
@@ -308,3 +314,67 @@ one that is stuck rather than as a measurement nobody has.
 when it is not redrawing — and a nil `*Display` is usable and does nothing, so
 a `--quiet` flag is one decision at construction rather than a condition at
 every call site.
+
+## chart
+
+`chart` draws one or several series of readings against time or any other x
+axis, stacked one above the other on a shared axis: in braille, which any
+terminal shows, or — with `chart/picture` — as an image, which `chart/terminal`
+shows in a terminal that can show one (iTerm2 and WezTerm, kitty and Ghostty).
+
+```go
+import "github.com/wisborg/output/chart"
+
+segments := chart.Segments(points, 2*time.Minute) // the line breaks at a gap longer than this
+lo, hi, _ := chart.RobustRange(segments)
+c := chart.Chart{
+    Title:  "load (%) against time",
+    X:      chart.ExactScale(0, 3600, 4, chart.Clock),
+    Strips: []chart.Strip{{Title: "load (%)", Y: chart.NewScale(lo, hi, 4, chart.Number), Segments: segments}},
+    BandKinds: []chart.BandKind{{Name: "maintenance", Mark: '━'}},
+    Bands:     []chart.Band{{From: 600, To: 1200, Kind: 0}},
+}
+for _, line := range c.Braille(44, 12) {
+    fmt.Println(line)
+}
+```
+
+```
+load (%) against time
+100┤⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣀⣀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+   │⠀⠀⠀⠀⣀⡤⠞⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+   │⠀⣀⡴⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+ 50┤⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+   │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠒⢦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⡴
+   │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠳⠤⣄⡀⠀⠀⠀⠀⣀⡤⠴⠋⠁⠀
+  0┤⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠉⠁⠀⠀⠀⠀⠀
+   └┬────────┬─────────┬─────────┬─────────┬
+    0:00   0:15      0:30      0:45     1:00
+           ━━━━━━
+    ━ maintenance
+```
+
+The decisions that make a chart truthful are made once, in `chart`, and every
+rendering follows them:
+
+- **A missing reading is never a zero.** A line breaks where its readings stop
+  for longer than the tolerance the caller gives `Segments`, and a column with
+  no reading is left blank rather than dropped to the bottom.
+- **The y axis is set from where most readings lie.** `RobustRange` leaves the
+  highest and lowest hundredth out, so a dropout or a spike does not flatten the
+  rest; a reading beyond the axis is drawn at its edge.
+- **Ticks fall on round numbers, or round times** for a `Clock` scale — 15 s,
+  5 min, 1 h — and the x axis spans the series exactly rather than being rounded
+  out to the next tick.
+- **A band is the chart's, not a strip's:** a stretch the chart marks is marked
+  in every strip, faintly behind the line in a picture and in a row of marks
+  beneath the axis in braille, two bands a character apart kept apart.
+
+`picture.Draw` draws the same chart as an image in a `Palette` — `Light` and
+`Dark` are given — in Go Mono, with fonts of the caller's to fall back on.
+`terminal.Choose` says how to show it: a picture where the terminal is known to
+show one and the output is that terminal, braille in a pipe, a file, tmux or
+screen, where a picture's escape sequence would arrive as a page of base64.
+`terminal.SizeOf` says how big the terminal is, in pixels too where it says,
+and `terminal.LightBackground` whether its background is light, by
+`COLORFGBG`.

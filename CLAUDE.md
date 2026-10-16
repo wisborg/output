@@ -4,7 +4,9 @@ Go packages for producing program output in more than one shape. The root
 package `output` writes one result as text, CSV, JSON or YAML, chosen when
 the program runs; `table` is the tabular half of that — data rendered as
 aligned text or written as CSV; `progress` is the live half — bars pinned to
-the bottom of a terminal while ordinary output scrolls above them.
+the bottom of a terminal while ordinary output scrolls above them; `chart`
+draws series of readings, in braille or — through `chart/picture` — as an
+image, which `chart/terminal` shows in a terminal that can show one.
 
 ## Building and testing
 
@@ -44,8 +46,22 @@ from reality is a test failure.
 - `progress/term_unix.go`, `term_windows.go`, `term_other.go` — build-tagged
   terminal detection and size.
 
+- `chart/series.go` — the package doc, `Point`, `Segments`, `Smooth`.
+- `chart/bin.go` — `Column` and `Bin`: what each column of a drawing shows.
+- `chart/scale.go` — `RobustRange`, `Scale`, `NewScale`, `ExactScale`, ticks
+  and labels.
+- `chart/braille.go` — `Chart`, `Strip`, and the braille rendering.
+- `chart/band.go` — `Band`, `BandKind`, and their braille rows.
+- `chart/picture/picture.go` — `Draw`, `Palette`, `Options`, `TextPx`.
+- `chart/picture/draw.go` — the few drawing primitives a picture needs, over
+  `golang.org/x/image/vector` and Go Mono.
+- `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
+  writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
+
 `progress` imports neither the root package nor `table`, the same way `table`
-imports neither of the others.
+imports neither of the others. `chart` imports only the standard library, as
+does `chart/terminal`; `chart/picture` is the only package that imports
+`golang.org/x/image`, so a program drawing charts in text does not link it.
 
 `table` does not import the root package, and nothing imports the YAML
 library twice: a program that only builds tables does not link it.
@@ -259,6 +275,29 @@ move, which is what a viewer reads a bar for.
 unit of work — per video frame, in the intended consumers — so the
 non-redrawing path is an atomic store, a clock read and a comparison, with the
 throttle checked outside the mutex.
+
+**A chart's truthfulness is decided in `chart`, never in a renderer.** Where
+a line breaks (`Segments`), what a column shows (`Bin`), the scale
+(`RobustRange`, `NewScale`) and the ticks are computed once, and braille and
+the picture only turn them into marks. A renderer that made its own choice —
+joining across a gap because a picture has the pixels to — would make the
+two drawings of one chart disagree, which is worse than either being coarse.
+
+**A missing reading is never drawn as zero, and a column without one is left
+blank.** A line dropped to the bottom of the axis where nobody measured reads
+as a measurement of zero. `Point.Ok` is the flag; nothing defaults it.
+
+**`chart/picture` draws with its own primitives rather than a 2D library.**
+A chart needs a rectangle, a disc, a stroked line with round joins and a
+label; a general drawing library would be a dependency for that, and for every
+program that draws a chart. Every part of a shape is wound clockwise so the
+rasteriser draws overlaps once — a line's segments overlap at every join, and
+a part wound the other way would cut a hole there.
+
+**`chart/terminal` shows a picture only where it will be seen as one.** On a
+terminal, in one known to show pictures, and not inside tmux or screen;
+everywhere else braille. A picture's escape sequence into a pipe or a file is
+a page of base64.
 
 ## Testing conventions
 
