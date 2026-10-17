@@ -255,7 +255,7 @@ func (d *doc) node(pn diagram.PlacedNode) {
 		label = n.ID
 	}
 	for i, l := range strings.Split(label, "\n") {
-		d.text(l, (x0+x1)/2, d.s.Y(top+i), "middle", d.px, or(n.Text, d.pal.Foreground))
+		d.text(l, (x0+x1)/2, d.s.Y(top+i), "middle", d.px, or(n.Text, d.pal.TextOn(filledBy(n))))
 	}
 }
 
@@ -303,4 +303,13 @@ func (d *doc) text(s string, x, y float64, anchor string, px float64, col color.
 	}
 	fmt.Fprintf(&d.b, `<text x="%s" y="%s" text-anchor="%s" dominant-baseline="central" %s%s xml:space="preserve">%s</text>`+"\n",
 		num(x), num(y), anchor, fill(col), size, html.EscapeString(s))
+}
+
+// filledBy is what fills n behind its label: its fill, unless it is plain
+// text, which is drawn on the background whatever its fill.
+func filledBy(n *diagram.Node) color.Color {
+	if n.Shape == diagram.Plain {
+		return nil
+	}
+	return n.Fill
 }

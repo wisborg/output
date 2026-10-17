@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 )
@@ -233,6 +234,32 @@ func TestLabelsKeepOffLines(t *testing.T) {
 			if div[0].Y == at.Y {
 				t.Errorf("the label is on the lane's line, row %d:\n%s", at.Y, strings.Join(text, "\n"))
 			}
+		}
+	}
+}
+
+// A label on a fill stands out from it in either palette: dark text on a
+// pale fill even in the dark palette, light text on a deep one even in the
+// light; without a fill, the foreground.
+func TestTextOn(t *testing.T) {
+	pale := color.RGBA{0xF5, 0xD7, 0x6E, 0xFF}
+	deep := color.RGBA{0x20, 0x30, 0x80, 0xFF}
+	for _, c := range []struct {
+		pal  Palette
+		fill color.Color
+		want color.Color
+	}{
+		{Light, nil, Light.Foreground},
+		{Dark, nil, Dark.Foreground},
+		{Light, pale, Light.Foreground},
+		{Dark, pale, Dark.Background},
+		{Light, deep, Light.Background},
+		{Dark, deep, Dark.Foreground},
+		// Hardly there, a translucent pale fill is the dark background.
+		{Dark, color.NRGBA{0xF5, 0xD7, 0x6E, 0x10}, Dark.Foreground},
+	} {
+		if got := c.pal.TextOn(c.fill); got != c.want {
+			t.Errorf("%v on %v: %v, want %v", c.pal, c.fill, got, c.want)
 		}
 	}
 }

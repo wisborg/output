@@ -30,7 +30,10 @@
 // Graphviz's DOT language is the dot package's.
 package diagram
 
-import "image/color"
+import (
+	"image/color"
+	"math"
+)
 
 // Direction is the way a layered group's layers run.
 type Direction int
@@ -179,6 +182,47 @@ type Palette struct {
 	// Dim is the groups' frames, lines and labels, and the edges' labels.
 	Dim color.Color
 }
+
+// TextOn is the colour of a label on fill: whichever of the palette's
+// foreground and background stands out from it more, by WCAG's contrast
+// ratio. Without a fill it is the foreground. So a pale fill keeps dark
+// text in the dark palette too, where light text on it would be white on
+// pale yellow; a translucent fill is taken over the background.
+func (p Palette) TextOn(fill color.Color) color.Color {
+	if fill == nil {
+		return p.Foreground
+	}
+	r, g, b, a := fill.RGBA()
+	over := func(c uint32, bg float64) float64 { // c premultiplied, 0..0xffff
+		return float64(c)/0xffff + bg*(1-float64(a)/0xffff)
+	}
+	br, bgG, bb, _ := p.Background.RGBA()
+	l := relative(over(r, float64(br)/0xffff), over(g, float64(bgG)/0xffff), over(b, float64(bb)/0xffff))
+	fg, bg := luminance(p.Foreground), luminance(p.Background)
+	if contrast(l, fg) >= contrast(l, bg) {
+		return p.Foreground
+	}
+	return p.Background
+}
+
+func luminance(c color.Color) float64 {
+	r, g, b, _ := c.RGBA()
+	return relative(float64(r)/0xffff, float64(g)/0xffff, float64(b)/0xffff)
+}
+
+// relative is WCAG's relative luminance of an sRGB colour, each channel
+// from 0 to 1.
+func relative(r, g, b float64) float64 {
+	lin := func(c float64) float64 {
+		if c <= 0.04045 {
+			return c / 12.92
+		}
+		return math.Pow((c+0.055)/1.055, 2.4)
+	}
+	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+}
+
+func contrast(a, b float64) float64 { return (max(a, b) + 0.05) / (min(a, b) + 0.05) }
 
 // Light is dark ink on paper.
 var Light = Palette{

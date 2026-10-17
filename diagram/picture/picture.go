@@ -229,7 +229,10 @@ func (d drawer) node(pn diagram.PlacedNode) {
 	case diagram.Plain:
 		top = pn.Rect.Y
 	}
-	text := or(n.Text, d.pal.Foreground)
+	text := n.Text
+	if text == nil {
+		text = d.pal.TextOn(filledBy(n))
+	}
 	label := n.Label
 	if label == "" {
 		label = n.ID
@@ -293,4 +296,13 @@ func (d drawer) labels() {
 func (d drawer) patch(text string, at diagram.Point, px float64) {
 	w, _, _ := d.cv.Measure(text, px)
 	d.cv.Rect(d.s.Left(at.X), d.s.Y(at.Y)-d.s.Line/2+1, w, d.s.Line-2, d.pal.Background)
+}
+
+// filledBy is what fills n behind its label: its fill, unless it is plain
+// text, which is drawn on the background whatever its fill.
+func filledBy(n *diagram.Node) color.Color {
+	if n.Shape == diagram.Plain {
+		return nil
+	}
+	return n.Fill
 }
