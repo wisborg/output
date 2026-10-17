@@ -162,3 +162,70 @@ func TestTextLegend(t *testing.T) {
 		t.Errorf("the swatch is not green in colour:\n%q", coloured)
 	}
 }
+
+// brailleDots counts the dots of the braille characters in lines.
+func brailleDots(lines []string) (cells, dots int) {
+	for _, l := range lines {
+		for _, r := range l {
+			if r > 0x2800 && r <= 0x28FF {
+				cells++
+				for b := r - 0x2800; b != 0; b &= b - 1 {
+					dots++
+				}
+			}
+		}
+	}
+	return cells, dots
+}
+
+// A straight edge is drawn along rows and columns unless braille is asked
+// for; then at its angle in braille dots -- more of them thick than thin --
+// ending in an arrowhead of the kind every edge ends in, on a stub against
+// its head's box.
+func TestTextBraille(t *testing.T) {
+	d := &Diagram{
+		Root:     Group{Columns: 2, Items: []Item{node("a"), node("b"), node("c"), node("d")}},
+		Edges:    []Edge{{From: "a", To: "d", Head: true}},
+		Straight: true,
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cells, _ := brailleDots(lay.Text()); cells != 0 {
+		t.Errorf("braille without asking:\n%s", strings.Join(lay.Text(), "\n"))
+	}
+	thin := lay.Text(TextOptions{Braille: BrailleThin})
+	thick := lay.Text(TextOptions{Braille: BrailleThick})
+	_, thinDots := brailleDots(thin)
+	_, thickDots := brailleDots(thick)
+	if thinDots == 0 || thickDots <= thinDots {
+		t.Errorf("%d dots thin, %d thick: want some, and more thick:\n%s\n\n%s", thinDots, thickDots, strings.Join(thin, "\n"), strings.Join(thick, "\n"))
+	}
+	// The arrowhead: ▼ just above d, or ▶ just left of it.
+	dn, _ := lay.Node("d")
+	r := dn.Rect
+	found := false
+	for y, l := range thin {
+		for x, ch := range []rune(l) {
+			above := ch == '▼' && y == r.Y-1 && x > r.X && x < r.X+r.W-1
+			beside := ch == '▶' && x == r.X-1 && y > r.Y && y < r.Y+r.H-1
+			found = found || above || beside
+		}
+	}
+	if !found {
+		t.Errorf("no arrowhead on a stub against d at %v:\n%s", r, strings.Join(thin, "\n"))
+	}
+}
+
+func TestBrailleDot(t *testing.T) {
+	// ⠁⠂⠄ down the left, ⠈⠐⠠ down the right, then ⡀ and ⢀ beneath.
+	for _, c := range []struct {
+		col, row int
+		want     rune
+	}{{0, 0, '⠁'}, {0, 1, '⠂'}, {0, 2, '⠄'}, {1, 0, '⠈'}, {1, 1, '⠐'}, {1, 2, '⠠'}, {0, 3, '⡀'}, {1, 3, '⢀'}} {
+		if got := rune(0x2800) + rune(brailleDot(c.col, c.row)); got != c.want {
+			t.Errorf("dot %d,%d is %c, want %c", c.col, c.row, got, c.want)
+		}
+	}
+}

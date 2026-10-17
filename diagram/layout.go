@@ -38,7 +38,10 @@ type Layout struct {
 	Edges         []PlacedEdge
 	// Legend is the legend's entries, its frame being the last of Groups.
 	Legend []PlacedEntry
-	nodeAt map[string]PlacedNode
+	// pictureTop is the rows the layout grew at the top for labels only a
+	// picture with straight edges writes there.
+	pictureTop int
+	nodeAt     map[string]PlacedNode
 }
 
 // PlacedEntry is a legend entry and where it is drawn: its sample, one row
@@ -85,9 +88,9 @@ type PlacedEdge struct {
 	// Straight says a picture draws the edge as one straight line between
 	// its nodes rather than along Points: the diagram asks for straight
 	// edges, and the line is clear of every other box. Shift is how far
-	// to one side the line is drawn, in half rows, so that several between
-	// the same two nodes are drawn apart. The text drawing draws Points
-	// regardless.
+	// to one side the line is drawn, in rows, so that several between
+	// the same two nodes are drawn apart. The text drawing draws Points,
+	// unless it is asked for braille.
 	Straight bool
 	Shift    float64
 	// pictureAt, where pictured, is where a picture writes the label: the

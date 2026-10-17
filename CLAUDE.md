@@ -378,9 +378,16 @@ back to shapes worked out per edge.
 edge as one straight line between its boxes, at whatever angle -- but only
 where that line is clear of every other box; one that would cross a box
 keeps its path along rows and columns, for the reason above. The text
-drawing never draws them: a diagonal in characters is a ragged staircase
-of `╱` and `╲`, worse than the right angles it would replace, so the text
-and the picture of one layout differ here and only here. Straight edges'
+drawing draws them along rows and columns unless `TextOptions.Braille`
+(`--braille thin|thick`) asks for braille: a diagonal of `╱` and `╲` is a
+ragged staircase, but in braille dots, two across and four down a cell, it
+is a line at its angle. Off is the default, as dots are fainter than
+box-drawing lines in many fonts. In braille a straight edge ends in a
+one-cell stub into its box with the usual arrowhead, the dots aimed at the
+stub, so the text bends where the picture does not; it passes under a
+line it crosses shallowly and is drawn in dots with one it crosses steeply,
+as two lines' dots running along each other for cells are a smudge.
+Straight edges'
 labels are placed by `placeStraightLabels`, against the lines as a picture
 draws them, and may sit above the first row, the layout growing at the top
 to hold them.

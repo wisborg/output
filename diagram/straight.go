@@ -102,7 +102,7 @@ func segmentMeetsBox(x0, y0, x1, y1, bx0, by0, bx1, by1 float64) bool {
 }
 
 // ends is where e's straight line runs, in cell coordinates: between its
-// nodes' middles, Shift half rows to one side as Scale draws it -- the
+// nodes' middles, Shift rows to one side as Scale draws it -- the
 // same turn, from the node of the lesser ID to the other, worked in the
 // picture's proportions and brought back to cells.
 func (lay *Layout) ends(e PlacedEdge) (x0, y0, x1, y1 float64) {
@@ -121,7 +121,7 @@ func (lay *Layout) ends(e PlacedEdge) (x0, y0, x1, y1 float64) {
 	if l == 0 {
 		return x0, y0, x1, y1
 	}
-	d := e.Shift / 2
+	d := e.Shift
 	ox, oy := -uy/l*d/cellAspect, ux/l*d
 	return x0 + ox, y0 + oy, x1 + ox, y1 + oy
 }
@@ -306,6 +306,7 @@ func (lay *Layout) shiftDown(k int) {
 		return
 	}
 	lay.Height += k
+	lay.pictureTop += k
 	for i := range lay.Nodes {
 		lay.Nodes[i].Rect.Y += k
 		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]

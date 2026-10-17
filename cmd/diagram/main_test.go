@@ -86,6 +86,7 @@ func TestDiagramRefuses(t *testing.T) {
 		{regions, []string{"--width", "0"}, "--width 0"},
 		{regions, []string{"--color", "sometimes"}, "use auto, always or never"},
 		{regions, []string{"--edges", "curvy"}, "use auto, straight or orthogonal"},
+		{regions, []string{"--braille", "bold"}, "use off, thin or thick"},
 		{regions, []string{"--text-size", "20", "--width", "800"}, "one or the other"},
 		{"digraph {\n a -- b\n}", nil, "standard input: line 2"},
 		{"digraph { subgraph cluster_a { columns=1; a [col=1]; b [col=1, row=1] } }", nil, "both pinned"},
@@ -311,5 +312,31 @@ func TestDiagramEdges(t *testing.T) {
 	b, _, _ := draw(t, src, "--terminal", "text", "--edges", "orthogonal")
 	if strings.TrimLeft(a, "\n") != strings.TrimLeft(b, "\n") {
 		t.Errorf("the text differs:\n%s\n---\n%s", a, b)
+	}
+}
+
+// --braille draws the straight edges of the text drawing in braille; off,
+// the default, draws them along rows and columns.
+func TestDiagramBraille(t *testing.T) {
+	const src = `digraph { splines = line; columns = 2; a; b; c; d; a -> d }`
+	hasBraille := func(s string) bool {
+		for _, r := range s {
+			if r > 0x2800 && r <= 0x28FF {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{{nil, false}, {[]string{"--braille", "off"}, false}, {[]string{"--braille", "thin"}, true}, {[]string{"--braille", "thick"}, true}, {[]string{"--braille", "thin", "--edges", "orthogonal"}, false}} {
+		out, _, err := draw(t, src, append([]string{"--terminal", "text"}, c.args...)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := hasBraille(out); got != c.want {
+			t.Errorf("%v: braille %v, want %v:\n%s", c.args, got, c.want, out)
+		}
 	}
 }

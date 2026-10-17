@@ -104,7 +104,7 @@ func (s Scale) onOutline(n PlacedNode, x, y, fx, fy float64) (float64, float64) 
 func sq(x float64) float64 { return x * x }
 
 // Straight is a straight edge's line in the picture's units: from the
-// middle of its tail node towards the middle of its head, Shift half rows
+// middle of its tail node towards the middle of its head, Shift rows
 // to one side, cut where it leaves the one's outline and meets the other's
 // -- an ellipse's curve and a cylinder's lid included.
 func (s Scale) Straight(lay *Layout, e PlacedEdge) (xs, ys []float64) {
@@ -120,7 +120,9 @@ func (s Scale) Straight(lay *Layout, e PlacedEdge) (xs, ys []float64) {
 			ux, uy = -ux, -uy
 		}
 		if l := math.Hypot(ux, uy); l > 0 {
-			d := e.Shift * s.Line / 2
+			// A row apart, so the text drawing, in which a row is four
+			// dots, draws the two in cells of their own.
+			d := e.Shift * s.Line
 			px, py := -uy/l*d, ux/l*d
 			ax, ay, bx, by = ax+px, ay+py, bx+px, by+py
 		}

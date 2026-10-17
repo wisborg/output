@@ -3,6 +3,8 @@ package diagram
 import (
 	"fmt"
 	"image/color"
+	"math"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -35,14 +37,18 @@ type textCanvas struct {
 	lines  [][]uint8
 	dashed [][]bool        // a cell whose lines are all dashed
 	text   [][]rune        // written over the lines; 0 where nothing is
+	dots   [][]uint8       // a straight edge's braille dots, where no line or text is
+	merged [][]bool        // a cell where a straight edge crosses a line, both drawn in dots
+	thick  bool            // braille two dots deep
 	fg, bg [][]color.Color // nil for the terminal's own
 }
 
 func newTextCanvas(w, h int) *textCanvas {
 	c := &textCanvas{w: w, h: h}
 	c.lines, c.dashed, c.text = make([][]uint8, h), make([][]bool, h), make([][]rune, h)
-	c.fg, c.bg = make([][]color.Color, h), make([][]color.Color, h)
+	c.fg, c.bg, c.dots, c.merged = make([][]color.Color, h), make([][]color.Color, h), make([][]uint8, h), make([][]bool, h)
 	for y := range h {
+		c.dots[y], c.merged[y] = make([]uint8, w), make([]bool, w)
 		c.lines[y], c.dashed[y], c.text[y] = make([]uint8, w), make([]bool, w), make([]rune, w)
 		c.fg[y], c.bg[y] = make([]color.Color, w), make([]color.Color, w)
 	}
@@ -155,13 +161,16 @@ func (c *textCanvas) rows(colour bool) []string {
 	out := make([]string, c.h)
 	for y := range c.h {
 		end := c.w
-		for end > 0 && c.text[y][end-1] == 0 && c.lines[y][end-1] == 0 && (!colour || c.bg[y][end-1] == nil) {
+		for end > 0 && c.text[y][end-1] == 0 && c.lines[y][end-1] == 0 && c.dots[y][end-1] == 0 && (!colour || c.bg[y][end-1] == nil) {
 			end--
 		}
 		var b strings.Builder
 		var fg, bg color.Color
 		for x := range end {
 			r := c.text[y][x]
+			if r == 0 && (c.lines[y][x] == 0 || c.merged[y][x]) && c.dots[y][x] != 0 {
+				r = rune(0x2800) + rune(c.dots[y][x])
+			}
 			if r == 0 {
 				r = joins[c.lines[y][x]]
 				if c.dashed[y][x] {
@@ -225,8 +234,65 @@ func same(a, b color.Color) bool {
 // each frame a box with its label set in its top edge, each lane set off by
 // a line with its label at its side, and each edge a line from box to box
 // with an arrowhead at the box it points to. Colours are not drawn: see
-// ColourText.
-func (lay *Layout) Text() []string { return lay.text(Light).rows(false) }
+// ColourText. An edge a picture draws straight is drawn along its path,
+// along rows and columns, unless o asks for braille.
+func (lay *Layout) Text(o ...TextOptions) []string {
+	return lay.trimTop(lay.text(Light, opts(o)), opts(o), false)
+}
+
+// trimTop is c's rows, without those at the top the layout grew for labels
+// only a picture, or a drawing in braille, writes there, where they are
+// empty: the text drawing along rows and columns writes its labels by its
+// own lines, and would start with blank lines.
+func (lay *Layout) trimTop(c *textCanvas, o TextOptions, colour bool) []string {
+	rows := c.rows(colour)
+	if o.Braille != BrailleOff {
+		return rows
+	}
+	k := 0
+	for k < lay.pictureTop && k < c.h {
+		blank := true
+		for x := range c.w {
+			blank = blank && c.text[k][x] == 0 && c.lines[k][x] == 0 && c.dots[k][x] == 0 && c.bg[k][x] == nil
+		}
+		if !blank {
+			break
+		}
+		k++
+	}
+	return rows[k:]
+}
+
+// TextOptions are how Text and ColourText draw what they may draw more
+// than one way.
+type TextOptions struct {
+	// Braille draws the edges a picture draws straight as the picture
+	// does, at whatever angle, in braille dots, rather than along rows and
+	// columns.
+	Braille Braille
+}
+
+// Braille is whether, and how heavily, the text drawing draws straight
+// edges in braille dots.
+type Braille int
+
+const (
+	// BrailleOff draws them along rows and columns, as every other edge.
+	BrailleOff Braille = iota
+	// BrailleThin draws them a dot deep: the lighter line, closer to the
+	// box-drawing lines beside it.
+	BrailleThin
+	// BrailleThick draws them two dots deep: a stroke, firmer where a
+	// terminal's font draws its dots small.
+	BrailleThick
+)
+
+func opts(o []TextOptions) TextOptions {
+	if len(o) == 0 {
+		return TextOptions{}
+	}
+	return o[0]
+}
 
 // ColourText is Text in colour, for a terminal: in the escapes for 24-bit
 // colour that terminals read, each line ending with its colours reset. A
@@ -236,12 +302,17 @@ func (lay *Layout) Text() []string { return lay.text(Light).rows(false) }
 // left in the terminal's own colours, on its own background, so it reads
 // the same in a light terminal and a dark one; pal is the one the terminal
 // is closer to.
-func (lay *Layout) ColourText(pal Palette) []string { return lay.text(pal).rows(true) }
+func (lay *Layout) ColourText(pal Palette, o ...TextOptions) []string {
+	return lay.trimTop(lay.text(pal, opts(o)), opts(o), true)
+}
 
 // text draws lay on a page, with pal's colours where it uses them and nil
 // for the terminal's own.
-func (lay *Layout) text(pal Palette) *textCanvas {
+func (lay *Layout) text(pal Palette, o TextOptions) *textCanvas {
 	c := newTextCanvas(lay.Width, lay.Height)
+	c.thick = o.Braille == BrailleThick
+	// Whether e is drawn straight here, in braille.
+	straight := func(e PlacedEdge) bool { return e.Straight && o.Braille != BrailleOff }
 	if lay.Title != "" {
 		c.write(0, 0, lay.Title, nil)
 	}
@@ -261,7 +332,7 @@ func (lay *Layout) text(pal Palette) *textCanvas {
 		}
 	}
 	for _, e := range lay.Edges {
-		if e.Edge.Invisible {
+		if e.Edge.Invisible || straight(e) {
 			continue
 		}
 		for i := 1; i < len(e.Points); i++ {
@@ -276,6 +347,18 @@ func (lay *Layout) text(pal Palette) *textCanvas {
 	}
 	for _, e := range lay.Legend {
 		drawTextEntry(c, e, pal)
+	}
+	// Straight edges in braille, in the cells the lines, the boxes and
+	// their words leave free.
+	var heads []func()
+	for _, e := range lay.Edges {
+		if straight(e) && !e.Edge.Invisible {
+			heads = append(heads, drawTextStraight(c, lay, e))
+		}
+	}
+	// Their arrowheads once every line is down, to keep them off all.
+	for _, h := range heads {
+		h()
 	}
 	// The labels and arrowheads last, over everything.
 	for _, g := range lay.Groups {
@@ -297,15 +380,21 @@ func (lay *Layout) text(pal Palette) *textCanvas {
 			continue
 		}
 		n := len(e.Points)
-		if e.Edge.Head {
+		if !straight(e) && e.Edge.Head {
 			arrow(c, e.Points[n-2], e.Points[n-1], e.Edge.Colour)
 		}
-		if e.Edge.Tail {
+		if !straight(e) && e.Edge.Tail {
 			arrow(c, e.Points[1], e.Points[0], e.Edge.Colour)
+		}
+		// With braille, the lines are the picture's, and so are the
+		// places of the labels, which are placed against them.
+		at := e.LabelAt
+		if o.Braille != BrailleOff {
+			at = e.PictureLabelAt()
 		}
 		for i, line := range strings.Split(e.Edge.Label, "\n") {
 			if e.Edge.Label != "" {
-				c.write(e.LabelAt.X, e.LabelAt.Y+i, line, pal.Dim)
+				c.write(at.X, at.Y+i, line, pal.Dim)
 			}
 		}
 	}
@@ -437,4 +526,285 @@ func drawTextEntry(c *textCanvas, pe PlacedEntry, pal Palette) {
 	for i, line := range strings.Split(e.Label, "\n") {
 		c.write(pe.LabelAt.X, pe.LabelAt.Y+i, line, nil)
 	}
+}
+
+// drawTextStraight draws a straight edge as the pictures draw it: a line
+// at whatever angle from box to box, in braille dots -- two across and four
+// down a cell, as plot draws a chart -- one dot for each step along its
+// longer way so they are evenly spaced, a dot deep or, thick, two. A cell
+// a box or a word holds keeps it, the edge passing under there. So does a
+// line it crosses at a shallow angle; one it crosses steeply is drawn in
+// dots with it, as a bar through the cell, so neither breaks. A dashed or
+// a dotted edge leaves gaps between its dots.
+//
+// A line along one row or one column of cells is drawn as the edges along
+// rows and columns are, which reads more firmly than a row of dots.
+//
+// At its head, and its tail where that has an arrowhead, it meets its box
+// by a stub of one cell straight into the side it reaches, carrying the
+// arrowhead the edges along rows and columns end in: an arrow at an angle
+// in one cell is small, and lines up with the dots before it only by
+// chance. The stub takes the free cell along that side nearest where the
+// line arrives, and the line is aimed at it, so the two meet; where the
+// side has none free, the arrow is drawn at an angle after all. The
+// pictures draw the line straight to the box; the text bends at the end.
+// It all happens in the func it returns, once every line is down, so the
+// stubs keep clear of all of them.
+func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
+	x0, y0, x1, y1 := lay.ends(e)
+	from, _ := lay.Node(e.Edge.From)
+	to, _ := lay.Node(e.Edge.To)
+	inBox := func(x, y int) bool {
+		for _, n := range lay.Nodes {
+			r := n.Rect
+			if !n.Node.Invisible && x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H {
+				return true
+			}
+		}
+		return false
+	}
+	// In dots: a cell's middle is between its two columns of dots and its
+	// second and third rows.
+	dotsOf := func(x0, y0, x1, y1 float64) ([]Point, map[Point]uint8) {
+		return brailleLine(c, 2*x0+1, 4*y0+2, 2*x1+1, 4*y1+2, e.Edge.Line, inBox)
+	}
+	cells, _ := dotsOf(x0, y0, x1, y1)
+	if len(cells) == 0 {
+		return func() {}
+	}
+	first, last := cells[0], cells[len(cells)-1]
+	if first.X == last.X || first.Y == last.Y {
+		c.line(first, last, e.Edge.Line == Dashed || e.Edge.Line == Dotted, e.Edge.Colour)
+		return func() { straightHeads(c, e, cells, x1-x0, y1-y0) }
+	}
+	return func() {
+		// A cell is free for a stub where no line, word or box is.
+		free := func(p Point) bool {
+			return c.in(p.X, p.Y) && c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 && !inBox(p.X, p.Y)
+		}
+		headAt, headArrow, headOK := stub(to.Rect, last, x1-x0, y1-y0, free)
+		if headOK {
+			c.text[headAt.Y][headAt.X] = headArrow // for the tail to keep clear of
+		}
+		// A tail has a stub only where it has an arrowhead to carry: a stub
+		// alone would add a line beside the others and say nothing.
+		tailAt, tailArrow, tailOK := Point{}, rune(0), false
+		if e.Edge.Tail {
+			tailAt, tailArrow, tailOK = stub(from.Rect, first, x0-x1, y0-y1, free)
+		}
+		if headOK {
+			c.text[headAt.Y][headAt.X] = 0
+		}
+		// The line runs from stub to stub, where a box's side had a cell
+		// free for them, so it meets each: from the middle of the one
+		// cell to the middle of the other.
+		sx0, sy0, sx1, sy1 := x0, y0, x1, y1
+		if tailOK {
+			sx0, sy0 = float64(tailAt.X), float64(tailAt.Y)
+		}
+		if headOK {
+			sx1, sy1 = float64(headAt.X), float64(headAt.Y)
+		}
+		cells, dots := dotsOf(sx0, sy0, sx1, sy1)
+		// Where it crosses a line along a row or a column, both are drawn
+		// in dots, the line as a bar through the cell where it runs, so
+		// neither breaks -- where it crosses steeply.
+		// A shallower one runs along the other line's cells for longer, and the dots
+		// of the two would be a smudge in which neither could be followed:
+		// there the line keeps its cells and this one passes under. A
+		// corner or a junction keeps its character, which says more.
+		bar := func(p Point) uint8 {
+			switch c.lines[p.Y][p.X] {
+			case left | right:
+				return brailleDot(0, 1) | brailleDot(1, 1)
+			case up | down:
+				return brailleDot(0, 0) | brailleDot(0, 1) | brailleDot(0, 2) | brailleDot(0, 3)
+			}
+			return 0
+		}
+		// Steep enough, as drawn, against a line along a row, or one down
+		// a column: more than about 40 degrees to it, where it crosses a
+		// row in three cells or so -- a row is tall and a cell narrow, and
+		// at 30 degrees it runs along five or six.
+		ax, ay := math.Abs(sx1-sx0)*cellAspect, math.Abs(sy1-sy0)
+		steepToRow, steepToCol := ay > ax*0.84, ax > ay*0.84
+		merge := map[Point]bool{}
+		for _, p := range cells {
+			switch c.lines[p.Y][p.X] {
+			case left | right:
+				merge[p] = steepToRow
+			case up | down:
+				merge[p] = steepToCol
+			}
+		}
+		for _, p := range cells {
+			if p == headAt && headOK || p == tailAt && tailOK {
+				continue
+			}
+			if c.text[p.Y][p.X] != 0 {
+				continue // under a word or an arrowhead
+			}
+			if c.lines[p.Y][p.X] != 0 {
+				if !merge[p] {
+					continue // under the line
+				}
+				c.merged[p.Y][p.X] = true
+				c.dots[p.Y][p.X] |= bar(p)
+			}
+			c.dots[p.Y][p.X] |= dots[p]
+			c.fg[p.Y][p.X] = e.Edge.Colour
+		}
+		if len(cells) > 0 {
+			first, last = cells[0], cells[len(cells)-1]
+		}
+		ends := []struct {
+			at     Point
+			arrow  rune
+			ok     bool
+			head   bool
+			end    Point
+			dx, dy float64
+		}{
+			{headAt, headArrow, headOK, e.Edge.Head, last, sx1 - sx0, sy1 - sy0},
+			{tailAt, tailArrow, tailOK, e.Edge.Tail, first, sx0 - sx1, sy0 - sy1},
+		}
+		for _, s := range ends {
+			switch {
+			case !s.ok && s.head:
+				// No free cell by the side: the arrow at an angle, where
+				// the line ends.
+				c.set(s.end.X, s.end.Y, pointing(s.dx*cellAspect, s.dy), e.Edge.Colour)
+			case !s.ok:
+			case s.head:
+				c.set(s.at.X, s.at.Y, s.arrow, e.Edge.Colour)
+			case s.arrow == '▲' || s.arrow == '▼':
+				c.set(s.at.X, s.at.Y, '│', e.Edge.Colour)
+			default:
+				c.set(s.at.X, s.at.Y, '─', e.Edge.Colour)
+			}
+		}
+	}
+}
+
+// brailleLine is the line from dot (u0, v0) to dot (u1, v1) in braille: the
+// cells it crosses that no box holds, in order, and each one's dots -- one
+// for each step along its longer way, so they are evenly spaced, and two
+// deep where the canvas is thick, so it reads as a stroke; with gaps for a
+// dashed or a dotted line.
+func brailleLine(c *textCanvas, u0, v0, u1, v1 float64, line Line, inBox func(x, y int) bool) ([]Point, map[Point]uint8) {
+	n := int(math.Ceil(math.Max(math.Abs(u1-u0), math.Abs(v1-v0))))
+	flat := math.Abs(u1-u0) >= math.Abs(v1-v0)
+	var cells []Point
+	dots := map[Point]uint8{}
+	put := func(u, v int) {
+		q := Point{u / 2, v / 4}
+		if u < 0 || v < 0 || !c.in(q.X, q.Y) || inBox(q.X, q.Y) {
+			return
+		}
+		if _, ok := dots[q]; !ok {
+			cells = append(cells, q)
+		}
+		dots[q] |= brailleDot(u%2, v%4)
+	}
+	for k := 0; k <= n; k++ {
+		switch line {
+		case Dashed:
+			if k%5 >= 3 {
+				continue
+			}
+		case Dotted:
+			if k%3 >= 1 {
+				continue
+			}
+		}
+		t := float64(k) / float64(max(n, 1))
+		iu, iv := int(math.Floor(u0+t*(u1-u0))), int(math.Floor(v0+t*(v1-v0)))
+		put(iu, iv)
+		if c.thick {
+			if flat {
+				put(iu, iv+1)
+			} else {
+				put(iu+1, iv)
+			}
+		}
+	}
+	return cells, dots
+}
+
+// straightHeads draws the arrowheads of a straight edge along one row or
+// one column of cells, from cells' first to its last, pointing (dx, dy)
+// in cells.
+func straightHeads(c *textCanvas, e PlacedEdge, cells []Point, dx, dy float64) {
+	first, last := cells[0], cells[len(cells)-1]
+	if e.Edge.Head {
+		c.set(last.X, last.Y, pointing(dx, dy), e.Edge.Colour)
+	}
+	if e.Edge.Tail {
+		c.set(first.X, first.Y, pointing(-dx, -dy), e.Edge.Colour)
+	}
+}
+
+// stub is the cell a straight line, reaching box r at cell near and
+// heading (dx, dy) in cells, ends in by r's side, and the arrowhead into
+// r there: by the side near is beyond, or where it is beyond two, a
+// corner, the one the line runs more towards as drawn; the free cell
+// along that side, off its corners, nearest near. False where the side
+// has none free.
+func stub(r Rect, near Point, dx, dy float64, free func(Point) bool) (Point, rune, bool) {
+	left, right := near.X < r.X, near.X > r.X+r.W-1
+	above, below := near.Y < r.Y, near.Y > r.Y+r.H-1
+	across := math.Abs(dx)*cellAspect >= math.Abs(dy)
+	var cells []Point
+	var arrow rune
+	down := func(x int) {
+		for y := r.Y + 1; y <= r.Y+r.H-2; y++ {
+			cells = append(cells, Point{x, y})
+		}
+	}
+	along := func(y int) {
+		for x := r.X + 1; x <= r.X+r.W-2; x++ {
+			cells = append(cells, Point{x, y})
+		}
+	}
+	switch {
+	case left && (across || !above && !below):
+		down(r.X - 1)
+		arrow = '▶'
+	case right && (across || !above && !below):
+		down(r.X + r.W)
+		arrow = '◀'
+	case above:
+		along(r.Y - 1)
+		arrow = '▼'
+	default:
+		along(r.Y + r.H)
+		arrow = '▲'
+	}
+	sort.SliceStable(cells, func(i, j int) bool {
+		return abs(cells[i].X-near.X)+abs(cells[i].Y-near.Y) < abs(cells[j].X-near.X)+abs(cells[j].Y-near.Y)
+	})
+	for _, p := range cells {
+		if free(p) {
+			return p, arrow, true
+		}
+	}
+	return Point{}, arrow, false
+}
+
+// brailleDot is the bit of a braille character for the dot in column col
+// (0 or 1) and row row (0 to 3): the first three rows of each column are
+// the low bits, the fourth row came later and has the two high ones.
+func brailleDot(col, row int) uint8 {
+	if row == 3 {
+		return 0x40 << col
+	}
+	return 1 << (row + 3*col)
+}
+
+// pointing is the arrow nearest the way (dx, dy) points, y down: one of
+// the four triangles the edges along rows and columns end in, or a
+// diagonal arrow between them.
+func pointing(dx, dy float64) rune {
+	sector := int(math.Round(math.Atan2(dy, dx)/(math.Pi/4))+8) % 8
+	return []rune{'▶', '↘', '▼', '↙', '◀', '↖', '▲', '↗'}[sector]
 }

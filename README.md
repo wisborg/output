@@ -524,7 +524,10 @@ sets Graphviz's `splines` (`splines = line`, say), or `--edges straight`
 asks: then an edge is one straight line between its boxes, at whatever
 angle, wherever that line is clear of the other boxes. That suits a mesh of
 services more than a flow chart. `--edges orthogonal` turns it off whatever
-the file says; the text drawing is always along rows and columns. Shapes are boxes, rounded boxes, ellipses,
+the file says. The text drawing keeps such edges along rows and columns
+unless `--braille thin` or `--braille thick` asks for them at their angle,
+in braille dots one or two deep, as plot draws its charts; each ends in the
+usual arrowhead, on a one-cell stub into its box. Shapes are boxes, rounded boxes, ellipses,
 cylinders and plain text; lines solid, dashed, dotted or bold; colours
 Graphviz's, by `#rrggbb` or by the common X11 names.
 

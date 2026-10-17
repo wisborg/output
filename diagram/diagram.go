@@ -167,8 +167,8 @@ type Diagram struct {
 	// Straight draws the edges of a picture as straight lines from box to
 	// box, at whatever angle, where such a line is clear of every other
 	// box; an edge whose line would cross one keeps its path along rows
-	// and columns. The text drawing, which can draw only along rows and
-	// columns, keeps every edge's path whatever this says.
+	// and columns. The text drawing keeps every edge's path along rows and
+	// columns, unless TextOptions ask it to draw them in braille.
 	Straight bool
 }
 
