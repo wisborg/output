@@ -23,7 +23,7 @@ jobs:
           # The floor declared in go.mod. A library's stated minimum is a
           # promise, and the only way to keep it is to build against it --
           # it is otherwise very easy to use something newer and not notice.
-          - "1.23"
+          - "1.25"
           # ...and current, so a change in the toolchain shows up here rather
           # than in someone's build.
           - stable
@@ -46,7 +46,7 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           # setup-go caches modules by default. The whole dependency graph
-          # here is go-runewidth and uax29, so the cache saves almost nothing
+          # here is go-runewidth, uax29 and x/image, so the cache saves little
           # while adding a store that is written by one run and read by
           # another -- worth avoiding for the saving involved.
           cache: false
