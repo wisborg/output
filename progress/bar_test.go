@@ -133,6 +133,10 @@ func TestFormatDuration(t *testing.T) {
 		{90 * time.Minute, "1h30m"},
 		{25 * time.Hour, "25h00m"},
 		{-time.Second, "0s"},
+		// Rounded to the unit before the form is chosen: 59.6 s is not
+		// "59s", truncated, and 59 min 59.6 s is not "60m00s".
+		{59*time.Second + 600*time.Millisecond, "1m00s"},
+		{59*time.Minute + 59*time.Second + 600*time.Millisecond, "1h00m"},
 	}
 	for _, c := range cases {
 		if got := formatDuration(c.d); got != c.want {
@@ -150,6 +154,8 @@ func TestPercentClamps(t *testing.T) {
 		{150, 100, 100}, // a caller overshooting must not report 150%
 		{-5, 100, 0},
 		{1, 0, 0}, // no total: percent is meaningless, never a division
+		// done*100 overflowed an int64 here, and read as 0%.
+		{1 << 62, 1<<62 + 1, 99},
 	}
 	for _, c := range cases {
 		if got := percent(c.done, c.total); got != c.want {
@@ -243,5 +249,112 @@ func TestBar_BytesAreWrittenInBinaryPrefixes(t *testing.T) {
 	}
 	if strings.Contains(line, " B") && !strings.Contains(line, "MiB") {
 		t.Errorf("the unit was printed beside the prefix: %q", line)
+	}
+}
+
+// TestFormatRateAndBytesKeepTheirWidth: a figure just under a bound rounded
+// up into the next one's width -- "10000k/s", eight columns where seven are
+// reserved, and "1024.0/1024.0 KiB" where the next prefix reads 1.0.
+func TestFormatRateAndBytesKeepTheirWidth(t *testing.T) {
+	for v, want := range map[float64]string{9.96: "10/s", 9_999.6: "10k/s", 9_999_600: "10M/s", 9_999_000: "9999k/s"} {
+		if got := formatRate(v); got != want {
+			t.Errorf("formatRate(%v) = %q, want %q", v, got, want)
+		}
+	}
+	for v := 1.0; v < 1e9; v *= 1.37 {
+		if n := len(formatRate(v)); n > 7 {
+			t.Errorf("formatRate(%v) = %q, %d columns", v, formatRate(v), n)
+		}
+	}
+	if got := formatBytes(1048575, 1048575); got != "1.0/1.0 MiB" {
+		t.Errorf("formatBytes(1048575) = %q, want 1.0/1.0 MiB", got)
+	}
+}
+
+// TestBar_StalledBarShowsNoRate: a job that has stopped must not go on
+// showing the speed it last ran at. It once held its last rate for ever,
+// 300/s an hour after the last frame, which reads as a job running.
+func TestBar_StalledBarShowsNoRate(t *testing.T) {
+	c := newClock()
+	d, buf := liveDisplay(100, c)
+	stuck := d.Bar(BarSpec{Label: "stuck", Total: 1000})
+	moving := d.Bar(BarSpec{Label: "moving", Total: 1000000})
+	c.add(time.Second)
+	stuck.Set(300)
+	for i := range 60 {
+		c.add(time.Second)
+		moving.Set(int64(i * 100))
+	}
+	lines := replay(buf.String()).text()
+	if len(lines) != 2 {
+		t.Fatalf("%d lines: %q", len(lines), lines)
+	}
+	if strings.Contains(lines[0], "/s") {
+		t.Errorf("a bar idle for a minute still shows a rate: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "/s") {
+		t.Errorf("the moving bar lost its rate: %q", lines[1])
+	}
+}
+
+// TestBar_UnsizedBarKeepsItsCount: where no bar has a total there is no
+// trough to make room for, and an unsized bar's first field is its count.
+// The room once held for a trough it never draws pushed its count to the
+// far edge, and in a narrow terminal took the count away altogether.
+func TestBar_UnsizedBarKeepsItsCount(t *testing.T) {
+	for _, cols := range []int{20, 25, 30, 80} {
+		c := newClock()
+		d, buf := liveDisplay(cols, c)
+		bar := d.Bar(BarSpec{Label: "rendering", Unit: "frames"})
+		c.add(time.Second)
+		bar.Set(42)
+		line := replay(buf.String()).text()[0]
+		if !strings.Contains(line, "42") {
+			t.Errorf("cols=%d: no count in %q", cols, line)
+		}
+		if strings.Contains(line, "      ") {
+			t.Errorf("cols=%d: a gap held for a trough in %q", cols, line)
+		}
+	}
+}
+
+// TestPlain_FragmentIsEndedBeforeAProgressLine: a plain display writes what
+// it is given as it is, but its next progress line begins a line of its own
+// rather than running on from a fragment. And a bar done twice says its
+// closing line once.
+func TestPlain_FragmentIsEndedBeforeAProgressLine(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Plain, Now: c.now, Interval: time.Second})
+	bar := d.Bar(BarSpec{Label: "x", Total: 10})
+	c.add(time.Second)
+	bar.Set(3)
+	_, _ = d.Write([]byte("partial"))
+	c.add(time.Second)
+	bar.Set(5)
+	if !strings.Contains(buf.String(), "partial\nx 50%") {
+		t.Errorf("the progress line ran on from the fragment: %q", buf.String())
+	}
+	bar.Set(10)
+	bar.Done()
+	bar.Done()
+	if n := strings.Count(buf.String(), "x 100%"); n != 1 {
+		t.Errorf("the closing line written %d times: %q", n, buf.String())
+	}
+}
+
+// TestDisplay_BarAfterStopDrawsNothing: a stopped display draws nothing
+// again, whatever is added to it.
+func TestDisplay_BarAfterStopDrawsNothing(t *testing.T) {
+	c := newClock()
+	d, buf := liveDisplay(80, c)
+	d.Stop()
+	before := buf.Len()
+	bar := d.Bar(BarSpec{Label: "late", Total: 10})
+	c.add(time.Second)
+	bar.Set(5)
+	bar.Done()
+	if buf.Len() != before {
+		t.Errorf("a stopped display wrote %q", buf.String()[before:])
 	}
 }

@@ -177,6 +177,10 @@ type Display struct {
 	bars    []*Bar
 	drawn   int // live lines currently on screen
 	stopped bool
+	// partial says the last thing written through a plain display ended
+	// without a newline, so the next progress line must begin a line of its
+	// own rather than run on from it.
+	partial bool
 }
 
 // New returns a Display writing to w.
@@ -330,6 +334,12 @@ func (d *Display) Bar(spec BarSpec) *Bar {
 	}
 	b := newBar(d, spec)
 	d.mu.Lock()
+	if d.stopped {
+		// A stopped display draws nothing again: the bar works, and is
+		// never added, as a bar of a nil Display is never drawn.
+		d.mu.Unlock()
+		return b
+	}
 	d.bars = append(d.bars, b)
 	d.mu.Unlock()
 	// Drawn at once when live, so the region appears the moment the job
@@ -351,7 +361,9 @@ func (d *Display) Bar(spec BarSpec) *Bar {
 // live region is positioned by counting the lines written before it, so a
 // fragment left without a newline would put the first bar on the end of it
 // and the erase arithmetic would then be one row out for the rest of the run.
-// Loggers terminate their lines; this covers everything else.
+// Loggers terminate their lines; this covers everything else. A plain display
+// writes p as it is, since it has no region to keep in place, but begins its
+// next progress line on a line of its own.
 func (d *Display) Write(p []byte) (int, error) {
 	if d == nil {
 		return len(p), nil
@@ -365,6 +377,7 @@ func (d *Display) Write(p []byte) (int, error) {
 	// a plain display has no region on screen, so a write is just a write,
 	// and re-emitting the bars after it would double every line in the log.
 	if d.stopped || !d.live {
+		d.partial = p[len(p)-1] != '\n'
 		return d.w.Write(p)
 	}
 
@@ -418,8 +431,23 @@ func (d *Display) redraw(force bool) {
 	if d.stopped {
 		return
 	}
+	// Again under the lock: several goroutines may have passed the check
+	// above at once, and the first to get here has drawn for all of them.
+	if !force && now.UnixNano() < d.nextDue.Load() {
+		return
+	}
 	d.nextDue.Store(now.Add(d.interval).UnixNano())
 	d.draw()
+}
+
+// plainLine writes one progress line on a plain display, on a line of its
+// own. The caller holds the mutex.
+func (d *Display) plainLine(s string) {
+	if d.partial {
+		s = "\n" + s
+		d.partial = false
+	}
+	_, _ = io.WriteString(d.w, s+"\n")
 }
 
 // draw renders every bar, replacing whatever was on screen. The caller holds
@@ -459,7 +487,7 @@ func (d *Display) draw() {
 	// a no-op here (it does nothing unless live), so there is no cursor
 	// state to keep and nothing to undo.
 	for _, b := range d.bars {
-		_, _ = io.WriteString(d.w, b.renderPlain(now)+"\n")
+		d.plainLine(b.renderPlain(now))
 		b.plainDone = b.done.Load()
 	}
 }
@@ -502,12 +530,27 @@ func (d *Display) resolveLayout(labels []string) layout {
 	if head > 0 {
 		head += 2 // the gap after the label column
 	}
+	// Bars with no total have no trough, and where no bar has one there is
+	// none to make room for: the fields keep it. Holding it open, blank,
+	// pushed one unsized bar's count fifty columns to the right, and in a
+	// narrow terminal cost it its count altogether.
+	troughs := false
+	for _, b := range d.bars {
+		troughs = troughs || b.hasBar()
+	}
 	for {
 		textWidth := 0
 		for _, b := range d.bars {
-			if w := b.reservedWidth(l.slots, d.measure); w > textWidth {
+			if w := b.reservedWidth(l.slots); w > textWidth {
 				textWidth = w
 			}
+		}
+		if !troughs {
+			if head+textWidth <= cols || l.slots <= 1 {
+				return l
+			}
+			l.slots--
+			continue
 		}
 		// Two brackets around the trough, and two spaces after it.
 		room := cols - head - textWidth - 4

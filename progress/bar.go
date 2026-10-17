@@ -2,7 +2,7 @@ package progress
 
 import (
 	"fmt"
-	"io"
+	"math"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -68,6 +68,9 @@ type Bar struct {
 	lastTime time.Time
 	lastDone int64
 	lastRate float64
+	// lastMoved is when done last changed: a bar that has not moved for
+	// stallAfter shows no rate, rather than the last one it had.
+	lastMoved time.Time
 
 	// reserve is the column width held for each slot, whether or not that
 	// slot has anything to show yet. It is what keeps the trough from
@@ -88,7 +91,7 @@ type Bar struct {
 func newBar(d *Display, spec BarSpec) *Bar {
 	b := &Bar{d: d, label: spec.Label, unit: spec.Unit, bytes: spec.Bytes, start: d.now(), plainDone: -1}
 	b.total.Store(spec.Total)
-	b.lastTime = b.start
+	b.lastTime, b.lastMoved = b.start, b.start
 	b.reserveSlots()
 	return b
 }
@@ -215,7 +218,10 @@ func (b *Bar) Done() {
 	// rule for plain lines, and one whose last line was already its last
 	// state does not say it twice.
 	if !d.live && !d.stopped && b.plainDone >= 0 && b.done.Load() != b.plainDone {
-		_, _ = io.WriteString(d.w, b.renderPlain(d.now())+"\n")
+		d.plainLine(b.renderPlain(d.now()))
+		// And not again: a second Done finds the bar gone from the display
+		// but would otherwise write its closing line twice.
+		b.plainDone = b.done.Load()
 	}
 	// Erase before releasing the lock: the region just lost a line, and
 	// leaving the old one on screen until the next redraw would show a
@@ -241,12 +247,11 @@ const (
 	barClose = '▏'
 )
 
-// fields returns this bar's label and its right-hand text fields, most- to
-// least- important. It advances the rate window as a side effect, so it is
-// called exactly once per redraw. The caller holds the Display's mutex.
 // slots fills this bar's four fields for the current instant, leaving a slot
 // empty when it has nothing to say yet, and updates the reservations for
-// anything that outgrew them.
+// anything that outgrew them. It returns the label beside them. It advances
+// the rate window as a side effect, so it is called exactly once per redraw;
+// the caller holds the Display's mutex.
 //
 // An empty slot still occupies its reserved width when the line is composed,
 // which is the whole point: the rate and the estimate arrive a second into a
@@ -296,18 +301,20 @@ type layout struct {
 	ascii      bool
 }
 
-// reservedWidth is the room this bar's fields occupy when the first n slots
-// are shown: each at its reserved width, joined by two spaces, and slots this
-// bar will never fill skipped entirely.
+// reservedWidth is the room this bar's fields occupy when the first n of the
+// slots it uses are shown: each at its reserved width, joined by two spaces,
+// and slots this bar will never fill skipped entirely -- so an unsized bar,
+// which never fills the percentage, keeps its count when n is 1, where a
+// sized bar keeps its percentage.
 //
 // The layout is sized from THIS rather than from what the fields currently
 // measure, which is the whole mechanism. Sizing from the current values
 // re-fits the trough around whatever the numbers happen to be this instant,
 // so it shrinks a little as the counts gain a digit and jumps when the rate
 // and the estimate appear.
-func (b *Bar) reservedWidth(n int, measure func(string) int) int {
+func (b *Bar) reservedWidth(n int) int {
 	total, shown := 0, 0
-	for i := 0; i < numSlots && i < n; i++ {
+	for i := 0; i < numSlots && shown < n; i++ {
 		if b.reserve[i] == 0 {
 			continue
 		}
@@ -320,16 +327,16 @@ func (b *Bar) reservedWidth(n int, measure func(string) int) int {
 	return total
 }
 
-// composeLine renders one bar against the shared layout.
 // composeFields lays the slots out at their reserved widths, joined by two
 // spaces, skipping any slot this bar will never fill and any the layout has
-// dropped for want of room.
+// dropped for want of room: the layout keeps the first l.slots of those this
+// bar uses.
 //
 // A value is padded on the LEFT, so the numbers line up at their right-hand
 // edge as they grow -- the same reason a table right-aligns a numeric column.
 func (b *Bar) composeFields(fields [numSlots]string, l layout, measure func(string) int) string {
 	var parts []string
-	for i := 0; i < numSlots && i < l.slots; i++ {
+	for i := 0; i < numSlots && len(parts) < l.slots; i++ {
 		w := b.reserve[i]
 		if w == 0 {
 			continue
@@ -340,6 +347,8 @@ func (b *Bar) composeFields(fields [numSlots]string, l layout, measure func(stri
 	return strings.TrimRight(strings.Join(parts, "  "), " ")
 }
 
+// composeLine renders one bar against the shared layout.
+//
 // The composed line's width is ACCUMULATED as it is built rather than
 // measured afterwards, and that is not an optimisation. Once the trough can
 // carry colour, the assembled string holds escape sequences, and measuring it
@@ -427,12 +436,27 @@ func (b *Bar) renderPlain(now time.Time) string {
 // work's speed actually moves.
 const minRateWindow = 500 * time.Millisecond
 
+// stallAfter is how long a bar may go without moving before its rate is
+// taken away. Not the rate window: work that arrives in bursts -- a frame
+// every second or two -- leaves windows with nothing in them that are not a
+// stall, and a rate that blinked out between bursts would read as broken.
+// But a job that has stopped must not go on showing the speed it last ran
+// at, with an estimate to match: that reads as a job running, which is the
+// one thing a hung job must not look like.
+const stallAfter = 5 * time.Second
+
 // observe advances the trailing rate window. The caller holds the Display's
 // mutex, which is what makes the unsynchronised fields safe.
 //
 // A redraw inside the current window leaves the previous rate in place rather
-// than recomputing it over a sliver of time -- see minRateWindow.
+// than recomputing it over a sliver of time -- see minRateWindow -- and a bar
+// that has not moved for stallAfter has no rate at all.
 func (b *Bar) observe(now time.Time, done int64) {
+	if done != b.lastDone {
+		b.lastMoved = now
+	} else if now.Sub(b.lastMoved) >= stallAfter {
+		b.lastRate = 0
+	}
 	elapsed := now.Sub(b.lastTime)
 	if elapsed < minRateWindow {
 		return
@@ -499,11 +523,7 @@ func (b *Bar) eta(now time.Time, done, total int64) string {
 
 // glyphBar draws the trough and its fill at eighth-of-a-cell resolution,
 // occupying exactly width+2 terminal columns: the two brackets and the width
-// between them.
-//
-// A total that is not known gets a full-width trough with no fill: it is a
-// place-holder for a measurement nobody has, and animating something through
-// it would suggest a position that is not being reported.
+// between them. It is drawn only for a bar with a total: see hasBar.
 func (b *Bar) glyphBar(done, total int64, width int, ascii bool) string {
 	var sb strings.Builder
 	if ascii {
@@ -511,37 +531,33 @@ func (b *Bar) glyphBar(done, total int64, width int, ascii bool) string {
 	} else {
 		sb.WriteRune(barOpen)
 	}
-	if total > 0 {
-		frac := float64(done) / float64(total)
-		if frac < 0 {
-			frac = 0
-		}
-		if frac > 1 {
-			frac = 1
-		}
-		var filled []rune
-		if ascii {
-			full := int(frac * float64(width))
-			filled = make([]rune, 0, full)
-			for i := 0; i < full; i++ {
-				filled = append(filled, '=')
-			}
-		} else {
-			eighths := int(frac * float64(width) * 8)
-			full := eighths / 8
-			filled = make([]rune, 0, full+1)
-			for i := 0; i < full; i++ {
-				filled = append(filled, barGlyphs[8])
-			}
-			if part := eighths % 8; part > 0 && full < width {
-				filled = append(filled, barGlyphs[part])
-			}
-		}
-		sb.WriteString(b.paint(filled, width))
-		sb.WriteString(strings.Repeat(" ", width-len(filled)))
-	} else {
-		sb.WriteString(strings.Repeat(" ", width))
+	frac := float64(done) / float64(total)
+	if frac < 0 {
+		frac = 0
 	}
+	if frac > 1 {
+		frac = 1
+	}
+	var filled []rune
+	if ascii {
+		full := int(frac * float64(width))
+		filled = make([]rune, 0, full)
+		for i := 0; i < full; i++ {
+			filled = append(filled, '=')
+		}
+	} else {
+		eighths := int(frac * float64(width) * 8)
+		full := eighths / 8
+		filled = make([]rune, 0, full+1)
+		for i := 0; i < full; i++ {
+			filled = append(filled, barGlyphs[8])
+		}
+		if part := eighths % 8; part > 0 && full < width {
+			filled = append(filled, barGlyphs[part])
+		}
+	}
+	sb.WriteString(b.paint(filled, width))
+	sb.WriteString(strings.Repeat(" ", width-len(filled)))
 	if ascii {
 		sb.WriteByte(']')
 	} else {
@@ -601,10 +617,16 @@ func percent(done, total int64) int {
 	if total <= 0 {
 		return 0
 	}
-	p := done * 100 / total
+	// In floating point: done*100 overflows an int64 past a ninety-second
+	// of its range, and the overflow read as 0%.
+	// A float64 cannot tell 2^62 from 2^62+1, so a job not quite done is
+	// held at 99% rather than rounded up to finished.
+	p := math.Floor(float64(done) * 100 / float64(total))
 	switch {
 	case p < 0:
 		return 0
+	case p >= 100 && done < total:
+		return 99
 	case p > 100:
 		return 100
 	}
@@ -622,14 +644,17 @@ func percent(done, total int64) int {
 // this package reserves widths to avoid. Abbreviating bounds it at seven
 // columns for any rate below ten million a second.
 func formatRate(perSecond float64) string {
+	// Each bound is where the figure below it would round up into the next
+	// one's width: 9.96 is "10.0/s", and 9_999_600 was "10000k/s", eight
+	// columns where seven are reserved.
 	switch {
 	case perSecond <= 0:
 		return ""
-	case perSecond < 10:
+	case perSecond < 9.95:
 		return fmt.Sprintf("%.1f/s", perSecond)
-	case perSecond < 10_000:
+	case perSecond < 9_999.5:
 		return fmt.Sprintf("%.0f/s", perSecond)
-	case perSecond < 10_000_000:
+	case perSecond < 9_999_500:
 		return fmt.Sprintf("%.0fk/s", perSecond/1000)
 	default:
 		return fmt.Sprintf("%.0fM/s", perSecond/1_000_000)
@@ -643,7 +668,9 @@ var byteUnits = []string{"B", "KiB", "MiB", "GiB", "TiB"}
 func bytePrefix(n float64) (name string, size float64) {
 	name, size = byteUnits[0], 1
 	for _, u := range byteUnits[1:] {
-		if n < size*1024 {
+		// Past 1023.95 of a prefix, the next: written to one decimal, the
+		// figure would read "1024.0 KiB".
+		if n < size*1023.95 {
 			break
 		}
 		name, size = u, size*1024
@@ -690,14 +717,18 @@ func formatByteRate(perSecond float64) string {
 // formatDuration renders a duration compactly and without false precision:
 // seconds below a minute, minutes and seconds below an hour, hours and
 // minutes above it.
+//
+// It rounds to the unit it writes in before choosing the form, so 59.6 s is
+// "1m00s" rather than "59s" or "60s", and 59 min 59.6 s is "1h00m" rather
+// than "60m00s".
 func formatDuration(d time.Duration) string {
 	if d < 0 {
 		d = 0
 	}
 	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
+	case d.Round(time.Second) < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Round(time.Second).Seconds()))
+	case d.Round(time.Second) < time.Hour:
 		d = d.Round(time.Second)
 		return fmt.Sprintf("%dm%02ds", int(d/time.Minute), int((d%time.Minute)/time.Second))
 	default:
