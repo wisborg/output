@@ -222,7 +222,15 @@ decision. A live line that exceeds the terminal's width occupies two rows,
 while the cursor arithmetic that erases the region counts one — so from the
 next redraw onward the display eats the log line above it, permanently. Every
 line is therefore measured in terminal columns and truncated, and a bar with
-too little room drops fields from the right rather than wrapping. `Display`
+too little room drops fields from the right rather than wrapping. A line
+also stops one column short of the terminal's width: what writing the last
+column does differs between terminals (xterm's deferred wrap lets `\x1b[K`
+erase it; the Windows console wraps at once), and a line that never reaches
+it is safe on all of them. Where the trough's glyphs are not a column each by
+the display's measure -- they are East Asian Ambiguous, two columns in a CJK
+locale -- the trough is drawn in ASCII. A width test measures the screen
+before `Stop`, which erases it: two of them once measured after, and passed
+on an empty screen whatever the lines' widths. `Display`
 degrades to plain periodic lines with no escape sequences whenever the writer
 is not a terminal, which is what makes `program 2>log` safe and what lets a
 caller use it without branching on where its output is going.

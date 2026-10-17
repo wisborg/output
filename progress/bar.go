@@ -292,7 +292,7 @@ type layout struct {
 	labelWidth int // every label padded to this, so the troughs line up
 	barWidth   int // 0 when there is no room for a trough at all
 	slots      int // how many field slots survived the width, from the left
-	cols       int
+	cols       int // the most columns a line may take: the terminal's width less one
 	ascii      bool
 }
 
@@ -376,7 +376,7 @@ func (b *Bar) composeLine(label string, fields [numSlots]string, l layout, measu
 	line := sb.String()
 	if width > l.cols {
 		// Reachable only when there is no trough: resolveLayout sizes one to
-		// leave the line exactly cols wide, and gives up on it entirely when
+		// leave the line exactly l.cols wide, and gives up on it entirely when
 		// that cannot be done. No trough means no colour, so truncate never
 		// has to cut an escape sequence in half -- which it has no way to do
 		// safely.

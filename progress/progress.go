@@ -200,6 +200,9 @@ func New(w io.Writer, opts Options) *Display {
 	if d.measure == nil {
 		d.measure = runewidth.StringWidth
 	}
+	if !d.ascii && !glyphsFit(d.measure) {
+		d.ascii = true
+	}
 	if f, ok := w.(*os.File); ok {
 		d.file = f
 	}
@@ -207,6 +210,9 @@ func New(w io.Writer, opts Options) *Display {
 	switch opts.Mode {
 	case Live:
 		d.live = true
+		// A forced Live still needs a Windows console told to read escape
+		// sequences, or it prints them. Anywhere else this does nothing.
+		d.withFd(func(fd uintptr) { enableVirtualTerminal(fd) })
 	case Plain:
 		d.live = false
 	default:
@@ -253,13 +259,43 @@ func New(w io.Writer, opts Options) *Display {
 // sequences in its log: a caller who knows the width still has to say Live to
 // get live rendering.
 func (d *Display) detectTerminal() bool {
+	ok := false
+	d.withFd(func(fd uintptr) {
+		if _, _, ok = terminalSize(fd); ok {
+			ok = enableVirtualTerminal(fd)
+		}
+	})
+	return ok
+}
+
+// withFd calls fn with the writer's file descriptor, if it is a file.
+//
+// Through SyscallConn rather than Fd, because Fd has a side effect: it
+// puts the file into blocking mode, after which SetDeadline on it no longer
+// works -- and Columns asks on every redraw, of a file that is the caller's.
+func (d *Display) withFd(fn func(fd uintptr)) {
 	if d.file == nil {
-		return false
+		return
 	}
-	if _, _, ok := terminalSize(d.file.Fd()); !ok {
-		return false
+	rc, err := d.file.SyscallConn()
+	if err != nil {
+		return
 	}
-	return enableVirtualTerminal(d.file.Fd())
+	_ = rc.Control(fn)
+}
+
+// glyphsFit says the trough's glyphs are a column wide each by measure, as
+// the line's width arithmetic counts them. The eighths blocks and the
+// brackets are East Asian Ambiguous: in a CJK locale runewidth counts them
+// two columns, as CJK terminals draw them, and a line counted at 60 was 76
+// wide and wrapped. Where they do not fit, the trough is drawn in ASCII.
+func glyphsFit(measure func(string) int) bool {
+	for _, r := range append(barGlyphs[1:], barOpen, barClose) {
+		if measure(string(r)) != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 // Live reports whether this Display renders in place. Callers use it to
@@ -274,10 +310,14 @@ func (d *Display) Columns() int {
 	if d.columns > 0 {
 		return d.columns
 	}
-	if d.file != nil {
-		if cols, _, ok := terminalSize(d.file.Fd()); ok && cols > 0 {
-			return cols
+	cols := 0
+	d.withFd(func(fd uintptr) {
+		if c, _, ok := terminalSize(fd); ok {
+			cols = c
 		}
+	})
+	if cols > 0 {
+		return cols
 	}
 	return FallbackColumns
 }
@@ -439,8 +479,16 @@ func (d *Display) draw() {
 // overflowed. Dropping per-bar would misalign them again, and inconsistently:
 // a reader would see an ETA on one line and not the next for no reason
 // visible on screen.
+//
+// A line is laid out one column short of the terminal's width, and never
+// fills its last column. Terminals disagree about what writing that column
+// does: one with deferred wrap, as xterm's, leaves the cursor on it, and the
+// erase-to-end-of-line after the line then clears the character just
+// written; the Windows console, without DISABLE_NEWLINE_AUTO_RETURN, wraps at
+// once, and the newline after it moves down a second row while the erase
+// counts one. Neither can happen to a line that stops a column early.
 func (d *Display) resolveLayout(labels []string) layout {
-	cols := d.Columns()
+	cols := max(d.Columns()-1, 1)
 	l := layout{cols: cols, ascii: d.ascii}
 
 	for _, label := range labels {

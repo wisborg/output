@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // clock is an injected time source, so throttling and rates are tested by
@@ -145,12 +147,50 @@ func TestDisplay_NeverExceedsTheTerminalWidth(t *testing.T) {
 					b.Set(int64(step * (i + 1) * 7))
 				}
 			}
-			d.Stop()
-
-			if w, worst := replay(buf.String()).widest(); w > cols {
+			// Not even as wide as the terminal: a line that fills its last
+			// column has the character there erased by \x1b[K on a
+			// terminal with deferred wrap, and on the Windows console
+			// wraps at once, which the erase does not count.
+			//
+			// Measured before Stop, which erases the region: measured
+			// after it, as this test once was, the screen is empty and
+			// every width passes.
+			sc := replay(buf.String())
+			if len(sc.text()) != len(specs) {
+				t.Fatalf("cols=%d ascii=%v: %d lines on screen, want %d", cols, ascii, len(sc.text()), len(specs))
+			}
+			if w, worst := sc.widest(); w > cols-1 {
 				t.Errorf("cols=%d ascii=%v: a line is %d columns wide:\n%q", cols, ascii, w, worst)
 			}
+			d.Stop()
 		}
+	}
+}
+
+// TestDisplay_FitsWhereTheTroughsGlyphsAreWide is a CJK locale, where the
+// trough's block glyphs and brackets are counted two columns, as CJK
+// terminals draw them. The trough the width arithmetic counted a column a
+// glyph made a 60-column line 76 wide; it is drawn in ASCII there instead.
+func TestDisplay_FitsWhereTheTroughsGlyphsAreWide(t *testing.T) {
+	wide := (&runewidth.Condition{EastAsianWidth: true}).StringWidth
+	for _, cols := range []int{30, 60, 100} {
+		c := newClock()
+		var buf bytes.Buffer
+		d := New(&buf, Options{Mode: Live, Columns: cols, Now: c.now, Interval: time.Second, Width: wide})
+		bar := d.Bar(BarSpec{Label: "rendering", Total: 100, Unit: "frames"})
+		c.add(time.Second)
+		bar.Set(55)
+		lines := replay(buf.String()).text()
+		if len(lines) != 1 {
+			t.Fatalf("cols=%d: %d lines on screen, want 1", cols, len(lines))
+		}
+		if w := wide(lines[0]); w > cols-1 {
+			t.Errorf("cols=%d: a line %d columns wide by the display's own measure:\n%q", cols, w, lines[0])
+		}
+		if !strings.Contains(lines[0], "[=") {
+			t.Errorf("cols=%d: no ASCII trough in %q", cols, lines[0])
+		}
+		d.Stop()
 	}
 }
 
@@ -594,15 +634,19 @@ func TestDisplay_ColourNeverChangesTheWidth(t *testing.T) {
 					b.Set(int64(step * (i + 1) * 997))
 				}
 			}
-			d.Stop()
-
+			// Before Stop, which erases the region and would leave nothing
+			// to measure.
 			sc := replay(buf.String())
 			if len(sc.junk) > 0 {
 				t.Errorf("mode=%v cols=%d: unmodelled escape sequences %v", palette.Mode, cols, sc.junk)
 			}
-			if w, worst := sc.widest(); w > cols {
+			if len(sc.text()) != len(specs) {
+				t.Fatalf("mode=%v cols=%d: %d lines on screen, want %d", palette.Mode, cols, len(sc.text()), len(specs))
+			}
+			if w, worst := sc.widest(); w > cols-1 {
 				t.Errorf("mode=%v cols=%d: a line is %d columns wide: %q", palette.Mode, cols, w, worst)
 			}
+			d.Stop()
 		}
 	}
 }
