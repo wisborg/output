@@ -83,6 +83,7 @@ func TestDiagramRefuses(t *testing.T) {
 		{regions, []string{"--terminal", "braille"}, "use auto, iterm, kitty or text"},
 		{regions, []string{"--theme", "pink"}, "--theme"},
 		{regions, []string{"--width", "0"}, "--width 0"},
+		{regions, []string{"--color", "sometimes"}, "use auto, always or never"},
 		{regions, []string{"--text-size", "20", "--width", "800"}, "one or the other"},
 		{"digraph {\n a -- b\n}", nil, "standard input: line 2"},
 		{"digraph { subgraph cluster_a { columns=1; a [col=1]; b [col=1, row=1] } }", nil, "both pinned"},
@@ -185,5 +186,67 @@ func TestDiagramTerminalWidth(t *testing.T) {
 	}
 	if cfg.Width != 800 {
 		t.Errorf("%d pixels wide, want 800", cfg.Width)
+	}
+}
+
+// --color always draws the text in colour, to the terminal or a .txt file;
+// by default neither a pipe nor a file gets colour, and NO_COLOR or a dumb
+// terminal turns auto's off.
+func TestDiagramColour(t *testing.T) {
+	const filled = `digraph { a [style=filled, fillcolor=green]; a -> b }`
+	out, _, err := draw(t, filled, "--terminal", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Errorf("colour into a pipe by default:\n%q", out)
+	}
+	out, _, err = draw(t, filled, "--terminal", "text", "--color", "always")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "\x1b[48;2;0;255;0m") {
+		t.Errorf("--color always has no green behind a:\n%q", out)
+	}
+	dir := t.TempDir()
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{{nil, false}, {[]string{"--color", "always"}, true}} {
+		path := filepath.Join(dir, "d.txt")
+		if _, _, err := draw(t, filled, append([]string{"--out", path}, c.args...)...); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(path)
+		if got := bytes.Contains(data, []byte("\x1b[")); got != c.want {
+			t.Errorf("%v: colour in the .txt file %v, want %v", c.args, got, c.want)
+		}
+	}
+	env := func(kv ...string) func(string) string {
+		return func(k string) string {
+			for i := 0; i < len(kv); i += 2 {
+				if kv[i] == k {
+					return kv[i+1]
+				}
+			}
+			return ""
+		}
+	}
+	for _, c := range []struct {
+		mode string
+		tty  bool
+		env  func(string) string
+		want bool
+	}{
+		{"auto", true, noEnv, true},
+		{"auto", false, noEnv, false},
+		{"auto", true, env("NO_COLOR", "1"), false},
+		{"auto", true, env("TERM", "dumb"), false},
+		{"always", false, env("NO_COLOR", "1"), true},
+		{"never", true, noEnv, false},
+	} {
+		if got := colour(c.mode, c.tty, c.env); got != c.want {
+			t.Errorf("%s, tty %v: colour %v, want %v", c.mode, c.tty, got, c.want)
+		}
 	}
 }

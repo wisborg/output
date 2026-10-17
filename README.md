@@ -434,7 +434,7 @@ program that already writes DOT.
 ```
 go install github.com/wisborg/output/cmd/diagram@latest
 
-diagram cluster.dot                 # in the terminal: a picture, or text
+diagram cluster.dot                 # in the terminal: a picture, or text in colour
 diagram --out cluster.png cluster.dot     # 1600 pixels wide, as plot's charts
 diagram --out cluster.svg --width 800 cluster.dot
 some-program --graph | diagram

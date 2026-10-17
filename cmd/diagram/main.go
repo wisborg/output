@@ -77,6 +77,7 @@ type options struct {
 	out      string
 	terminal string
 	theme    string
+	color    string
 	width    int
 	height   int
 	textPx   float64
@@ -104,6 +105,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	fs.StringVar(&o.out, "out", "", "write the diagram to this file rather than the terminal: .png, .svg, or .txt for the text drawing")
 	fs.StringVar(&o.terminal, "terminal", "auto", "how the diagram is shown in the terminal: auto (a picture where the terminal shows one, text otherwise), iterm, kitty or text")
+	fs.StringVar(&o.color, "color", "auto", "colour in the text drawing: auto (in a terminal, unless NO_COLOR is set; not into a pipe or a .txt file), always or never")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a file; the terminal's own in a terminal), light or dark")
 	fs.IntVar(&o.width, "width", 0, "the diagram's width: in characters in the terminal (default: the terminal's, or 100); in pixels in a PNG or an SVG (default: "+strconv.Itoa(imageWidth)+"); its height follows from its proportions")
 	fs.IntVar(&o.height, "height", 0, "the most the diagram's height may be, narrower where it would be taller: in lines in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none)")
@@ -142,6 +144,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	case "auto", "iterm", "kitty", "text":
 	default:
 		return fmt.Errorf("--terminal %q: use auto, iterm, kitty or text", o.terminal)
+	}
+	switch o.color {
+	case "auto", "always", "never":
+	default:
+		return fmt.Errorf("--color %q: use auto, always or never", o.color)
 	}
 	in, name := stdin, "standard input"
 	if len(files) == 1 && files[0] != "-" {
@@ -229,7 +236,12 @@ func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error
 			return err
 		}
 	case ".txt":
-		for _, l := range lay.Text() {
+		// A file is read by more than terminals: in colour only when asked.
+		lines := lay.Text()
+		if o.color == "always" {
+			lines = lay.ColourText(pal)
+		}
+		for _, l := range lines {
 			buf.WriteString(l + "\n")
 		}
 	}
@@ -255,15 +267,19 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	if note != "" {
 		fmt.Fprintln(errOut, strings.Replace(note, "drawn in braille", "drawn as text", 1)+"; --terminal iterm or kitty draws one anyway")
 	}
-	if how == terminal.Braille {
-		for _, l := range lay.Text() {
-			fmt.Fprintln(out, l)
-		}
-		return nil
-	}
 	pal, err := palette(o.theme, true, getenv)
 	if err != nil {
 		return err
+	}
+	if how == terminal.Braille {
+		lines := lay.Text()
+		if colour(o.color, tty, getenv) {
+			lines = lay.ColourText(pal)
+		}
+		for _, l := range lines {
+			fmt.Fprintln(out, l)
+		}
+		return nil
 	}
 	fonts, err := loadFonts(o.fonts)
 	if err != nil {
@@ -305,6 +321,19 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	}
 	shown := min(cols, int(math.Ceil(float64(img.Bounds().Dx())/perCol)))
 	return terminal.Write(out, how, buf.Bytes(), shown)
+}
+
+// colour is whether the text drawing is in colour: as --color says, and
+// for auto, in a terminal that has not been asked for none -- NO_COLOR set
+// to anything, as no-color.org has it -- and is not a dumb one.
+func colour(mode string, tty bool, getenv func(string) string) bool {
+	switch mode {
+	case "always":
+		return true
+	case "never":
+		return false
+	}
+	return tty && getenv("NO_COLOR") == "" && getenv("TERM") != "dumb"
 }
 
 // textPxFor is the text size that draws lay width pixels wide, or less

@@ -1,6 +1,8 @@
 package diagram
 
 import (
+	"image/color"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -61,5 +63,79 @@ func TestTextStyles(t *testing.T) {
 	}
 	if strings.Contains(text, "gap") {
 		t.Errorf("the invisible node is drawn:\n%s", text)
+	}
+}
+
+var escape = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// In colour, the drawing is the same characters as without, a fill is
+// behind the inside of its box and the label on it is in the ink that
+// stands out from it, and every line ends with the terminal's own colours
+// back.
+func TestColourText(t *testing.T) {
+	green := color.RGBA{0x8F, 0xD1, 0x8F, 0xFF}
+	d := &Diagram{
+		Root: Group{Rows: 2, Items: []Item{
+			{Group: &Group{ID: "east", Style: Lane, Label: "east", Columns: 2, Items: []Item{
+				{Node: &Node{ID: "a", Fill: green}}, node("b")}}},
+			{Group: &Group{ID: "west", Style: Lane, Label: "west", Columns: 2, Items: []Item{node("c")}}},
+		}},
+		Edges: []Edge{{From: "a", To: "b", Head: true, Label: "sync"}, {From: "a", To: "c", Head: true, Colour: color.RGBA{0xFF, 0, 0, 0xFF}}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, coloured := lay.Text(), lay.ColourText(Dark)
+	if len(plain) != len(coloured) {
+		t.Fatalf("%d lines plain, %d in colour", len(plain), len(coloured))
+	}
+	for i := range plain {
+		if got := strings.TrimRight(escape.ReplaceAllString(coloured[i], ""), " "); got != plain[i] {
+			t.Errorf("line %d is %q in colour, %q plain", i, got, plain[i])
+		}
+		fg, bg := false, false
+		for _, e := range escape.FindAllString(coloured[i], -1) {
+			switch {
+			case e == "\x1b[0m":
+				fg, bg = false, false
+			case e == "\x1b[39m":
+				fg = false
+			case e == "\x1b[49m":
+				bg = false
+			case strings.HasPrefix(e, "\x1b[38;"):
+				fg = true
+			case strings.HasPrefix(e, "\x1b[48;"):
+				bg = true
+			}
+		}
+		if fg || bg {
+			t.Errorf("line %d leaves its colour set: %q", i, coloured[i])
+		}
+	}
+	a, _ := lay.Node("a")
+	label := coloured[a.Rect.Y+1]
+	fill, ink := "\x1b[48;2;143;209;143m", "\x1b[38;2;14;14;16m" // the green; Dark's background
+	if i, j := strings.Index(label, fill), strings.Index(label, ink+"a"); i < 0 || j < i {
+		t.Errorf("a's label line %q: want the green behind it, then a in dark ink", label)
+	}
+	all := strings.Join(coloured, "\n")
+	for _, want := range []string{"\x1b[38;2;255;0;0m", "\x1b[38;2;138;138;150msync", "\x1b[38;2;138;138;150meast"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no %q: the red edge, the dim edge label and lane label", want)
+		}
+	}
+}
+
+// Nothing coloured, nothing to escape: a diagram without colours, groups or
+// labels on its edges is the same in colour as plain.
+func TestColourTextWithoutColours(t *testing.T) {
+	d := &Diagram{Root: Group{Items: []Item{node("a"), node("b")}}, Edges: []Edge{{From: "a", To: "b", Head: true}}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain, coloured := strings.Join(lay.Text(), "\n"), strings.Join(lay.ColourText(Light), "\n"); plain != coloured {
+		t.Errorf("in colour:\n%q\nplain:\n%q", coloured, plain)
 	}
 }
