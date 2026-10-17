@@ -1,0 +1,37 @@
+// Whether to deploy on a Friday afternoon: a flow chart, laid out in
+// layers from its edges -- no columns or rows, so each step goes below the
+// one before it and a decision's branches either side of it.
+//
+//	diagram examples/friday-deploy.dot
+//	diagram --out friday-deploy.svg examples/friday-deploy.dot
+digraph {
+	label = "Should I deploy on a Friday afternoon?"
+	node [shape = box, style = rounded]
+
+	start   [label = "It's Friday, 16:55", shape = ellipse]
+	tests   [label = "Do the tests pass?"]
+	fix     [label = "Fix the tests\n(or the tests' opinions)"]
+	who     [label = "Is anyone on call\nwho isn't you?"]
+	small   [label = "Is it a one-line change?"]
+	sure    [label = "Are you sure?"]
+	really  [label = "Have you met\none-line changes?"]
+	monday  [label = "Deploy on Monday", style = "rounded,filled", fillcolor = "#8fd18f"]
+	deploy  [label = "Deploy", style = "rounded,filled", fillcolor = "#f08a8a"]
+	weekend [label = "Spend the weekend\nrolling back", shape = ellipse, style = filled, fillcolor = "#f5d76e"]
+	pub     [label = "Go home", shape = ellipse]
+
+	start  -> tests
+	tests  -> fix    [label = "no"]
+	fix    -> tests  [label = "eventually", style = dashed]
+	tests  -> who    [label = "yes"]
+	who    -> monday [label = "no"]
+	who    -> small  [label = "yes"]
+	small  -> monday [label = "no"]
+	small  -> sure   [label = "yes"]
+	sure   -> really [label = "yes"]
+	sure   -> monday [label = "no"]
+	really -> deploy [label = "no", color = "#c03030"]
+	really -> monday [label = "yes"]
+	deploy -> weekend
+	monday -> pub
+}

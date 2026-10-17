@@ -443,6 +443,9 @@ some-program --graph | diagram
 [`examples/replication.dot`](examples/replication.dot) is a worked example
 of everything below: regions as lanes, databases filled by their health, and
 a legend saying what the colours and lines mean.
+[`examples/friday-deploy.dot`](examples/friday-deploy.dot) is a flow chart,
+laid out in layers from its edges, on whether to deploy on a Friday
+afternoon.
 
 A group of nodes — a DOT subgraph whose name begins with `cluster` — places
 what it holds in one of two ways. Without anything more, in **layers**, as
