@@ -9,10 +9,9 @@ package diagram
 // as a diagram rather than as a scribble; a picture draws the same path so
 // that the two drawings agree.
 //
-// The path does not go round the boxes between its ends. In a grid, where
-// boxes are placed by what the diagram declares, a line between two that are
-// not neighbours may pass one: the diagram says where each box goes, and
-// the line follows.
+// A path that would pass through a box between its ends goes round it
+// instead, where the way round is clear: a line through a box reads as a
+// line from it. Where no way round is clear, the line keeps its path.
 func (l *layouter) route() {
 	parallel := map[[2]string]int{}
 	for i := range l.d.Edges {
@@ -30,8 +29,13 @@ func (l *layouter) route() {
 			pts = loop(a)
 		default:
 			pts = path(a, b, nth)
-			if len(pts) == 2 && l.blocked(pts, e.From, e.To) {
-				pts = detour(a, b, l.below(a, b), l.beside(a, b))
+			if l.blocked(pts, e.From, e.To) {
+				// Straight or bent: a branch of a flow chart that skips
+				// the steps below it would otherwise run down through
+				// them, and read as leaving each.
+				if round := detour(a, b, l.below(a, b), l.beside(a, b)); !l.blocked(round, e.From, e.To) {
+					pts = round
+				}
 			}
 		}
 		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: e, Points: pts})
@@ -62,9 +66,14 @@ func (l *layouter) blocked(pts []Point, from, to string) bool {
 func (l *layouter) below(a, b Rect) int {
 	lo, hi := min(a.X, b.X), max(a.X+a.W, b.X+b.W)
 	bottom := max(a.Y+a.H, b.Y+b.H)
-	for _, r := range l.rect {
-		if r.X < hi && r.X+r.W > lo && r.Y < bottom && r.Y+r.H > min(a.Y, b.Y) {
-			bottom = max(bottom, r.Y+r.H)
+	// Until no box reaches past it: a box found low enough to push it down
+	// may bring another into reach, whatever order they are met in.
+	for moved := true; moved; {
+		moved = false
+		for _, r := range l.rect {
+			if r.X < hi && r.X+r.W > lo && r.Y < bottom && r.Y+r.H > min(a.Y, b.Y) && r.Y+r.H > bottom {
+				bottom, moved = r.Y+r.H, true
+			}
 		}
 	}
 	// The middle of the gap, unless a lane's line or a frame's edge runs
@@ -97,9 +106,12 @@ func (l *layouter) rowTaken(y, x0, x1 int) bool {
 func (l *layouter) beside(a, b Rect) int {
 	lo, hi := min(a.Y, b.Y), max(a.Y+a.H, b.Y+b.H)
 	right := max(a.X+a.W, b.X+b.W)
-	for _, r := range l.rect {
-		if r.Y < hi && r.Y+r.H > lo && r.X < right && r.X+r.W > min(a.X, b.X) {
-			right = max(right, r.X+r.W)
+	for moved := true; moved; {
+		moved = false
+		for _, r := range l.rect {
+			if r.Y < hi && r.Y+r.H > lo && r.X < right && r.X+r.W > min(a.X, b.X) && r.X+r.W > right {
+				right, moved = r.X+r.W, true
+			}
 		}
 	}
 	return right + colGap/2

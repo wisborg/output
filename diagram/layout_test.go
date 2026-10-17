@@ -330,3 +330,54 @@ func TestLayoutEmpty(t *testing.T) {
 		}
 	}
 }
+
+// Where several branches meet one step along a trunk they share, each
+// branch's label is written where it leaves its own decision, not on the
+// trunk, where they would pile up and could not be told apart.
+func TestBranchLabelsAtTheirDecisions(t *testing.T) {
+	d := &Diagram{
+		Root: Group{Items: []Item{node("one"), node("two"), node("three"), node("go"), node("stop")}},
+		Edges: []Edge{
+			{From: "one", To: "two", Head: true, Label: "yes"},
+			{From: "two", To: "three", Head: true, Label: "yes"},
+			{From: "three", To: "go", Head: true, Label: "yes"},
+			{From: "one", To: "stop", Head: true, Label: "no"},
+			{From: "two", To: "stop", Head: true, Label: "no"},
+			{From: "three", To: "stop", Head: true, Label: "no"},
+		},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(lay.Text(), "\n")
+	rows := map[int]bool{}
+	for _, e := range lay.Edges {
+		if e.Edge.Label != "no" {
+			continue
+		}
+		from, _ := lay.Node(e.Edge.From)
+		if r := from.Rect; e.LabelAt.Y < r.Y-1 || e.LabelAt.Y > r.Y+r.H {
+			t.Errorf("%s's no at row %d, not by %s at rows %d to %d:\n%s", e.Edge.From, e.LabelAt.Y, e.Edge.From, r.Y, r.Y+r.H-1, text)
+		}
+		rows[e.LabelAt.Y] = true
+	}
+	if len(rows) != 3 {
+		t.Errorf("the three no labels are on %d rows, want three:\n%s", len(rows), text)
+	}
+	// And no branch runs through the steps it skips.
+	for _, e := range lay.Edges {
+		for _, n := range lay.Nodes {
+			if n.Node.ID == e.Edge.From || n.Node.ID == e.Edge.To {
+				continue
+			}
+			r := n.Rect
+			for i := 1; i < len(e.Points); i++ {
+				p, q := e.Points[i-1], e.Points[i]
+				if min(p.X, q.X) <= r.X+r.W-1 && max(p.X, q.X) >= r.X && min(p.Y, q.Y) <= r.Y+r.H-1 && max(p.Y, q.Y) >= r.Y {
+					t.Errorf("%s to %s passes through %s:\n%s", e.Edge.From, e.Edge.To, n.Node.ID, text)
+				}
+			}
+		}
+	}
+}

@@ -126,6 +126,7 @@ func (lay *Layout) placeLabels() {
 			o.take(g.LabelAt, []string{" " + label + " "})
 		}
 	}
+	shared := edgeCells(lay.Edges)
 	for i := range lay.Edges {
 		e := &lay.Edges[i]
 		if e.Edge.Label == "" || len(e.Points) < 2 {
@@ -137,14 +138,7 @@ func (lay *Layout) placeLabels() {
 			width = max(width, utf8.RuneCountInString(l))
 		}
 		pts := e.Points
-		seg := len(pts) - 1
-		if length(pts[seg-1], pts[seg]) < 2 {
-			for k := 1; k < len(pts); k++ {
-				if length(pts[k-1], pts[k]) > length(pts[seg-1], pts[seg]) {
-					seg = k
-				}
-			}
-		}
+		seg := labelSegment(pts, shared)
 		a, b := pts[seg-1], pts[seg]
 		var tries []Point
 		if a.X == b.X {
@@ -178,3 +172,64 @@ func (lay *Layout) placeLabels() {
 }
 
 func length(a, b Point) int { return abs(b.X-a.X) + abs(b.Y-a.Y) }
+
+// edgeCells is how many edges pass through each cell, counting each edge
+// once however it turns there.
+func edgeCells(edges []PlacedEdge) map[Point]int {
+	n := map[Point]int{}
+	for _, e := range edges {
+		seen := map[Point]bool{}
+		for k := 1; k < len(e.Points); k++ {
+			a, b := e.Points[k-1], e.Points[k]
+			dx, dy := sign(b.X-a.X), sign(b.Y-a.Y)
+			for p := a; ; p = (Point{p.X + dx, p.Y + dy}) {
+				if !seen[p] {
+					seen[p] = true
+					n[p]++
+				}
+				if p == b {
+					break
+				}
+			}
+		}
+	}
+	return n
+}
+
+// labelSegment is the segment of pts, by the index of its end, an edge's
+// label is written beside: the first from the tail at least two cells long
+// that the edge has to itself -- where a branch leaves its decision, which
+// is where a reader looks for "yes" or "no", and never a stem or a trunk it
+// shares with other edges, where the labels of all of them would pile up
+// and could not be told apart. Where it has none to itself, the last, or
+// the longest where the last is too short to hold one.
+func labelSegment(pts []Point, shared map[Point]int) int {
+	for k := 1; k < len(pts); k++ {
+		a, b := pts[k-1], pts[k]
+		if length(a, b) < 2 {
+			continue
+		}
+		own := true
+		dx, dy := sign(b.X-a.X), sign(b.Y-a.Y)
+		// The cells between its ends: a corner is where it meets another
+		// segment, or another edge leaving the same side, and says nothing.
+		for p := (Point{a.X + dx, a.Y + dy}); p != b; p = (Point{p.X + dx, p.Y + dy}) {
+			if shared[p] > 1 {
+				own = false
+				break
+			}
+		}
+		if own {
+			return k
+		}
+	}
+	seg := len(pts) - 1
+	if length(pts[seg-1], pts[seg]) < 2 {
+		for k := 1; k < len(pts); k++ {
+			if length(pts[k-1], pts[k]) > length(pts[seg-1], pts[seg]) {
+				seg = k
+			}
+		}
+	}
+	return seg
+}
