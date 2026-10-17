@@ -250,3 +250,24 @@ func TestDiagramColour(t *testing.T) {
 		}
 	}
 }
+
+// Every example in the repository draws, as text, a PNG and an SVG: an
+// example that no longer reads is worse than none.
+func TestExamples(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.dot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no examples/*.dot")
+	}
+	dir := t.TempDir()
+	for _, path := range paths {
+		for _, ext := range []string{".txt", ".png", ".svg"} {
+			out := filepath.Join(dir, strings.TrimSuffix(filepath.Base(path), ".dot")+ext)
+			if _, _, err := draw(t, "", path, "--out", out); err != nil {
+				t.Errorf("%s as %s: %v", path, ext, err)
+			}
+		}
+	}
+}

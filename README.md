@@ -440,6 +440,10 @@ diagram --out cluster.svg --width 800 cluster.dot
 some-program --graph | diagram
 ```
 
+[`examples/replication.dot`](examples/replication.dot) is a worked example
+of everything below: regions as lanes, databases filled by their health, and
+a legend saying what the colours and lines mean.
+
 A group of nodes — a DOT subgraph whose name begins with `cluster` — places
 what it holds in one of two ways. Without anything more, in **layers**, as
 Graphviz's `dot` does: each node below the nodes its edges come from, the

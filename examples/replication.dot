@@ -1,0 +1,41 @@
+// A database replicated across two regions, each database filled with its
+// health, and a legend saying what the colours and lines mean.
+//
+//	diagram examples/replication.dot
+//	diagram --out replication.png examples/replication.dot
+//
+// columns, rows and style=lane and style=legend are diagram's own; Graphviz
+// ignores them and draws the file as an ordinary graph, so it still draws
+// there, laid out by Graphviz's rules instead. As in Graphviz, a fill
+// needs style=filled.
+digraph {
+	// The regions one above the other, each a grid of two columns: a
+	// database stays in its place whatever its links do, and the columns
+	// are shared, so dbC is under dbA.
+	rows = 2
+	node [shape = cylinder, style = filled]
+
+	subgraph cluster_east {
+		label = "us-east-1"; style = lane; columns = 2
+		dbA [label = "dbA\nprimary", fillcolor = "#8fd18f"]   // healthy
+		dbB [label = "dbB\nreplica", fillcolor = "#f08a8a"]   // error
+	}
+	subgraph cluster_west {
+		label = "us-west-2"; style = lane; columns = 2
+		dbC [label = "dbC\nreplica", fillcolor = "#f5d76e"]   // warnings
+	}
+
+	dbA -> dbB [label = "sync"]
+	dbA -> dbC [label = "async", style = dashed]
+
+	// The legend, drawn below the diagram, outside its grid. A filled node
+	// is a swatch; a plain one is a line, drawn as an edge is.
+	subgraph cluster_legend {
+		label = "Legend"; style = legend
+		healthy  [label = "healthy",                  fillcolor = "#8fd18f"]
+		warnings [label = "working, with warnings",   fillcolor = "#f5d76e"]
+		failing  [label = "error",                    fillcolor = "#f08a8a"]
+		sync     [label = "synchronous replication",  shape = plain, style = solid]
+		async    [label = "asynchronous replication", shape = plain, style = dashed]
+	}
+}

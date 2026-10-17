@@ -68,6 +68,9 @@ from reality is a test failure.
   `golang.org/x/image/vector` and Go Mono: shared by `chart/picture` and
   `diagram/picture`, and internal so that it is not an API anyone else
   depends on.
+- `examples/` — DOT files a reader can copy, each drawn as text, PNG and
+  SVG by `cmd/diagram`'s `TestExamples`, so one that stops reading fails the
+  build rather than the reader.
 - `internal/cli/` — what the commands share in reading their command line:
   `Parse` takes flags before or after the file, and `PrintDefaults` lists
   them as `--out string`, as fitdash does. The standard `flag` package reads
