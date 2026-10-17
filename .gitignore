@@ -13,5 +13,5 @@
 # nothing in another checkout.
 /.claude/
 
-# The plot command, as `make build` leaves it at the root.
-/plot
+# The commands, as `make build` leaves them.
+/bin/

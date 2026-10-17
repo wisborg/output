@@ -3,8 +3,9 @@
 Go packages for producing program output in more than one shape: aligned
 text, CSV, JSON or YAML, chosen when the program runs — while the program
 is still working, live progress on the terminal — and charts, drawn in the
-terminal in braille or as a picture. The `plot` command draws one from a CSV
-file.
+terminal in braille or as a picture, and diagrams of boxes and the lines
+between them. The `plot` command draws a chart from a CSV file, and `diagram`
+a diagram from Graphviz's DOT language.
 
 `table` builds tabular data and renders it as aligned text.
 
@@ -213,13 +214,14 @@ Three, all compatible with this project's Apache-2.0 licence:
   organisation's maintained fork of `gopkg.in/yaml.v3`, which was archived in
   April 2025. It has no dependencies of its own.
 - [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image) (BSD-3-Clause),
-  for drawing a chart as a picture: its vector rasteriser and the Go Mono
-  font it embeds, whose licence is the same BSD-style one as Go's. It uses
-  `golang.org/x/text` (BSD-3-Clause).
+  for drawing a chart or a diagram as a picture: its vector rasteriser and the
+  Go Mono font it embeds, whose licence is the same BSD-style one as Go's. It
+  uses `golang.org/x/text` (BSD-3-Clause).
 
 `table` does not import the YAML library, so a program that only builds
-tables does not link it; and only `chart/picture` imports `golang.org/x/image`,
-so a program that draws charts in text, or none, does not link that.
+tables does not link it; and only `chart/picture` and `diagram/picture` import
+`golang.org/x/image`, so a program that draws charts or diagrams in text, or as
+SVG, or not at all, does not link that. `make deps` checks all of this.
 
 ## Licence
 
@@ -419,3 +421,72 @@ window; in any other terminal, in tmux, or into a pipe, it is braille; with
 `-out` it is a PNG. CSV is the only format it reads for now: the reading is
 one file of the command, and another format is another reader of the same
 table.
+
+## diagram
+
+`diagram` lays out and draws diagrams — a flow chart, a database cluster and
+its replicas, services and what they call — as text in the terminal, or with
+`diagram/picture` as a PNG and `diagram/svg` as SVG. `diagram/dot` reads them
+from Graphviz's [DOT language](https://graphviz.org/doc/info/lang.html), so a
+diagram can be written in a language many people know, or taken from a
+program that already writes DOT.
+
+```
+go install github.com/wisborg/output/cmd/diagram@latest
+
+diagram cluster.dot                 # in the terminal: a picture, or text
+diagram -out cluster.svg cluster.dot
+some-program --graph | diagram
+```
+
+A group of nodes — a DOT subgraph whose name begins with `cluster` — places
+what it holds in one of two ways. Without anything more, in **layers**, as
+Graphviz's `dot` does: each node below the nodes its edges come from, the
+branches of a step either side of it. That is what a flow chart wants. With
+`columns=N` or `rows=N` — attributes of this package's own, which Graphviz
+ignores, so the file still draws there — in a **grid**, in the order the
+nodes are written, with `row=` and `col=` to pin one to a cell. A grid's
+places come from what the diagram declares, never from its edges, so a
+diagram of a system draws every box where it was when a link changes: a
+replica that stops replicating moves nothing, and its line is all that
+differs. `style=lane` draws a cluster as a band across the diagram, set off
+from the next by a line, as a region or a data centre is:
+
+```dot
+digraph {
+  rows = 2
+  subgraph cluster_east { label = "us-east-1"; style = lane; columns = 2; dbA; dbB }
+  subgraph cluster_west { label = "us-west-2"; style = lane; columns = 2; dbC }
+  dbA -> dbB
+  dbA -> dbC [label = "async", style = dashed]
+}
+```
+
+```
+┌─────┐      ┌─────┐
+│ dbA ├─────▶│ dbB │    us-east-1
+└──┬──┘      └─────┘
+   ╎
+───┼─────────────────────────────
+   ▼ async
+┌─────┐
+│ dbC │                 us-west-2
+└─────┘
+```
+
+Grids stacked in a grid share their columns, as a table's rows do, so `dbC`
+is under `dbA` though the lanes are laid out apart.
+
+Everything is measured in character cells, so the text drawing and the
+pictures are one layout: a picture draws each cell as a fixed box of pixels
+in a monospaced font. Every edge runs along rows and columns, round a box in
+its way rather than through it. Shapes are boxes, rounded boxes, ellipses,
+cylinders and plain text; lines solid, dashed, dotted or bold; colours
+Graphviz's, by `#rrggbb` or by the common X11 names.
+
+Of DOT, the whole grammar is read, and the attributes that say what a
+diagram means; those about how Graphviz draws are ignored. HTML labels are
+read as their words, ports are read and not drawn; an edge ending at a
+cluster itself (Graphviz's `lhead` and `ltail`), record shapes and
+Graphviz's other layout engines are not supported.
+

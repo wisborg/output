@@ -1,0 +1,687 @@
+// Package dot reads a diagram in Graphviz's DOT language
+// (https://graphviz.org/doc/info/lang.html), so a diagram can be written by
+// hand in a language many people know, or taken from a program that already
+// writes DOT.
+//
+// The whole grammar is read: graphs and digraphs, strict or not; node, edge
+// and attribute statements; default attributes, which a subgraph inherits
+// and may change for itself; subgraphs, named and anonymous, as an edge's
+// ends; ports, which are read and not drawn; quoted strings joined with +,
+// HTML strings, comments.
+//
+// A subgraph whose name begins with "cluster" is a group, as Graphviz
+// draws one; any other subgraph only scopes defaults, and with rank=same
+// keeps its nodes in one layer.
+//
+// A few attributes are this package's own, which Graphviz ignores, so a
+// file using them is still a file Graphviz draws:
+//
+//   - columns=N or rows=N, on the graph or a cluster, lay what it holds out
+//     in a grid -- N columns filled row by row, or N rows filled column by
+//     column -- in the order it is written, rather than in layers from its
+//     edges. A grid's places do not depend on its edges, so a diagram of a
+//     system keeps every box where it was when a link between two changes.
+//   - row=R and col=C, on a node or a cluster, pin it to that cell of the
+//     grid it is in, counting from 1.
+//   - style=lane, on a cluster, draws it as a band across the diagram set
+//     off by a line, its label at the far side, rather than as a box.
+//
+// Of Graphviz's own attributes, those that say what a diagram means are
+// read -- label, shape, style, color, fillcolor, fontcolor, dir, arrowhead,
+// arrowtail, rankdir, rank -- and those about how Graphviz draws, which
+// mean nothing to this layout, are ignored.
+package dot
+
+import (
+	"fmt"
+	"image/color"
+	"strconv"
+	"strings"
+
+	"github.com/wisborg/output/diagram"
+)
+
+// Parse reads a diagram from DOT source. Only the first graph of a file is
+// read.
+func Parse(src string) (*diagram.Diagram, error) {
+	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}}
+	if err := p.advance(); err != nil {
+		return nil, err
+	}
+	if err := p.graph(); err != nil {
+		return nil, err
+	}
+	return p.d, nil
+}
+
+// nodeInfo is a node as read: the group it is in, and its attributes --
+// the defaults where it was made, then each statement's over them -- which
+// are read into the node once the file is, as what one means can depend on
+// another set later: a fillcolor fills only with style=filled.
+type nodeInfo struct {
+	n     *diagram.Node
+	group *diagram.Group
+	attrs map[string]string
+	line  int // the last line that set an attribute
+}
+
+// scope is a graph's or a subgraph's: the defaults its statements start
+// from, and what it is.
+type scope struct {
+	nodeAttrs, edgeAttrs map[string]string
+	graphAttrs           map[string]string
+	group                *diagram.Group // the group its nodes are in: the innermost cluster
+	nodes                []string       // the nodes it holds, in order: an edge's end, rank=same
+}
+
+func (s *scope) child() *scope {
+	return &scope{nodeAttrs: clone(s.nodeAttrs), edgeAttrs: clone(s.edgeAttrs), graphAttrs: map[string]string{}, group: s.group}
+}
+
+func clone(m map[string]string) map[string]string {
+	c := make(map[string]string, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
+	return c
+}
+
+type parser struct {
+	lex      lexer
+	tok      token
+	d        *diagram.Diagram
+	directed bool
+	strict   bool
+	nodes    map[string]*nodeInfo
+	order    []string           // the nodes in the order made
+	seen     map[[2]string]bool // a strict graph's edges
+}
+
+func (p *parser) advance() error {
+	t, err := p.lex.next()
+	p.tok = t
+	return err
+}
+
+func (p *parser) errorf(format string, args ...any) error {
+	return &Error{Line: p.tok.line, Msg: fmt.Sprintf(format, args...)}
+}
+
+// keyword says the token is the keyword kw, which DOT reads in any case.
+func (p *parser) keyword(kw string) bool {
+	return p.tok.kind == tID && !p.tok.quoted && strings.EqualFold(p.tok.text, kw)
+}
+
+func (p *parser) punct(s string) bool { return p.tok.kind == tPunct && p.tok.text == s }
+
+func (p *parser) expect(s string) error {
+	if !p.punct(s) {
+		return p.errorf("expected %q, found %s", s, p.describe())
+	}
+	return p.advance()
+}
+
+func (p *parser) describe() string {
+	switch p.tok.kind {
+	case tEOF:
+		return "the end of the file"
+	case tID:
+		return strconv.Quote(p.tok.text)
+	}
+	return fmt.Sprintf("%q", p.tok.text)
+}
+
+// graph reads [strict] (graph|digraph) [ID] { stmt_list }.
+func (p *parser) graph() error {
+	if p.keyword("strict") {
+		p.strict = true
+		p.seen = map[[2]string]bool{}
+		if err := p.advance(); err != nil {
+			return err
+		}
+	}
+	switch {
+	case p.keyword("digraph"):
+		p.directed = true
+	case p.keyword("graph"):
+	default:
+		return p.errorf("a DOT file begins with graph or digraph, not %s", p.describe())
+	}
+	if err := p.advance(); err != nil {
+		return err
+	}
+	name := ""
+	if p.tok.kind == tID {
+		name = p.tok.text
+		if err := p.advance(); err != nil {
+			return err
+		}
+	}
+	p.d = &diagram.Diagram{}
+	p.d.Root.Style = diagram.Hidden
+	root := &scope{nodeAttrs: map[string]string{}, edgeAttrs: map[string]string{}, graphAttrs: map[string]string{}, group: &p.d.Root}
+	if err := p.expect("{"); err != nil {
+		return err
+	}
+	if err := p.stmts(root); err != nil {
+		return err
+	}
+	if err := p.expect("}"); err != nil {
+		return err
+	}
+	for _, id := range p.order {
+		if err := applyNode(p.nodes[id]); err != nil {
+			return err
+		}
+	}
+	return p.applyGraph(root.graphAttrs, name)
+}
+
+// stmts reads statements up to the closing brace.
+func (p *parser) stmts(s *scope) error {
+	for !p.punct("}") {
+		if p.tok.kind == tEOF {
+			return p.errorf("the file ends inside a graph: a } is missing")
+		}
+		if p.punct(";") {
+			// An empty statement, as Graphviz allows: a;;b.
+			if err := p.advance(); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := p.stmt(s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// stmt reads one statement.
+func (p *parser) stmt(s *scope) error {
+	switch {
+	case p.keyword("graph") || p.keyword("node") || p.keyword("edge"):
+		kind := strings.ToLower(p.tok.text)
+		if err := p.advance(); err != nil {
+			return err
+		}
+		attrs, err := p.attrLists()
+		if err != nil {
+			return err
+		}
+		target := map[string]map[string]string{"graph": s.graphAttrs, "node": s.nodeAttrs, "edge": s.edgeAttrs}[kind]
+		for k, v := range attrs {
+			target[k] = v
+		}
+		return nil
+	case p.keyword("subgraph") || p.punct("{"):
+		ends, err := p.subgraph(s)
+		if err != nil {
+			return err
+		}
+		return p.edgeRest(s, ends)
+	case p.tok.kind != tID:
+		return p.errorf("expected a statement, found %s", p.describe())
+	}
+	id := p.tok.text
+	if err := p.advance(); err != nil {
+		return err
+	}
+	if p.punct("=") {
+		if err := p.advance(); err != nil {
+			return err
+		}
+		if p.tok.kind != tID {
+			return p.errorf("expected a value for %s, found %s", id, p.describe())
+		}
+		s.graphAttrs[id] = p.tok.text
+		return p.advance()
+	}
+	if err := p.port(); err != nil {
+		return err
+	}
+	if p.tok.kind == tEdge {
+		return p.edgeRest(s, []string{p.node(s, id)})
+	}
+	line := p.tok.line
+	attrs, err := p.attrLists()
+	if err != nil {
+		return err
+	}
+	info := p.nodes[p.node(s, id)]
+	for k, v := range attrs {
+		info.attrs[k] = v
+	}
+	if len(attrs) > 0 {
+		info.line = line
+	}
+	return nil
+}
+
+// port reads a node's [: ID [: ID]], which is not drawn.
+func (p *parser) port() error {
+	for p.punct(":") {
+		if err := p.advance(); err != nil {
+			return err
+		}
+		if p.tok.kind != tID {
+			return p.errorf("expected a port after :, found %s", p.describe())
+		}
+		if err := p.advance(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// edgeRest reads the rest of an edge statement whose first end is from --
+// the node, or the nodes of a subgraph -- if the statement is one: each
+// further end, and the attributes. Every node of one end is joined to
+// every node of the next.
+func (p *parser) edgeRest(s *scope, from []string) error {
+	if p.tok.kind != tEdge {
+		return nil
+	}
+	ends := [][]string{from}
+	for p.tok.kind == tEdge {
+		if p.directed != (p.tok.text == "->") {
+			if p.directed {
+				return p.errorf("a digraph's edges are ->, not --")
+			}
+			return p.errorf("a graph's edges are --, not ->; a digraph has ->")
+		}
+		if err := p.advance(); err != nil {
+			return err
+		}
+		switch {
+		case p.keyword("subgraph") || p.punct("{"):
+			nodes, err := p.subgraph(s)
+			if err != nil {
+				return err
+			}
+			ends = append(ends, nodes)
+		case p.tok.kind == tID:
+			id := p.tok.text
+			if err := p.advance(); err != nil {
+				return err
+			}
+			if err := p.port(); err != nil {
+				return err
+			}
+			ends = append(ends, []string{p.node(s, id)})
+		default:
+			return p.errorf("expected a node after the edge, found %s", p.describe())
+		}
+	}
+	attrs, err := p.attrLists()
+	if err != nil {
+		return err
+	}
+	merged := clone(s.edgeAttrs)
+	for k, v := range attrs {
+		merged[k] = v
+	}
+	for i := 1; i < len(ends); i++ {
+		for _, a := range ends[i-1] {
+			for _, b := range ends[i] {
+				if p.strict {
+					key := [2]string{a, b}
+					if !p.directed && b < a {
+						key = [2]string{b, a}
+					}
+					if p.seen[key] {
+						continue
+					}
+					p.seen[key] = true
+				}
+				e := diagram.Edge{From: a, To: b, Head: p.directed}
+				if err := p.applyEdge(&e, merged); err != nil {
+					return err
+				}
+				p.d.Edges = append(p.d.Edges, e)
+			}
+		}
+	}
+	return nil
+}
+
+// subgraph reads [subgraph [ID]] { stmt_list }, and is the nodes it holds.
+func (p *parser) subgraph(s *scope) ([]string, error) {
+	name := ""
+	if p.keyword("subgraph") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if p.tok.kind == tID {
+			name = p.tok.text
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+	}
+	line := p.tok.line
+	if err := p.expect("{"); err != nil {
+		return nil, err
+	}
+	sub := s.child()
+	var g *diagram.Group
+	if strings.HasPrefix(name, "cluster") {
+		g = &diagram.Group{ID: name}
+		s.group.Items = append(s.group.Items, diagram.Item{Group: g})
+		sub.group = g
+	}
+	if err := p.stmts(sub); err != nil {
+		return nil, err
+	}
+	if err := p.expect("}"); err != nil {
+		return nil, err
+	}
+	if g != nil {
+		if err := p.applyGroup(g, sub.graphAttrs, line); err != nil {
+			return nil, err
+		}
+	}
+	if strings.EqualFold(sub.graphAttrs["rank"], "same") {
+		p.d.SameLayer = append(p.d.SameLayer, sub.nodes)
+	}
+	// The subgraph's nodes are the enclosing graph's too.
+	s.nodes = append(s.nodes, sub.nodes...)
+	return sub.nodes, nil
+}
+
+// attrLists reads any number of [ a_list ].
+func (p *parser) attrLists() (map[string]string, error) {
+	attrs := map[string]string{}
+	for p.punct("[") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		for !p.punct("]") {
+			if p.tok.kind != tID {
+				return nil, p.errorf("expected an attribute, found %s", p.describe())
+			}
+			k := p.tok.text
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			v := "true"
+			if p.punct("=") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				if p.tok.kind != tID {
+					return nil, p.errorf("expected a value for %s, found %s", k, p.describe())
+				}
+				v = p.tok.text
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			}
+			attrs[k] = v
+			if p.punct(",") || p.punct(";") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			}
+		}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+	}
+	return attrs, nil
+}
+
+// node is the node id, made with s's defaults where this is its first
+// mention, and recorded as one of s's nodes.
+//
+// A node is in the group of the innermost cluster it is first mentioned in:
+// one mentioned outside every cluster -- at the end of an edge written
+// before the clusters, say -- and then inside one moves into it, as
+// Graphviz draws it there. A node is in one group only; mentioned in a
+// second cluster that is not inside the first, it stays in the first.
+func (p *parser) node(s *scope, id string) string {
+	info, ok := p.nodes[id]
+	if !ok {
+		n := &diagram.Node{ID: id}
+		// Defaults apply where a node is made, as in Graphviz: a node
+		// statement later in the file does not change one made before it.
+		info = &nodeInfo{n: n, group: s.group, attrs: clone(s.nodeAttrs), line: p.tok.line}
+		p.nodes[id] = info
+		p.order = append(p.order, id)
+		s.group.Items = append(s.group.Items, diagram.Item{Node: n})
+	} else if info.group == &p.d.Root && s.group != &p.d.Root {
+		removeNode(&p.d.Root, info.n)
+		s.group.Items = append(s.group.Items, diagram.Item{Node: info.n})
+		info.group = s.group
+	}
+	s.nodes = append(s.nodes, id)
+	return id
+}
+
+func removeNode(g *diagram.Group, n *diagram.Node) {
+	for i, it := range g.Items {
+		if it.Node == n {
+			g.Items = append(g.Items[:i], g.Items[i+1:]...)
+			return
+		}
+	}
+}
+
+// applyGraph reads the top graph's attributes.
+func (p *parser) applyGraph(attrs map[string]string, name string) error {
+	d := p.d
+	d.Title = label(attrs["label"], name, "")
+	switch strings.ToUpper(attrs["rankdir"]) {
+	case "LR":
+		d.Direction = diagram.Right
+	case "BT":
+		d.Direction = diagram.Up
+	case "RL":
+		d.Direction = diagram.Left
+	}
+	var err error
+	if d.Root.Rows, err = count(attrs, "rows"); err != nil {
+		return err
+	}
+	d.Root.Columns, err = count(attrs, "columns")
+	return err
+}
+
+// applyGroup reads a cluster's attributes.
+func (p *parser) applyGroup(g *diagram.Group, attrs map[string]string, line int) error {
+	g.Label = label(attrs["label"], g.ID, "")
+	styles := styleSet(attrs["style"])
+	switch {
+	case styles["lane"]:
+		g.Style = diagram.Lane
+	case styles["invis"]:
+		g.Style = diagram.Hidden
+	}
+	var err error
+	wrap := func(err error) error { return &Error{Line: line, Msg: fmt.Sprintf("cluster %q: %v", g.ID, err)} }
+	if g.Colour, err = colourAttr(attrs, "pencolor", "color"); err != nil {
+		return wrap(err)
+	}
+	if g.Fill, err = colourAttr(attrs, "fillcolor", "bgcolor"); err != nil {
+		return wrap(err)
+	}
+	if g.Fill == nil && styles["filled"] {
+		g.Fill = g.Colour
+	}
+	for _, f := range []struct {
+		name string
+		to   *int
+	}{{"rows", &g.Rows}, {"columns", &g.Columns}, {"row", &g.Row}, {"col", &g.Col}} {
+		if *f.to, err = count(attrs, f.name); err != nil {
+			return wrap(err)
+		}
+	}
+	return nil
+}
+
+// applyNode reads a node's attributes into it.
+func applyNode(info *nodeInfo) error {
+	n, attrs := info.n, info.attrs
+	wrap := func(err error) error {
+		return &Error{Line: info.line, Msg: fmt.Sprintf("node %q: %v", n.ID, err)}
+	}
+	n.Label = label(attrs["label"], n.ID, "")
+	n.Shape = shape(attrs["shape"])
+	st := styleSet(attrs["style"])
+	n.Line, n.Invisible = line(st), st["invis"]
+	if st["rounded"] && n.Shape == diagram.Box {
+		n.Shape = diagram.Rounded
+	}
+	var err error
+	if n.Colour, err = colourAttr(attrs, "color"); err != nil {
+		return wrap(err)
+	}
+	if n.Text, err = colourAttr(attrs, "fontcolor"); err != nil {
+		return wrap(err)
+	}
+	// Filled only with style=filled, as Graphviz fills: in fillcolor, or
+	// else color, or else Graphviz's light grey.
+	fill, err := colourAttr(attrs, "fillcolor", "color")
+	if err != nil {
+		return wrap(err)
+	}
+	if st["filled"] {
+		n.Fill = fill
+		if fill == nil {
+			n.Fill = color.RGBA{0xD3, 0xD3, 0xD3, 0xFF}
+		}
+	}
+	if n.Row, err = count(attrs, "row"); err != nil {
+		return wrap(err)
+	}
+	if n.Col, err = count(attrs, "col"); err != nil {
+		return wrap(err)
+	}
+	return nil
+}
+
+// applyEdge reads an edge's attributes into e.
+func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string) error {
+	e.Label = label(attrs["label"], "", "")
+	st := styleSet(attrs["style"])
+	e.Line, e.Invisible = line(st), st["invis"]
+	switch strings.ToLower(attrs["dir"]) {
+	case "forward":
+		e.Head, e.Tail = true, false
+	case "back":
+		e.Head, e.Tail = false, true
+	case "both":
+		e.Head, e.Tail = true, true
+	case "none":
+		e.Head, e.Tail = false, false
+	}
+	if strings.EqualFold(attrs["arrowhead"], "none") {
+		e.Head = false
+	}
+	if strings.EqualFold(attrs["arrowtail"], "none") {
+		e.Tail = false
+	}
+	c, err := colourAttr(attrs, "color")
+	if err != nil {
+		return &Error{Line: p.tok.line, Msg: fmt.Sprintf("edge %s to %s: %v", e.From, e.To, err)}
+	}
+	e.Colour = c
+	return nil
+}
+
+// label is a label attribute's text, with DOT's escapes: \n, \l and \r each
+// end a line -- Graphviz centres, left-aligns or right-aligns it; here every
+// line is centred -- \N is the node's name and \G the graph's. An absent
+// label is def.
+func label(v, name, def string) string {
+	if v == "" {
+		return def
+	}
+	var b strings.Builder
+	for i := 0; i < len(v); i++ {
+		if v[i] != '\\' || i+1 == len(v) {
+			b.WriteByte(v[i])
+			continue
+		}
+		i++
+		switch v[i] {
+		case 'n', 'l', 'r':
+			if i+1 < len(v) || v[i] == 'n' {
+				b.WriteByte('\n')
+			}
+		case 'N', 'G':
+			b.WriteString(name)
+		case '\\':
+			b.WriteByte('\\')
+		default:
+			b.WriteByte('\\')
+			b.WriteByte(v[i])
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// shape is a DOT shape's nearest of the shapes drawn here.
+func shape(v string) diagram.Shape {
+	switch strings.ToLower(v) {
+	case "ellipse", "oval", "circle", "doublecircle", "point", "egg":
+		return diagram.Ellipse
+	case "cylinder":
+		return diagram.Cylinder
+	case "plaintext", "plain", "none", "underline":
+		return diagram.Plain
+	case "mrecord":
+		return diagram.Rounded
+	}
+	return diagram.Box
+}
+
+// styleSet is a style attribute's styles, "filled,dashed" as a set.
+func styleSet(v string) map[string]bool {
+	set := map[string]bool{}
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.ToLower(strings.TrimSpace(s)); s != "" {
+			set[s] = true
+		}
+	}
+	return set
+}
+
+func line(st map[string]bool) diagram.Line {
+	switch {
+	case st["dashed"]:
+		return diagram.Dashed
+	case st["dotted"]:
+		return diagram.Dotted
+	case st["bold"]:
+		return diagram.Bold
+	}
+	return diagram.Solid
+}
+
+// count is a whole-number attribute of at least 1, or 0 where absent.
+func count(attrs map[string]string, name string) (int, error) {
+	v, ok := attrs[name]
+	if !ok {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s=%q: a whole number from 1", name, v)
+	}
+	return n, nil
+}
+
+// colourAttr is the colour of the first of names the attributes give.
+func colourAttr(attrs map[string]string, names ...string) (color.Color, error) {
+	for _, n := range names {
+		if v, ok := attrs[n]; ok && v != "" {
+			c, err := parseColour(v)
+			if err != nil {
+				return nil, fmt.Errorf("%s=%q: %v", n, v, err)
+			}
+			return c, nil
+		}
+	}
+	return nil, nil
+}

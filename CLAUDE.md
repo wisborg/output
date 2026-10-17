@@ -19,9 +19,9 @@ make gates                 # gofmt + vet + test, one status line each
 make test PKG=./chart/ RUN=Date
 make race                  # the tests as CI runs them
 make deps                  # each package compiles in only what it is meant to
-make build                 # -> ./plot
-make run ARGS="-list data.csv"
-make clean                 # remove ./plot, empty .scratch/
+make build                 # -> bin/plot, bin/diagram
+make run ARGS="-list data.csv"     # CMD=diagram for the other
+make clean                 # remove bin/, empty .scratch/
 ```
 
 `make deps` is how the layering under Layout below is kept rather than
@@ -64,19 +64,30 @@ from reality is a test failure.
 - `chart/date.go` — the `Date` kind's steps, calendar ticks and labels.
 - `chart/band.go` — `Band`, `BandKind`, and their braille rows.
 - `chart/picture/picture.go` — `Draw`, `Palette`, `Options`, `TextPx`.
-- `chart/picture/draw.go` — the few drawing primitives a picture needs, over
-  `golang.org/x/image/vector` and Go Mono.
+- `internal/canvas/` — the few drawing primitives a picture needs, over
+  `golang.org/x/image/vector` and Go Mono: shared by `chart/picture` and
+  `diagram/picture`, and internal so that it is not an API anyone else
+  depends on.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
   writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
 - `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of text,
   `columns.go` decides what each column holds and reads its values,
   `chart.go` turns the columns into a `chart.Chart`, `main.go` is the flags
   and the drawing. A new input format is a new reader of the same table.
+- `diagram/diagram.go` — the package doc, the model (`Diagram`, `Group`,
+  `Node`, `Edge`), `Palette`; `layout.go` — `Layout`, grids and layers;
+  `route.go` — edges along rows and columns; `labels.go` — where labels go;
+  `scale.go` — cells to a picture's units; `text.go` — the text drawing.
+- `diagram/dot/` — the DOT lexer, parser and colours.
+- `diagram/picture/`, `diagram/svg/` — the PNG and the SVG of a layout.
+- `cmd/diagram/` — the `diagram` command.
 
 `progress` imports neither the root package nor `table`, the same way `table`
 imports neither of the others. `chart` imports only the standard library, as
-does `chart/terminal`; `chart/picture` is the only package that imports
-`golang.org/x/image`, so a program drawing charts in text does not link it.
+do `chart/terminal`, `diagram`, `diagram/dot` and `diagram/svg`; only
+`chart/picture`, `diagram/picture` and `internal/canvas` import
+`golang.org/x/image`, so a program drawing charts or diagrams in text, or a
+diagram as SVG, does not link it.
 
 `table` does not import the root package, and nothing imports the YAML
 library twice: a program that only builds tables does not link it.
@@ -319,6 +330,30 @@ wall clock as written.** A file's `09:30-05:00` is plotted at 09:30, not at
 14:30 UTC nor at whatever the reader's zone makes it: a chart should read as
 the file does to the people who wrote it. The cost is a step of an hour where
 a file crosses a change of clocks, which is what its own timestamps say too.
+
+**A `diagram` grid's places never depend on its edges.** It is the reason
+grids exist: a diagram drawn of a system's state is compared with the last
+drawing of it, and a box that moved because a link broke is a difference
+the reader has to discount. Layers -- placed by the edges -- are for flows,
+whose shape is their edges. Anything that lets an edge move a box in a grid
+-- a router that nudges boxes apart to fit a line, say -- breaks the one
+promise `TestGridIgnoresEdges` holds.
+
+**A `diagram` is laid out in character cells, once, and every renderer
+draws that layout.** The text drawing and the pictures agree on where
+everything is because none of them decides it: labels are placed in
+`labels.go`, not by a renderer finding a free spot on its own canvas. The
+cost is that a picture's text must be monospaced, at `ScaleFor`'s width.
+
+**`diagram` edges run along rows and columns, and go round a box rather
+than through it.** A straight line through a box reads as a line from it;
+in a grid of replicas, the primary's line to the third replica drawn
+through the second says the second replicates to the third.
+
+**`diagram/dot` reads DOT as Graphviz does, and adds attributes rather than
+syntax.** `columns`, `rows`, `row`, `col` and `style=lane` are attributes
+Graphviz ignores, so a file written for `diagram` still draws in Graphviz,
+and a file from any program that writes DOT draws here.
 
 **`plot` joins a column's readings row to row, not by their distance on the
 axis.** Its rows have no rhythm to measure a gap by — trading days skip
