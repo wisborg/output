@@ -184,7 +184,7 @@ func TestNumberLabels(t *testing.T) {
 		want    string
 	}{{50, 250, "250"}, {0.5, 1.5, "1.5"}, {0.02, 0.3, "0.30"}, {10, math.Copysign(0, -1), "0"},
 		{1e6, 4e6, "4M"}, {5e5, 2.5e6, "2.5M"}, {1e5, 3e5, "300k"}, {2e9, 6e9, "6G"}, {1e6, 0, "0"},
-		{10000, 40000, "40000"}} {
+		{10000, 40000, "40000"}, {1e306, 4e307, "4.0e+307"}} {
 		if got := (Scale{Step: c.step}).Label(c.v); got != c.want {
 			t.Errorf("%v at step %v reads %q, want %q", c.v, c.step, got, c.want)
 		}
@@ -204,5 +204,95 @@ func TestFrac(t *testing.T) {
 	}
 	if f, clipped := s.Frac(500); f != 0 || !clipped {
 		t.Errorf("a pace off the scale at %v (clipped %v), want held at the bottom", f, clipped)
+	}
+}
+
+// Readings so large that a step between them is past a float64's fraction
+// -- nanoseconds since 1970, a few hundred apart -- tick at the finest step
+// the numbers can hold: a handful of distinct ticks, counted in no time,
+// rather than the same number for ever.
+func TestScalesOfHugeReadingsEnd(t *testing.T) {
+	const ns = 1.7e18
+	for _, s := range []Scale{
+		NewScale(ns, ns+256, 5, Number),
+		ExactScale(ns, ns+256, 5, Number),
+		ExactScale(ns, ns, 5, Number),
+		NewScale(1e15, 1e15+1, 5, Number),
+		ExactScale(9e15, 9e15, 5, Date),
+	} {
+		done := make(chan []float64)
+		go func() { done <- s.Ticks() }()
+		select {
+		case ticks := <-done:
+			if len(ticks) > 20 {
+				t.Errorf("%+v: %d ticks", s, len(ticks))
+			}
+			seen := map[string]bool{}
+			for _, v := range ticks {
+				l := s.Label(v)
+				if seen[l] {
+					t.Errorf("%+v: two ticks read %q", s, l)
+				}
+				seen[l] = true
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%+v: counting its ticks did not end", s)
+		}
+		if !(s.Max > s.Min) {
+			t.Errorf("%+v: a scale of no span", s)
+		}
+	}
+	if got := (Scale{Min: 0, Max: 1, Step: 1e-9}).Ticks(); got != nil {
+		t.Errorf("a scale of a billion ticks gave %d of them", len(got))
+	}
+}
+
+// Readings whose span is larger than a float64 still have a scale whose
+// ends and step are numbers, and are told apart on it.
+func TestScaleOfReadingsTooFarApartForAFloat(t *testing.T) {
+	s := NewScale(-1e308, 1e308, 5, Number)
+	if !finite(s.Min) || !finite(s.Max) || !finite(s.Step) || !(s.Max > s.Min) {
+		t.Fatalf("scale %+v", s)
+	}
+	lo, _ := s.Frac(-1e308)
+	mid, _ := s.Frac(5)
+	hi, _ := s.Frac(1e308)
+	if !(lo < mid && mid < hi) {
+		t.Errorf("-1e308, 5 and 1e308 at %v, %v and %v", lo, mid, hi)
+	}
+	if len(s.Ticks()) < 2 {
+		t.Errorf("ticks %v", s.Ticks())
+	}
+}
+
+// A reading that is not a number is no reading, though Ok says it is: it
+// breaks the line rather than being drawn somewhere, and it does not reach
+// the scale or poison a smoothing window.
+func TestNonFiniteReadingIsNoReading(t *testing.T) {
+	ps := series(1, 2, 3, 4, 5)
+	ps[2].Y = math.NaN()
+	ps[2].Ok = true
+	ps[3].Y = math.Inf(1)
+	segs := Segments(ps, time.Second)
+	if got := lengths(segs); !reflect.DeepEqual(got, []int{2, 1}) {
+		t.Errorf("segments %v, want [2 1]: the NaN and the infinity left out", got)
+	}
+	for _, seg := range Smooth(Segments(ps, time.Hour), time.Hour) {
+		for _, p := range seg {
+			if !finite(p.Y) {
+				t.Errorf("smoothed to %v", p.Y)
+			}
+		}
+	}
+	if lo, hi, _ := RobustRange([][]Point{ps}); !finite(lo) || !finite(hi) {
+		t.Errorf("range %v to %v", lo, hi)
+	}
+	for c, col := range Bin([][]Point{ps}, 0, 4, 5) {
+		if col.Ok && !finite(col.Mean) {
+			t.Errorf("column %d holds %v", c, col.Mean)
+		}
+	}
+	if f, clipped := (Scale{Min: 0, Max: 1}).Frac(math.NaN()); f != 0 || !clipped {
+		t.Errorf("NaN at %v (clipped %v)", f, clipped)
 	}
 }

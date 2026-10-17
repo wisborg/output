@@ -62,12 +62,17 @@ type Point struct {
 // pieces. So the tolerance is the caller's, and a caller picks it from the
 // recording's own rhythm and the chart's resolution. A maxGap of zero or
 // less joins only readings recorded at the same instant.
+//
+// A sample whose X, T or reading is not a finite number -- a NaN, an
+// infinity -- is taken as one without the reading, though Ok says it has
+// one. Neither has a place on an axis, and an infinity in a smoothing
+// window makes every reading the window reaches NaN.
 func Segments(points []Point, maxGap time.Duration) [][]Point {
 	var out [][]Point
 	var run []Point
 	gap := maxGap.Seconds()
 	for _, p := range points {
-		if !p.Ok {
+		if !p.Ok || !finite(p.X) || !finite(p.T) || !finite(p.Y) {
 			continue
 		}
 		if len(run) > 0 && p.T-run[len(run)-1].T > max(gap, 0) {

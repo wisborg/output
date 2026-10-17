@@ -21,8 +21,9 @@ type Column struct {
 }
 
 // Bin is n columns spanning x0 to x1, each holding the readings of segments
-// whose x falls in it. A reading outside the span is left out. n of zero or
-// less, or an empty span, is no columns.
+// whose x falls in it. A reading outside the span is left out, and so is
+// one whose x or reading is not a finite number, as Segments leaves it
+// out. n of zero or less, or an empty span, is no columns.
 //
 // Columns between two of one segment's readings, holding none of their own,
 // are left empty and the later column is joined: a sparse recording drawn
@@ -38,7 +39,7 @@ func Bin(segments [][]Point, x0, x1 float64, n int) []Column {
 	for _, seg := range segments {
 		prev := -1
 		for _, p := range seg {
-			if p.X < x0 || p.X > x1 {
+			if !(p.X >= x0 && p.X <= x1) || !finite(p.Y) {
 				// Leaving the span breaks the line, as a missing reading
 				// does: what is joined to what outside it is not drawn.
 				prev = -1

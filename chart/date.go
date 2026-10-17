@@ -40,11 +40,7 @@ func dateStep(raw float64) float64 {
 // counted from year nought -- 2000, 2010, 2020.
 func dateTicks(lo, hi, step float64) []float64 {
 	if step <= 2*day {
-		var ticks []float64
-		for i := math.Ceil(lo/step - 1e-9); i*step <= hi+1e-6; i++ {
-			ticks = append(ticks, i*step)
-		}
-		return ticks
+		return multiples(math.Ceil(lo/step-1e-9), math.Floor((hi+1e-6)/step), step)
 	}
 	from := time.Unix(int64(math.Floor(lo)), 0).UTC()
 	var ticks []float64
