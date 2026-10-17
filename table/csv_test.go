@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func csvOf(t *testing.T, tbl *Table, style CSVStyle) string {
@@ -123,5 +124,25 @@ func TestWriteCSV_NoColumnsWritesNothing(t *testing.T) {
 func TestWriteCSV_PropagatesWriteErrors(t *testing.T) {
 	if err := sample(t).WriteCSV(&failWriter{n: 0}, CSVStyle{}); !errors.Is(err, errWrite) {
 		t.Errorf("err = %v, want %v", err, errWrite)
+	}
+}
+
+// A delimiter that cannot delimit is refused before anything is written,
+// whatever the table holds: encoding/csv checks only as it writes a
+// record, so the same style once passed with nothing to write and failed
+// with rows.
+func TestWriteCSV_RefusesABadDelimiter(t *testing.T) {
+	for _, c := range []rune{'"', '\r', '\n', utf8.RuneError} {
+		for _, rows := range []int{0, 1} {
+			tbl := New(Column{Header: "a"})
+			for range rows {
+				tbl.MustAppend(1)
+			}
+			var b strings.Builder
+			err := tbl.WriteCSV(&b, CSVStyle{Comma: c, OmitHeader: true})
+			if err == nil || b.Len() != 0 {
+				t.Errorf("%q with %d rows: %v, wrote %q", c, rows, err, b.String())
+			}
+		}
 	}
 }

@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
+
+	"github.com/clipperhouse/uax29/v2/graphemes"
 )
 
 // DefaultSpacing is the gap, in spaces, between adjacent columns of an
@@ -32,18 +35,18 @@ type Style struct {
 	// all, which is otherwise unreachable.
 	Spacing int
 
-	// Multiline splits cell values on "\n" and gives each line its own
-	// physical row, keeping the columns aligned:
+	// Multiline splits cell values, and headings, on "\n" -- or "\r\n" --
+	// and gives each line its own physical row, keeping the columns
+	// aligned:
 	//
 	//	name    detail
 	//	------  --------------
 	//	first   line one
 	//	        line two
 	//
-	// Without it a value containing a newline is written through as-is,
-	// which breaks the alignment of everything after it. It is off by
-	// default because detecting newlines costs a scan of every cell and
-	// most tables have none.
+	// A value's trailing newlines are dropped rather than drawn as blank
+	// lines. Without Multiline a newline is written as U+FFFD, as every
+	// other control character is: see Render.
 	Multiline bool
 }
 
@@ -77,6 +80,14 @@ func (t *Table) String() string {
 // empty frame. A caller that wants "no results" said out loud should say it
 // themselves, because only they know what the absence means; a bare header
 // over nothing reads as though the data failed to load.
+//
+// A control character in a cell or a heading is written as U+FFFD, a
+// column wide. A cell is often someone else's data -- a file's name, a
+// field of a record -- and an escape in it written to a terminal is a
+// command to the terminal, where a tab or a carriage return moves the
+// cursor a distance no width counts and the columns after it are out of
+// true. So a cell holds text, not colour: an SGR sequence is no exception.
+// WriteCSV writes values exactly, controls and all, since a CSV is data.
 func (t *Table) Render(w io.Writer, style Style) error {
 	lay := t.layout(style)
 	if lay == nil {
@@ -87,28 +98,30 @@ func (t *Table) Render(w io.Writer, style Style) error {
 	if style.Frame {
 		lay.rule(bw)
 	}
-	lay.line(bw, lay.header)
+	for _, physical := range lay.header {
+		lay.line(bw, physical)
+	}
 	lay.rule(bw)
 
-	// Starts true because the header rule has just been drawn: a separator
-	// added before any row would otherwise double it.
-	prevRule := true
+	// A separator is drawn when a row follows it: so runs of them collapse
+	// to one, one before every row is dropped -- the header rule is there
+	// already -- and one after every row is dropped too, or, framed, is the
+	// bottom rule.
+	pending, rows := false, false
 	for _, e := range lay.body {
 		if e.rule {
-			// Collapse runs of separators, and drop one that would sit
-			// directly under the header rule that was just drawn.
-			if !prevRule {
-				lay.rule(bw)
-				prevRule = true
-			}
+			pending = true
 			continue
 		}
-		prevRule = false
+		if pending && rows {
+			lay.rule(bw)
+		}
+		pending, rows = false, true
 		for _, physical := range e.lines {
 			lay.line(bw, physical)
 		}
 	}
-	if style.Frame && !prevRule {
+	if style.Frame {
 		lay.rule(bw)
 	}
 	return bw.err
@@ -123,7 +136,7 @@ type layout struct {
 	// align is snapshotted from Table.Columns, so that a Style's rendering
 	// cannot be changed halfway through by a caller mutating the table.
 	align   []Align
-	header  []string // the heading text of each column
+	header  [][]string // the headings' physical lines, as a bodyRow's
 	body    []bodyRow
 	style   Style
 	spacing int
@@ -147,75 +160,86 @@ func (t *Table) layout(style Style) *layout {
 	if len(t.Columns) == 0 {
 		return nil
 	}
-	hasRow := false
-	for _, e := range t.entries {
-		if !e.rule {
-			hasRow = true
-			break
-		}
-	}
-	if !hasRow {
+	if t.Rows() == 0 {
 		return nil
 	}
 
 	lay := &layout{
 		widths:  make([]int, len(t.Columns)),
 		align:   make([]Align, len(t.Columns)),
-		header:  make([]string, len(t.Columns)),
 		style:   style,
 		spacing: style.spacing(),
 		widthOf: t.width,
 	}
+	headings := make([]string, len(t.Columns))
 	for i, c := range t.Columns {
-		h := t.truncate(c.Header, c.MaxWidth)
-		lay.header[i] = h
-		lay.widths[i] = t.width(h)
+		headings[i] = c.Header
 		lay.align[i] = c.Align
 	}
+	lay.header = t.physical(lay, headings, style)
 
 	for _, e := range t.entries {
 		if e.rule {
 			lay.body = append(lay.body, bodyRow{rule: true})
 			continue
 		}
-		// cells[i] is column i's text split into its physical lines.
-		cells := make([][]string, len(t.Columns))
-		height := 1
+		raw := make([]string, len(t.Columns))
 		for i := range t.Columns {
-			var raw string
 			if i < len(e.cells) {
-				raw = t.format(t.Columns[i], e.cells[i])
-			}
-			lines := []string{raw}
-			if style.Multiline {
-				lines = strings.Split(raw, "\n")
-			}
-			for j, l := range lines {
-				l = t.truncate(l, t.Columns[i].MaxWidth)
-				lines[j] = l
-				if n := t.width(l); n > lay.widths[i] {
-					lay.widths[i] = n
-				}
-			}
-			cells[i] = lines
-			if len(lines) > height {
-				height = len(lines)
+				raw[i] = t.format(t.Columns[i], e.cells[i])
 			}
 		}
-		// Transpose to physical lines, padding short cells with blanks so
-		// every physical line has one entry per column.
-		physical := make([][]string, height)
-		for r := 0; r < height; r++ {
-			physical[r] = make([]string, len(t.Columns))
-			for i := range t.Columns {
-				if r < len(cells[i]) {
-					physical[r][i] = cells[i][r]
-				}
-			}
-		}
-		lay.body = append(lay.body, bodyRow{lines: physical})
+		lay.body = append(lay.body, bodyRow{lines: t.physical(lay, raw, style)})
 	}
 	return lay
+}
+
+// physical is one row's text, a value a column, as the physical lines it
+// is drawn on -- one, or with Multiline as many as its tallest value has --
+// each value made printable and truncated to its column's MaxWidth, and the
+// columns' widths in lay widened to hold them.
+func (t *Table) physical(lay *layout, raw []string, style Style) [][]string {
+	cells := make([][]string, len(raw))
+	height := 1
+	for i, v := range raw {
+		lines := []string{v}
+		if style.Multiline {
+			v = strings.TrimRight(strings.ReplaceAll(v, "\r\n", "\n"), "\n")
+			lines = strings.Split(v, "\n")
+		}
+		for j, l := range lines {
+			l = t.truncate(printable(l), t.Columns[i].MaxWidth)
+			lines[j] = l
+			lay.widths[i] = max(lay.widths[i], t.width(l))
+		}
+		cells[i] = lines
+		height = max(height, len(lines))
+	}
+	// Transpose to physical lines, padding short cells with blanks so every
+	// physical line has one entry per column.
+	out := make([][]string, height)
+	for r := range height {
+		out[r] = make([]string, len(raw))
+		for i := range raw {
+			if r < len(cells[i]) {
+				out[r][i] = cells[i][r]
+			}
+		}
+	}
+	return out
+}
+
+// printable is s with each control character written as U+FFFD. See Render.
+func printable(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '\uFFFD'
+		}
+		return r
+	}, s)
 }
 
 // format turns one cell value into text, before truncation.
@@ -229,21 +253,28 @@ func (t *Table) format(c Column, v any) string {
 // truncate cuts s to at most maxWidth display columns, dropping any final
 // character that would straddle the limit rather than emitting half of it.
 // maxWidth <= 0 means no limit.
+//
+// A character is a grapheme cluster, measured whole with Table.width, as the
+// column itself is measured: an accented letter written with a combining
+// accent, a flag of two regional indicators, a family joined by zero-width
+// joiners. Cut rune by rune, a family lost all but its first member and left
+// a dangling joiner, a flag became half of one, and each rune measured alone
+// disagreed with the measure of the whole.
 func (t *Table) truncate(s string, maxWidth int) string {
 	if maxWidth <= 0 || t.width(s) <= maxWidth {
 		return s
 	}
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := t.width(string(r))
-		if used+rw > maxWidth {
+	used, end := 0, 0
+	g := graphemes.FromString(s)
+	for g.Next() {
+		w := t.width(g.Value())
+		if used+w > maxWidth {
 			break
 		}
-		b.WriteRune(r)
-		used += rw
+		used += w
+		end = g.End()
 	}
-	return b.String()
+	return s[:end]
 }
 
 // line writes one physical line: cells padded to their column widths and
@@ -251,10 +282,7 @@ func (t *Table) truncate(s string, maxWidth int) string {
 func (l *layout) line(w *errWriter, cells []string) {
 	var b strings.Builder
 	for i, width := range l.widths {
-		var cell string
-		if i < len(cells) {
-			cell = cells[i]
-		}
+		cell := cells[i] // every physical line has a cell for each column
 		if l.style.Frame {
 			b.WriteString("| ")
 		} else if i > 0 {
@@ -285,11 +313,7 @@ func (l *layout) pad(cell string, width, col int) string {
 	if n <= 0 {
 		return cell
 	}
-	align := Left
-	if col < len(l.align) {
-		align = l.align[col]
-	}
-	switch align {
+	switch l.align[col] {
 	case Right:
 		return strings.Repeat(" ", n) + cell
 	case Center:

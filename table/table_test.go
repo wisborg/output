@@ -140,14 +140,86 @@ func TestRender_Multiline(t *testing.T) {
 	}, "\n")+"\n")
 }
 
-// TestRender_MultilineOffMeasuresTheWholeValue documents the deliberate
-// difference: without Style.Multiline a newline is not special, so the value
-// is written through as-is. Callers get the alignment they asked for.
-func TestRender_MultilineOffMeasuresTheWholeValue(t *testing.T) {
-	tbl := New(Column{Header: "detail"})
-	tbl.MustAppend("one\ntwo")
-	if got := tbl.String(); !strings.Contains(got, "one\ntwo") {
-		t.Errorf("expected the raw newline to survive, got %q", got)
+// TestRender_MultilineOffWritesNewlinesAsOneCell: without Style.Multiline a
+// newline is a control character like any other, written as U+FFFD a column
+// wide. Written through as it once was, it broke the alignment of every
+// column after it, and a last cell ending in one left a blank line at the
+// end of the output.
+func TestRender_MultilineOffWritesNewlinesAsOneCell(t *testing.T) {
+	tbl := New(Column{Header: "detail"}, Column{Header: "n"})
+	tbl.MustAppend("one\ntwo", 1)
+	tbl.MustAppend("x\n", 2)
+	check(t, tbl.String(), strings.Join([]string{
+		"detail    n",
+		"-----------",
+		"one\uFFFDtwo   1",
+		"x\uFFFD        2",
+	}, "\n")+"\n")
+}
+
+// TestRender_ControlCharactersAreNotWritten: a cell is often someone
+// else's data, and an escape in it reaching a terminal is a command to the
+// terminal, a tab a jump no width counts. Each is written as U+FFFD, in the
+// cells and in the headings, and the columns stay aligned. CSV keeps the
+// values exactly.
+func TestRender_ControlCharactersAreNotWritten(t *testing.T) {
+	tbl := New(Column{Header: "na\tme"}, Column{Header: "n"})
+	tbl.MustAppend("\x1b]0;title\a", 1)
+	tbl.MustAppend("a\tb\rc", 2)
+	check(t, tbl.String(), strings.Join([]string{
+		"na\uFFFDme        n",
+		"--------------",
+		"\uFFFD]0;title\uFFFD   1",
+		"a\uFFFDb\uFFFDc        2",
+	}, "\n")+"\n")
+	var b strings.Builder
+	if err := tbl.WriteCSV(&b, CSVStyle{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "\x1b]0;title\a") {
+		t.Errorf("CSV changed a value: %q", b.String())
+	}
+}
+
+// TestRender_MultilineSplitsHeadings: a heading is split on its newlines
+// as a value is, and neither leaves a blank line for a trailing newline or
+// a carriage return before one.
+func TestRender_MultilineSplitsHeadings(t *testing.T) {
+	tbl := New(Column{Header: "two\nlines"}, Column{Header: "b"})
+	tbl.MustAppend("x\r\ny\n", 1)
+	got := strings.Builder{}
+	if err := tbl.Render(&got, Style{Frame: true, Multiline: true}); err != nil {
+		t.Fatal(err)
+	}
+	check(t, got.String(), strings.Join([]string{
+		"+-------+---+",
+		"| two   | b |",
+		"| lines |   |",
+		"+-------+---+",
+		"| x     | 1 |",
+		"| y     |   |",
+		"+-------+---+",
+	}, "\n")+"\n")
+}
+
+// TestMaxWidth_TruncatesWholeCharacters: a character is a grapheme
+// cluster, measured whole as the column is. Cut rune by rune, a family
+// joined by zero-width joiners lost all but its first member and left a
+// dangling joiner, and a flag became half of one.
+func TestMaxWidth_TruncatesWholeCharacters(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"👨\u200d👩\u200d👧xyz", 3, "👨\u200d👩\u200d👧x"},
+		{"🇩🇰🇸🇪", 3, "🇩🇰"},
+		{"e\u0301te\u0301", 2, "e\u0301t"},
+	} {
+		tbl := New(Column{Header: "v", MaxWidth: c.max})
+		if got := tbl.truncate(c.in, c.max); got != c.want {
+			t.Errorf("%q to %d: %q, want %q", c.in, c.max, got, c.want)
+		}
 	}
 }
 
@@ -158,6 +230,8 @@ func TestSeparators(t *testing.T) {
 	tbl.AppendSeparator()
 	tbl.AppendSeparator() // a run collapses to one
 	tbl.MustAppend(2)
+	tbl.AppendSeparator() // trailing: dropped, as the doc says
+	tbl.AppendSeparator()
 
 	check(t, tbl.String(), strings.Join([]string{
 		"n",
@@ -165,6 +239,20 @@ func TestSeparators(t *testing.T) {
 		"1",
 		"-",
 		"2",
+	}, "\n")+"\n")
+	// Framed, the trailing one is the bottom edge, not a second rule.
+	var b strings.Builder
+	if err := tbl.Render(&b, Style{Frame: true}); err != nil {
+		t.Fatal(err)
+	}
+	check(t, b.String(), strings.Join([]string{
+		"+---+",
+		"| n |",
+		"+---+",
+		"| 1 |",
+		"+---+",
+		"| 2 |",
+		"+---+",
 	}, "\n")+"\n")
 }
 

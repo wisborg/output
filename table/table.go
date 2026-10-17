@@ -71,7 +71,8 @@ func (a Align) String() string {
 //	t.Columns[1].Align = table.Right
 type Column struct {
 	// Header is the column heading. It participates in the column's width,
-	// so a heading longer than every value sets that column's width.
+	// so a heading longer than every value sets that column's width --
+	// unless MaxWidth cuts it, as it cuts the values.
 	Header string
 
 	// Align is how cells AND the heading are positioned within the column.
@@ -94,8 +95,8 @@ type Column struct {
 	// which is visible in the output rather than silently wrong.
 	Format string
 
-	// MaxWidth truncates a rendered cell to this many display columns.
-	// 0 (the zero value) means unlimited.
+	// MaxWidth truncates a rendered cell, and the heading, to this many
+	// display columns. 0 (the zero value), or less, means unlimited.
 	//
 	// Truncation is by display width, so a wide character that would
 	// straddle the limit is dropped rather than half-printed. It is hard
@@ -121,7 +122,11 @@ type Table struct {
 
 	// Width measures a string's width in terminal columns. It defaults to
 	// runewidth.StringWidth, which is correct for East Asian wide
-	// characters, combining marks and emoji.
+	// characters, combining marks and emoji. It counts East Asian Ambiguous
+	// characters -- "±", "°", "…" -- two columns in a CJK locale (LANG, or
+	// RUNEWIDTH_EASTASIAN=1), as a CJK terminal draws them, so the same
+	// table is laid out for the terminal it is printed in; set Width to
+	// (&runewidth.Condition{}).StringWidth for one that never varies.
 	//
 	// Substitute a cheaper measure when the data is known to be simple and
 	// the dependency's cost is not wanted -- utf8.RuneCountInString is
@@ -184,7 +189,8 @@ func (t *Table) MustAppend(cells ...any) {
 
 // AppendSeparator adds a horizontal rule after the rows added so far. Several
 // in a row collapse to one when rendered; a leading or trailing one is
-// dropped, so callers can add separators unconditionally in a loop.
+// dropped -- framed, a trailing one is the frame's bottom edge -- so callers
+// can add separators unconditionally in a loop.
 func (t *Table) AppendSeparator() {
 	t.entries = append(t.entries, entry{rule: true})
 }

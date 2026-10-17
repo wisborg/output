@@ -2,7 +2,9 @@ package table
 
 import (
 	"encoding/csv"
+	"fmt"
 	"io"
+	"unicode/utf8"
 )
 
 // CSVStyle controls CSV output. The zero value writes a header row and
@@ -14,7 +16,9 @@ type CSVStyle struct {
 
 	// Comma is the field delimiter. 0 means ',' -- so the zero CSVStyle is
 	// ordinary CSV, and this only has to be set to depart from it (e.g. '\t'
-	// for TSV, or ';' where a decimal comma is in use).
+	// for TSV, or ';' where a decimal comma is in use). A quote, a line
+	// break or a rune that is not valid cannot delimit anything, and
+	// WriteCSV refuses one before writing a byte.
 	Comma rune
 }
 
@@ -40,7 +44,20 @@ type CSVStyle struct {
 //
 // Cells containing the delimiter, quotes or newlines are quoted by
 // encoding/csv, so Style.Multiline has no CSV equivalent and needs none.
+//
+// Values are written exactly as Column.Format makes them, and that includes
+// a nil cell, which fmt writes as "<nil>": give the column a value of your
+// own for "none" where the file is read by a program. Nor is a value
+// starting with "=", "+", "-" or "@" defused: a spreadsheet opening the
+// file may take one for a formula. Changing either would change the data,
+// which a CSV must not.
 func (t *Table) WriteCSV(w io.Writer, style CSVStyle) error {
+	if c := style.Comma; c != 0 && (c == '"' || c == '\r' || c == '\n' || !utf8.ValidRune(c) || c == utf8.RuneError) {
+		// Checked here, before anything is written: encoding/csv checks
+		// it only on writing a record, so with no rows to write and no
+		// header the same style was fine, and with rows it was not.
+		return fmt.Errorf("table: %q cannot delimit CSV", c)
+	}
 	if len(t.Columns) == 0 {
 		// encoding/csv would write a bare newline for an empty record.
 		// Nothing is the honest output for a table with no columns.
