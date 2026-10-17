@@ -89,6 +89,9 @@ func TestKittyImage(t *testing.T) {
 		if i == 0 && !strings.HasPrefix(ctrl, "a=T,f=100,q=2,c=80,") {
 			t.Errorf("the first chunk says %q; it should transmit a PNG to show at 80 columns, unanswered", ctrl)
 		}
+		if !strings.Contains(ctrl, "q=2") {
+			t.Errorf("chunk %d says %q, which a terminal may answer", i, ctrl)
+		}
 		if more := strings.HasSuffix(ctrl, "m=1"); more != (i < len(seqs)-1) {
 			t.Errorf("chunk %d of %d says m=%v", i, len(seqs), more)
 		}

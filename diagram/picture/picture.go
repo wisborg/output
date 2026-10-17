@@ -72,7 +72,7 @@ func Draw(lay *diagram.Layout, opts Options) (*image.RGBA, error) {
 
 // textCentre is the anchor that puts a line of text's letters across the
 // middle of the y it is written at: its baseline that far below.
-const textCentre = 0.32
+const textCentre = canvas.Centre
 
 type drawer struct {
 	cv   *canvas.Canvas

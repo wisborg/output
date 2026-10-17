@@ -1,6 +1,8 @@
 package chart
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -56,8 +58,10 @@ const brailleBlank = rune(0x2800)
 // beneath the last. Where there are several strips, each is headed by its
 // own title, and its bands are marked in a row a kind beneath the x
 // labels, over a legend. width and height are the whole drawing's in
-// characters, labels and bands and all; the strips share the height evenly, and a drawing too
-// small to give each at least two rows is none.
+// characters, labels and bands and all -- a title or a legend longer than
+// the width is cut to it -- and the strips share the height evenly. A drawing
+// too small to give each strip at least two rows is none, and so is a chart
+// Check refuses.
 //
 // Text is the chart's lowest resolution, and the one place a renderer's
 // choices are seen dot by dot, so it follows the model to the letter: a
@@ -66,7 +70,7 @@ const brailleBlank = rune(0x2800)
 // the bottom, which would read as a zero.
 func (c Chart) Braille(width, height int) []string {
 	n := len(c.Strips)
-	if n == 0 {
+	if n == 0 || c.Check() != nil {
 		return nil
 	}
 	// One gutter for every strip, the widest's, so the plots line up and a
@@ -90,10 +94,10 @@ func (c Chart) Braille(width, height int) []string {
 	}
 	spare := height - fixed - n*rows
 	pad := strings.Repeat(" ", gutter)
-	out := []string{c.Title}
+	out := []string{cut(c.Title, width)}
 	for i, s := range c.Strips {
 		if headed > 0 {
-			out = append(out, pad+"│"+s.Title)
+			out = append(out, cut(pad+"│"+s.Title, width))
 		}
 		// The rows left over when the height does not divide go to the
 		// first strips, a row each.
@@ -106,6 +110,36 @@ func (c Chart) Braille(width, height int) []string {
 	axis, xLabels := c.xAxis(cols)
 	out = append(out, pad+"└"+axis, pad+" "+xLabels)
 	return append(out, c.brailleBands(gutter, cols)...)
+}
+
+// Check says what is wrong with a chart that cannot be drawn truthfully, or
+// nil: a scale left at its zero value, which places every reading at once
+// and so none -- an empty frame that looks like a chart of nothing.
+// Braille draws such a chart as nothing, as it draws one too small, and the
+// picture package refuses it with this error.
+func (c Chart) Check() error {
+	if c.X.unset() {
+		return errors.New("chart: the X scale is not set")
+	}
+	for i, s := range c.Strips {
+		if s.Y.unset() {
+			return fmt.Errorf("chart: strip %d (%q) has no Y scale", i+1, s.Title)
+		}
+	}
+	return nil
+}
+
+// unset says s is the zero Scale, or one spanning nothing: no scale at all.
+func (s Scale) unset() bool { return !(s.Max > s.Min) }
+
+// cut is s cut to at most n runes, the measure the drawing's gutter is
+// counted in.
+func cut(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max(n, 0)])
 }
 
 // braille is the strip's rows: its line drawn cols characters wide and

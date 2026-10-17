@@ -16,6 +16,8 @@
 package picture
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -67,8 +69,9 @@ type Options struct {
 	Fonts []*opentype.Font
 }
 
-// Draw is c drawn as a picture width by height pixels. A picture too small
-// to hold a plot -- or a chart without strips -- is nil.
+// Draw is c drawn as a picture width by height pixels. A chart without
+// strips, one chart.Chart.Check refuses, and a picture too small to hold a
+// plot are each an error, never a nil picture or an empty frame.
 //
 // Text is sized from the picture's width, and its height shared between
 // its strips, so that a stack of several reads at the size one does; see
@@ -76,13 +79,16 @@ type Options struct {
 // a given size spaces them by it.
 func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	n := len(c.Strips)
-	if n == 0 || width <= 0 || height <= 0 {
-		return nil, nil
+	if n == 0 {
+		return nil, errors.New("picture: a chart with no strips")
 	}
-	pal := opts.Palette
-	if pal == (Palette{}) {
-		pal = Light
+	if err := c.Check(); err != nil {
+		return nil, err
 	}
+	if width <= 0 || height <= 0 {
+		return nil, fmt.Errorf("picture: %d by %d pixels is too small for a chart", width, height)
+	}
+	pal := opts.Palette.filled()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	cv, err := canvas.New(img, opts.Fonts)
 	if err != nil {
@@ -117,7 +123,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	}
 	stripH := (all.h - float64(n)*head) / float64(n)
 	if all.w < 20 || stripH < 20 {
-		return nil, nil
+		return nil, fmt.Errorf("picture: %d by %d pixels is too small for a chart", width, height)
 	}
 	cv.Fill(pal.Background)
 	xAt := func(v float64) float64 {
@@ -130,13 +136,14 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	for i, s := range c.Strips {
 		b := box{x: all.x, y: all.y + float64(i)*(head+stripH) + head, w: all.w, h: stripH}
 		if n > 1 {
-			_ = cv.Text(s.Title, b.x, b.y-head/2, 0, 0.5, px, pal.Foreground)
+			_ = cv.Text(s.Title, b.x, b.y-head/2, 0, canvas.Centre, px, pal.Foreground)
 		}
 		for _, band := range c.Bands {
 			if band.Kind < 0 || band.Kind >= len(c.BandKinds) {
 				continue
 			}
-			x0, x1 := math.Max(xAt(band.From), b.x), math.Min(xAt(band.To), b.x+b.w)
+			from, to := band.Span()
+			x0, x1 := math.Max(xAt(from), b.x), math.Min(xAt(to), b.x+b.w)
 			if x1 > x0 {
 				cv.Rect(x0, b.y, math.Max(x1-x0, 1), b.h, c.BandKinds[band.Kind].Colour)
 			}
@@ -199,7 +206,7 @@ func drawStrip(cv *canvas.Canvas, s chart.Strip, b box, x chart.Scale, px, thin 
 	for _, v := range s.Y.Ticks() {
 		y := yAt(v)
 		cv.Polyline([]float64{b.x, b.x + b.w}, []float64{y, y}, thin, grid)
-		_ = cv.Text(s.Y.Label(v), b.x-px/2, y, 1, 0.5, px, pal.Dim)
+		_ = cv.Text(s.Y.Label(v), b.x-px/2, y, 1, canvas.Centre, px, pal.Dim)
 	}
 	cv.Polyline([]float64{b.x, b.x}, []float64{b.y, b.y + b.h}, thin, pal.Dim)
 
@@ -257,10 +264,30 @@ func legend(cv *canvas.Canvas, c chart.Chart, left, right, baseline, px, thin fl
 	}
 }
 
-// faded is col at alpha a, to draw over what is already there.
+// faded is col at alpha a, to draw over what is already there: col's own
+// alpha times a. RGBA() is premultiplied, so a colour that was already
+// translucent read as darker than it is; NRGBA is not.
 func faded(col color.Color, a float64) color.NRGBA {
-	r, g, b, _ := col.RGBA()
-	return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: uint8(math.Round(a * 255))}
+	n := color.NRGBAModel.Convert(col).(color.NRGBA)
+	n.A = uint8(math.Round(a * float64(n.A)))
+	return n
+}
+
+// filled is p with each colour it leaves nil taken from Light. Only the
+// zero Palette was Light once, and a palette that set its line alone
+// filled its background with nil, and panicked.
+func (p Palette) filled() Palette {
+	for _, c := range []struct {
+		to   *color.Color
+		from color.Color
+	}{
+		{&p.Background, Light.Background}, {&p.Foreground, Light.Foreground}, {&p.Dim, Light.Dim}, {&p.Line, Light.Line},
+	} {
+		if *c.to == nil {
+			*c.to = c.from
+		}
+	}
+	return p
 }
 
 // Faded is col at alpha a: a band kind's colour from one of a palette's,

@@ -105,7 +105,8 @@ const KittyChunk = 4096
 // wide: the base64 in chunks of at most KittyChunk, each but the last
 // saying more follows. q=2 asks the terminal not to answer: an answer
 // arrives on the terminal's input, where the shell would read it as
-// typing.
+// typing. It is on every chunk, as the protocol allows: a terminal that
+// answers a chunk it could not take answers on the chunk's own q.
 func WriteKitty(w io.Writer, png []byte, cols int) error {
 	data := base64.StdEncoding.EncodeToString(png)
 	var b bytes.Buffer
@@ -119,7 +120,7 @@ func WriteKitty(w io.Writer, png []byte, cols int) error {
 		if first {
 			fmt.Fprintf(&b, "\x1b_Ga=T,f=100,q=2,c=%d,m=%d;%s\x1b\\", cols, more, chunk)
 		} else {
-			fmt.Fprintf(&b, "\x1b_Gm=%d;%s\x1b\\", more, chunk)
+			fmt.Fprintf(&b, "\x1b_Gq=2,m=%d;%s\x1b\\", more, chunk)
 		}
 	}
 	b.WriteString("\n")
@@ -129,10 +130,11 @@ func WriteKitty(w io.Writer, png []byte, cols int) error {
 
 // LightBackground says the terminal's background is light, by COLORFGBG --
 // "foreground;background" as colour numbers -- which iTerm2, Konsole, rxvt
-// and others set and an ssh session can carry: 7 and 15 are white, and
-// every number from 9 up but those is a bright colour, read as light too;
-// 0 to 6 and 8 are dark. A terminal that does not say is taken to be
-// dark, as iTerm2, kitty, WezTerm and Ghostty -- the terminals that show
+// and others set and an ssh session can carry: 7 and 15 are white, and 9
+// to 14 the bright colours, read as light too; 0 to 6 and 8 are dark, and
+// so is a number past 15, from the 256-colour palette, which says nothing
+// this can read about its lightness. A terminal that does not say is taken
+// to be dark, as iTerm2, kitty, WezTerm and Ghostty -- the terminals that show
 // pictures -- are by default.
 func LightBackground(getenv func(string) string) bool {
 	fields := strings.Split(getenv("COLORFGBG"), ";")

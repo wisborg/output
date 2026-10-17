@@ -18,6 +18,11 @@ type Band struct {
 	Kind int
 }
 
+// Span is the band's ends in order: a band written To before From is the
+// same stretch, and every renderer draws it as one, from Span. Braille
+// once marked such a band at its middle while the picture drew nothing.
+func (b Band) Span() (from, to float64) { return min(b.From, b.To), max(b.From, b.To) }
+
 // BandKind is a kind of band: how a legend names it, and how it is marked.
 type BandKind struct {
 	// Name is the kind in a legend: "intervals".
@@ -82,10 +87,11 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 			}
 			// The characters whose middles the band covers, or the one
 			// its middle falls in where it is too short to cover any.
-			from := int(math.Ceil((b.From-c.X.Min)/span*float64(cols) - 0.5))
-			to := int(math.Floor((b.To-c.X.Min)/span*float64(cols) - 0.5))
+			lo, hi := b.Span()
+			from := int(math.Ceil((lo-c.X.Min)/span*float64(cols) - 0.5))
+			to := int(math.Floor((hi-c.X.Min)/span*float64(cols) - 0.5))
 			if from > to {
-				from = int(((b.From+b.To)/2 - c.X.Min) / span * float64(cols))
+				from = int(((lo+hi)/2 - c.X.Min) / span * float64(cols))
 				to = from
 			}
 			for x := max(from, 0); x <= min(to, cols-1); x++ {
@@ -95,5 +101,5 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 		out = append(out, pad+strings.TrimRight(string(row), " "))
 		legend = append(legend, string(kind.Mark)+" "+kind.Name)
 	}
-	return append(out, pad+strings.Join(legend, "   "))
+	return append(out, cut(pad+strings.Join(legend, "   "), gutter+1+cols))
 }

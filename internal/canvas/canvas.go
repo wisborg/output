@@ -226,10 +226,17 @@ func (c *Canvas) Measure(text string, px float64) (w, h float64, err error) {
 	return float64(adv) / 64, float64(fs[0].Metrics().Height) / 64, nil
 }
 
-// Text writes text at px in col, anchored at (x, y): ax and ay place the
-// anchor in the text's box, 0 left, 0.5 the middle, 1 right; and for ay,
-// 0 is the baseline, 0.5 a line's height below it -- the text centred on
-// y -- and 1 a whole line below.
+// Centre is the ay that puts a line's letters across the middle of the y
+// Text writes them at: their baseline about a third of a line's height
+// below it, for the capitals and the x-height of Go Mono.
+const Centre = 0.32
+
+// Text writes text at px in col, anchored at (x, y): ax places the anchor
+// across the text, 0 its left end, 0.5 its middle, 1 its right; ay puts
+// the baseline ay times a line's height below y -- 0 on it, and Centre
+// for the letters centred on y. (0.5 is not the middle: a line's height
+// includes the room below the baseline, and text anchored at 0.5 sat a
+// quarter of a letter low, its labels below the gridlines they named.)
 func (c *Canvas) Text(text string, x, y, ax, ay, px float64, col color.Color) error {
 	if text == "" {
 		return nil
@@ -261,19 +268,6 @@ func (c *Canvas) Polygon(pts [][2]float64, col color.Color) {
 	s := newShape()
 	s.add(poly)
 	c.draw(s, col)
-}
-
-// Outline strokes the closed outline through pts, width wide: the polygon
-// Polygon fills, drawn round rather than filled.
-func (c *Canvas) Outline(pts [][2]float64, width float64, col color.Color) {
-	if len(pts) < 2 {
-		return
-	}
-	xs, ys := make([]float64, 0, len(pts)+1), make([]float64, 0, len(pts)+1)
-	for _, p := range append(pts, pts[0]) {
-		xs, ys = append(xs, p[0]), append(ys, p[1])
-	}
-	c.Polyline(xs, ys, width, col)
 }
 
 // Dashed strokes the line through the points as Polyline does, broken into

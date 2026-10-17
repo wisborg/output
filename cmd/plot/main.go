@@ -402,14 +402,7 @@ func (d drawing) picture(width, height int, inTerminal bool) (*image.RGBA, error
 	if err != nil {
 		return nil, err
 	}
-	img, err := picture.Draw(c, width, height, picture.Options{Palette: pal, Fonts: d.fonts})
-	if err != nil {
-		return nil, err
-	}
-	if img == nil {
-		return nil, fmt.Errorf("%d by %d pixels is too small for a chart", width, height)
-	}
-	return img, nil
+	return picture.Draw(c, width, height, picture.Options{Palette: pal, Fonts: d.fonts})
 }
 
 // writePNG writes the chart to path, width by height pixels or the default
