@@ -1,4 +1,11 @@
-package picture
+// Package canvas is the few drawing primitives this module's pictures are
+// made of -- filled and stroked shapes, anti-aliased, and text in Go Mono
+// with fonts to fall back on -- over golang.org/x/image alone.
+//
+// It is internal: chart/picture and diagram/picture draw with it, and a
+// program that wants a general two-dimensional drawing library should use
+// one. Keeping it to what those two need is what keeps it small.
+package canvas
 
 import (
 	"fmt"
@@ -6,6 +13,7 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"slices"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gomono"
@@ -15,29 +23,32 @@ import (
 	"golang.org/x/image/vector"
 )
 
-// canvas is what a chart is drawn with: filled shapes, anti-aliased, over
+// Canvas is what a picture is drawn with: filled shapes, anti-aliased, over
 // an RGBA image, and text in Go Mono and any fonts to fall back on.
 //
-// It is the few primitives a chart needs and nothing more -- a general
-// two-dimensional drawing library would be a dependency every program
-// drawing a chart then links, for the sake of a rectangle, a disc, a
+// It is the few primitives a chart or a diagram needs and nothing more -- a
+// general two-dimensional drawing library would be a dependency every
+// program drawing one then links, for the sake of a rectangle, a disc, a
 // stroked line and a label.
-type canvas struct {
+type Canvas struct {
 	img   *image.RGBA
 	fonts []*opentype.Font // Go Mono, then the fallbacks
 	faces map[int][]font.Face
 	buf   sfnt.Buffer
 }
 
-func newCanvas(img *image.RGBA, fallbacks []*opentype.Font) (*canvas, error) {
+// New is a canvas over img, writing text in Go Mono and, for a letter Go
+// Mono lacks, the first of fallbacks that has it.
+func New(img *image.RGBA, fallbacks []*opentype.Font) (*Canvas, error) {
 	mono, err := opentype.Parse(gomono.TTF)
 	if err != nil {
-		return nil, fmt.Errorf("picture: parsing the embedded font: %w", err)
+		return nil, fmt.Errorf("canvas: parsing the embedded font: %w", err)
 	}
-	return &canvas{img: img, fonts: append([]*opentype.Font{mono}, fallbacks...), faces: map[int][]font.Face{}}, nil
+	return &Canvas{img: img, fonts: append([]*opentype.Font{mono}, fallbacks...), faces: map[int][]font.Face{}}, nil
 }
 
-func (c *canvas) fill(col color.Color) {
+// Fill paints the whole image col.
+func (c *Canvas) Fill(col color.Color) {
 	draw.Draw(c.img, c.img.Bounds(), image.NewUniform(col), image.Point{}, draw.Src)
 }
 
@@ -121,7 +132,7 @@ func area(poly [][2]float64) float64 {
 }
 
 // draw fills the shape in col over what is already drawn.
-func (c *canvas) draw(s *shape, col color.Color) {
+func (c *Canvas) draw(s *shape, col color.Color) {
 	b := image.Rect(int(math.Floor(s.minX)), int(math.Floor(s.minY)), int(math.Ceil(s.maxX))+1, int(math.Ceil(s.maxY))+1).
 		Intersect(c.img.Bounds())
 	if b.Empty() {
@@ -144,21 +155,23 @@ func (c *canvas) draw(s *shape, col color.Color) {
 	r.Draw(c.img, b, image.NewUniform(col), image.Point{})
 }
 
-func (c *canvas) rect(x, y, w, h float64, col color.Color) {
+// Rect fills the rectangle at (x, y), w by h, in col.
+func (c *Canvas) Rect(x, y, w, h float64, col color.Color) {
 	s := newShape()
 	s.rect(x, y, w, h)
 	c.draw(s, col)
 }
 
-func (c *canvas) disc(x, y, r float64, col color.Color) {
+// Disc fills the disc of radius r at (x, y) in col.
+func (c *Canvas) Disc(x, y, r float64, col color.Color) {
 	s := newShape()
 	s.disc(x, y, r)
 	c.draw(s, col)
 }
 
-// polyline strokes the line through the points; fewer than two draw
-// nothing.
-func (c *canvas) polyline(xs, ys []float64, width float64, col color.Color) {
+// Polyline strokes the line through the points, width wide, with round
+// joins and ends; fewer than two points draw nothing.
+func (c *Canvas) Polyline(xs, ys []float64, width float64, col color.Color) {
 	if len(xs) != len(ys) || len(xs) < 2 || width <= 0 {
 		return
 	}
@@ -169,7 +182,7 @@ func (c *canvas) polyline(xs, ys []float64, width float64, col color.Color) {
 
 // facesAt are the fonts' faces at px pixels, rounded to a whole pixel,
 // made the first time they are asked for.
-func (c *canvas) facesAt(px float64) ([]font.Face, error) {
+func (c *Canvas) facesAt(px float64) ([]font.Face, error) {
 	key := int(math.Round(math.Max(px, 1)))
 	if fs, ok := c.faces[key]; ok {
 		return fs, nil
@@ -180,7 +193,7 @@ func (c *canvas) facesAt(px float64) ([]font.Face, error) {
 	for _, f := range c.fonts {
 		face, err := opentype.NewFace(f, opts)
 		if err != nil {
-			return nil, fmt.Errorf("picture: a %dpx face: %w", key, err)
+			return nil, fmt.Errorf("canvas: a %dpx face: %w", key, err)
 		}
 		fs = append(fs, face)
 	}
@@ -190,7 +203,7 @@ func (c *canvas) facesAt(px float64) ([]font.Face, error) {
 
 // faceFor is the face a letter is drawn in: the first font's that has it,
 // or Go Mono's, whose placeholder box says plainly that none did.
-func (c *canvas) faceFor(fs []font.Face, r rune) font.Face {
+func (c *Canvas) faceFor(fs []font.Face, r rune) font.Face {
 	for i, f := range c.fonts {
 		if g, err := f.GlyphIndex(&c.buf, r); err == nil && g != 0 {
 			return fs[i]
@@ -199,8 +212,8 @@ func (c *canvas) faceFor(fs []font.Face, r rune) font.Face {
 	return fs[0]
 }
 
-// measure is the width text takes at px, and its line's height.
-func (c *canvas) measure(text string, px float64) (w, h float64, err error) {
+// Measure is the width text takes at px, and its line's height.
+func (c *Canvas) Measure(text string, px float64) (w, h float64, err error) {
 	fs, err := c.facesAt(px)
 	if err != nil {
 		return 0, 0, err
@@ -213,15 +226,15 @@ func (c *canvas) measure(text string, px float64) (w, h float64, err error) {
 	return float64(adv) / 64, float64(fs[0].Metrics().Height) / 64, nil
 }
 
-// text writes text at px in col, anchored at (x, y): ax and ay place the
+// Text writes text at px in col, anchored at (x, y): ax and ay place the
 // anchor in the text's box, 0 left, 0.5 the middle, 1 right; and for ay,
 // 0 is the baseline, 0.5 a line's height below it -- the text centred on
 // y -- and 1 a whole line below.
-func (c *canvas) text(text string, x, y, ax, ay, px float64, col color.Color) error {
+func (c *Canvas) Text(text string, x, y, ax, ay, px float64, col color.Color) error {
 	if text == "" {
 		return nil
 	}
-	w, h, err := c.measure(text, px)
+	w, h, err := c.Measure(text, px)
 	if err != nil {
 		return err
 	}
@@ -233,4 +246,98 @@ func (c *canvas) text(text string, x, y, ax, ay, px float64, col color.Color) er
 		d.DrawString(string(r))
 	}
 	return nil
+}
+
+// Polygon fills the polygon through pts in col, whichever way it winds.
+func (c *Canvas) Polygon(pts [][2]float64, col color.Color) {
+	if len(pts) < 3 {
+		return
+	}
+	poly := append([][2]float64(nil), pts...)
+	if area(poly) < 0 {
+		// Clockwise, as every part of a shape is; see shape.
+		slices.Reverse(poly)
+	}
+	s := newShape()
+	s.add(poly)
+	c.draw(s, col)
+}
+
+// Outline strokes the closed outline through pts, width wide: the polygon
+// Polygon fills, drawn round rather than filled.
+func (c *Canvas) Outline(pts [][2]float64, width float64, col color.Color) {
+	if len(pts) < 2 {
+		return
+	}
+	xs, ys := make([]float64, 0, len(pts)+1), make([]float64, 0, len(pts)+1)
+	for _, p := range append(pts, pts[0]) {
+		xs, ys = append(xs, p[0]), append(ys, p[1])
+	}
+	c.Polyline(xs, ys, width, col)
+}
+
+// Dashed strokes the line through the points as Polyline does, broken into
+// dashes dash long with gaps gap long, measured along the line so a dash
+// turns a corner rather than starting afresh at each point. A dash or gap
+// of zero or less draws it whole.
+func (c *Canvas) Dashed(xs, ys []float64, width, dash, gap float64, col color.Color) {
+	if dash <= 0 || gap <= 0 {
+		c.Polyline(xs, ys, width, col)
+		return
+	}
+	if len(xs) != len(ys) || len(xs) < 2 || width <= 0 {
+		return
+	}
+	s := newShape()
+	on, left := true, dash // drawing a dash or a gap, and how much of it remains
+	var px, py []float64
+	flush := func() {
+		if len(px) >= 2 {
+			s.stroke(px, py, width)
+		}
+		px, py = px[:0], py[:0]
+	}
+	px, py = append(px, xs[0]), append(py, ys[0])
+	for i := 1; i < len(xs); i++ {
+		x0, y0 := xs[i-1], ys[i-1]
+		dx, dy := xs[i]-x0, ys[i]-y0
+		l := math.Hypot(dx, dy)
+		done := 0.0
+		for l-done > left {
+			done += left
+			x, y := x0+dx*done/l, y0+dy*done/l
+			if on {
+				px, py = append(px, x), append(py, y)
+				flush()
+			} else {
+				px, py = append(px[:0], x), append(py[:0], y)
+			}
+			on = !on
+			left = dash
+			if !on {
+				left = gap
+			}
+		}
+		left -= l - done
+		if on {
+			px, py = append(px, xs[i]), append(py, ys[i])
+		}
+	}
+	if on {
+		flush()
+	}
+	c.draw(s, col)
+}
+
+// Ellipse is the outline of the ellipse at (cx, cy) with radii rx and ry,
+// as a polygon of enough sides to be a curve, clockwise on the screen, for
+// Polygon to fill and Outline to stroke.
+func Ellipse(cx, cy, rx, ry float64) [][2]float64 {
+	n := max(24, int((rx+ry)*2))
+	pts := make([][2]float64, n)
+	for i := range n {
+		a := 2 * math.Pi * float64(i) / float64(n)
+		pts[i] = [2]float64{cx + rx*math.Cos(a), cy + ry*math.Sin(a)}
+	}
+	return pts
 }

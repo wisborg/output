@@ -4,14 +4,15 @@
 // beneath the last, its bands shaded behind them -- labelled as the
 // chart's braille is labelled.
 //
-// It draws with golang.org/x/image alone: its vector rasteriser for the
-// shapes, and Go Mono, embedded, for the text, with any fonts the caller
-// passes to fall back on for the letters Go Mono lacks. Go Mono is
-// monospaced on purpose: a chart's labels are numbers, and in a
-// proportional face their widths differ digit by digit.
+// It draws with golang.org/x/image alone, through the module's internal
+// canvas: its vector rasteriser for the shapes, and Go Mono, embedded, for
+// the text, with any fonts the caller passes to fall back on for the
+// letters Go Mono lacks. Go Mono is monospaced on purpose: a chart's labels
+// are numbers, and in a proportional face their widths differ digit by
+// digit.
 //
-// This is the only package of the module that imports golang.org/x/image:
-// a program that draws charts in text does not link it.
+// A program that draws charts in text does not import this package, and so
+// does not link golang.org/x/image.
 package picture
 
 import (
@@ -22,6 +23,7 @@ import (
 	"golang.org/x/image/font/opentype"
 
 	"github.com/wisborg/output/chart"
+	"github.com/wisborg/output/internal/canvas"
 )
 
 // Palette is the colours a picture is drawn in.
@@ -82,7 +84,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 		pal = Light
 	}
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	cv, err := newCanvas(img, opts.Fonts)
+	cv, err := canvas.New(img, opts.Fonts)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +97,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	gutter := 0.0
 	for _, s := range c.Strips {
 		for _, v := range s.Y.Ticks() {
-			w, _, err := cv.measure(s.Y.Label(v), px)
+			w, _, err := cv.Measure(s.Y.Label(v), px)
 			if err != nil {
 				return nil, err
 			}
@@ -117,7 +119,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	if all.w < 20 || stripH < 20 {
 		return nil, nil
 	}
-	cv.fill(pal.Background)
+	cv.Fill(pal.Background)
 	xAt := func(v float64) float64 {
 		f, _ := c.X.Frac(v)
 		return all.x + f*all.w
@@ -128,7 +130,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	for i, s := range c.Strips {
 		b := box{x: all.x, y: all.y + float64(i)*(head+stripH) + head, w: all.w, h: stripH}
 		if n > 1 {
-			_ = cv.text(s.Title, b.x, b.y-head/2, 0, 0.5, px, pal.Foreground)
+			_ = cv.Text(s.Title, b.x, b.y-head/2, 0, 0.5, px, pal.Foreground)
 		}
 		for _, band := range c.Bands {
 			if band.Kind < 0 || band.Kind >= len(c.BandKinds) {
@@ -136,12 +138,12 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 			}
 			x0, x1 := math.Max(xAt(band.From), b.x), math.Min(xAt(band.To), b.x+b.w)
 			if x1 > x0 {
-				cv.rect(x0, b.y, math.Max(x1-x0, 1), b.h, c.BandKinds[band.Kind].Colour)
+				cv.Rect(x0, b.y, math.Max(x1-x0, 1), b.h, c.BandKinds[band.Kind].Colour)
 			}
 		}
 		for _, v := range c.X.Ticks() {
 			x := xAt(v)
-			cv.polyline([]float64{x, x}, []float64{b.y, b.y + b.h}, thin, grid)
+			cv.Polyline([]float64{x, x}, []float64{b.y, b.y + b.h}, thin, grid)
 		}
 		drawStrip(cv, s, b, c.X, px, thin, grid, pal)
 	}
@@ -150,7 +152,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	right := -math.MaxFloat64 // where the last x label ended
 	for _, v := range c.X.Ticks() {
 		label := c.X.Label(v)
-		w, _, _ := cv.measure(label, px)
+		w, _, _ := cv.Measure(label, px)
 		// Centred on its tick, kept clear of the y labels -- the first
 		// starts at the axis rather than under the lowest of them -- and
 		// inside the picture, and left out if it would touch the label
@@ -159,13 +161,13 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 		if left < right+px {
 			continue
 		}
-		_ = cv.text(label, left, bottom+px*0.9, 0, 0, px, pal.Dim)
+		_ = cv.Text(label, left, bottom+px*0.9, 0, 0, px, pal.Dim)
 		right = left + w
 	}
-	cv.polyline([]float64{all.x, all.x + all.w}, []float64{bottom, bottom}, thin, pal.Dim)
+	cv.Polyline([]float64{all.x, all.x + all.w}, []float64{bottom, bottom}, thin, pal.Dim)
 	titleX := all.x - gutter - px/2
-	_ = cv.text(c.Title, titleX, margin, 0, 0, px*1.15, pal.Foreground)
-	tw, _, _ := cv.measure(c.Title, px*1.15)
+	_ = cv.Text(c.Title, titleX, margin, 0, 0, px*1.15, pal.Foreground)
+	tw, _, _ := cv.Measure(c.Title, px*1.15)
 	legend(cv, c, titleX+tw+px*2, float64(width)-margin, margin, px, thin, pal)
 	return img, nil
 }
@@ -189,26 +191,26 @@ type box struct{ x, y, w, h float64 }
 // and its readings -- a column a pixel, the band behind and the line over
 // it. A column without a reading draws neither, and the line runs from
 // column to column only where the model joined them.
-func drawStrip(cv *canvas, s chart.Strip, b box, x chart.Scale, px, thin float64, grid color.Color, pal Palette) {
+func drawStrip(cv *canvas.Canvas, s chart.Strip, b box, x chart.Scale, px, thin float64, grid color.Color, pal Palette) {
 	yAt := func(v float64) float64 {
 		f, _ := s.Y.Frac(v)
 		return b.y + (1-f)*b.h
 	}
 	for _, v := range s.Y.Ticks() {
 		y := yAt(v)
-		cv.polyline([]float64{b.x, b.x + b.w}, []float64{y, y}, thin, grid)
-		_ = cv.text(s.Y.Label(v), b.x-px/2, y, 1, 0.5, px, pal.Dim)
+		cv.Polyline([]float64{b.x, b.x + b.w}, []float64{y, y}, thin, grid)
+		_ = cv.Text(s.Y.Label(v), b.x-px/2, y, 1, 0.5, px, pal.Dim)
 	}
-	cv.polyline([]float64{b.x, b.x}, []float64{b.y, b.y + b.h}, thin, pal.Dim)
+	cv.Polyline([]float64{b.x, b.x}, []float64{b.y, b.y + b.h}, thin, pal.Dim)
 
 	spread := faded(pal.Line, 0.22)
 	var xs, ys []float64
 	flush := func() {
 		if len(xs) == 1 {
 			// A lone reading is no line: a dot, so it is not lost.
-			cv.disc(xs[0], ys[0], thin*1.5, pal.Line)
+			cv.Disc(xs[0], ys[0], thin*1.5, pal.Line)
 		}
-		cv.polyline(xs, ys, math.Max(1.5, px/8), pal.Line)
+		cv.Polyline(xs, ys, math.Max(1.5, px/8), pal.Line)
 		xs, ys = xs[:0], ys[:0]
 	}
 	for i, col := range chart.Bin(s.Segments, x.Min, x.Max, int(b.w)) {
@@ -217,7 +219,7 @@ func drawStrip(cv *canvas, s chart.Strip, b box, x chart.Scale, px, thin float64
 		}
 		cx := b.x + float64(i) + 0.5
 		lo, hi := yAt(col.Min), yAt(col.Max)
-		cv.rect(cx-0.5, math.Min(lo, hi), 1, math.Max(math.Abs(lo-hi), 1), spread)
+		cv.Rect(cx-0.5, math.Min(lo, hi), 1, math.Max(math.Abs(lo-hi), 1), spread)
 		if !col.Joined {
 			flush()
 		}
@@ -229,7 +231,7 @@ func drawStrip(cv *canvas, s chart.Strip, b box, x chart.Scale, px, thin float64
 // legend names the chart's kinds of band by a swatch of each, on the
 // title's baseline, ending at right; one that would reach left of left --
 // into the title -- is not drawn.
-func legend(cv *canvas, c chart.Chart, left, right, baseline, px, thin float64, pal Palette) {
+func legend(cv *canvas.Canvas, c chart.Chart, left, right, baseline, px, thin float64, pal Palette) {
 	kinds := c.UsedBandKinds()
 	if len(kinds) == 0 {
 		return
@@ -237,7 +239,7 @@ func legend(cv *canvas, c chart.Chart, left, right, baseline, px, thin float64, 
 	gap := px * 1.5
 	w := -gap
 	for _, k := range kinds {
-		tw, _, _ := cv.measure(c.BandKinds[k].Name, px)
+		tw, _, _ := cv.Measure(c.BandKinds[k].Name, px)
 		w += px*1.2 + tw + gap
 	}
 	x := right - w
@@ -247,10 +249,10 @@ func legend(cv *canvas, c chart.Chart, left, right, baseline, px, thin float64, 
 	for _, k := range kinds {
 		kind := c.BandKinds[k]
 		sx, sy, side := x, baseline-px*0.75, px*0.75
-		cv.rect(sx, sy, side, side, kind.Colour)
-		cv.polyline([]float64{sx, sx + side, sx + side, sx, sx}, []float64{sy, sy, sy + side, sy + side, sy}, thin, pal.Dim)
-		_ = cv.text(kind.Name, x+px*1.2, baseline, 0, 0, px, pal.Dim)
-		tw, _, _ := cv.measure(kind.Name, px)
+		cv.Rect(sx, sy, side, side, kind.Colour)
+		cv.Polyline([]float64{sx, sx + side, sx + side, sx, sx}, []float64{sy, sy, sy + side, sy + side, sy}, thin, pal.Dim)
+		_ = cv.Text(kind.Name, x+px*1.2, baseline, 0, 0, px, pal.Dim)
+		tw, _, _ := cv.Measure(kind.Name, px)
 		x += px*1.2 + tw + gap
 	}
 }
