@@ -116,6 +116,53 @@ func TestWriteYAML_UnsupportedTypeIsAnErrorNotAPanic(t *testing.T) {
 	}
 }
 
+// TestWriteYAML_CallersStructTagsAreAnErrorNotAPanic is the same promise for
+// the other panics the encoder raises over the caller's own value: struct
+// tags it cannot follow, and an inlined map with a key a field has. Each
+// crashed a program asked for --format yaml where JSON wrote the same value.
+// Nothing is written for any of them.
+func TestWriteYAML_CallersStructTagsAreAnErrorNotAPanic(t *testing.T) {
+	type dup struct {
+		A string `yaml:"a"`
+		B string `yaml:"a"`
+	}
+	type inlineString struct {
+		S string `yaml:",inline"`
+	}
+	type inlineIntKeys struct {
+		M map[int]string `yaml:",inline"`
+	}
+	type badFlag struct {
+		S string `yaml:"s,sideways"`
+	}
+	type inlineClash struct {
+		A string            `yaml:"a"`
+		M map[string]string `yaml:",inline"`
+	}
+	for _, c := range []struct {
+		name string
+		v    any
+		want string
+	}{
+		{"duplicate tags", dup{}, "duplicated key 'a'"},
+		{"inline string", inlineString{}, "option ,inline"},
+		{"inline int keys", inlineIntKeys{}, "option ,inline"},
+		{"unknown flag", badFlag{}, "unsupported flag"},
+		{"inline clash", inlineClash{A: "x", M: map[string]string{"a": "y"}}, `cannot have key "a"`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var b strings.Builder
+			err := WriteYAML(&b, c.v, YAMLStyle{})
+			if !errors.Is(err, errUnsupportedYAMLType) || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("err = %v, want one wrapping errUnsupportedYAMLType and saying %q", err, c.want)
+			}
+			if b.Len() != 0 {
+				t.Errorf("wrote %q on failing", b.String())
+			}
+		})
+	}
+}
+
 // TestWriteYAML_RepanicsAnythingElse pins the narrowness of the recover. A
 // shim that swallowed every panic would turn a genuine encoder bug into a
 // plausible-looking error, or into no output and no complaint.
@@ -168,6 +215,49 @@ func TestWriteYAML_UpstreamStillPanics(t *testing.T) {
 	_, _ = yaml.Marshal(struct {
 		Ch chan int
 	}{make(chan int)})
+}
+
+// TestWriteYAML_UpstreamStillPanicsOnStructTags is the same tripwire for
+// yamlCallerPanics: an error value for tags the encoder cannot follow, and a
+// string for an inlined map's clash, each starting as the shim expects.
+func TestWriteYAML_UpstreamStillPanicsOnStructTags(t *testing.T) {
+	type dup struct {
+		A string `yaml:"a"`
+		B string `yaml:"a"`
+	}
+	type clash struct {
+		A string            `yaml:"a"`
+		M map[string]string `yaml:",inline"`
+	}
+	for _, c := range []struct {
+		v       any
+		isError bool
+	}{{dup{}, true}, {clash{M: map[string]string{"a": "y"}}, false}} {
+		func() {
+			defer func() {
+				r := recover()
+				var msg string
+				switch v := r.(type) {
+				case error:
+					msg = v.Error()
+					if !c.isError {
+						t.Errorf("upstream panicked with the error %q where it raised a string", msg)
+					}
+				case string:
+					msg = v
+					if c.isError {
+						t.Errorf("upstream panicked with the string %q where it raised an error", msg)
+					}
+				default:
+					t.Fatalf("go.yaml.in/yaml/v3 panicked with %T (%#v) on %T; WriteYAML's shim no longer matches", r, r, c.v)
+				}
+				if !callerPanic(msg) {
+					t.Errorf("go.yaml.in/yaml/v3 panic %q on %T starts with none of %q; WriteYAML's shim no longer matches", msg, c.v, yamlCallerPanics)
+				}
+			}()
+			_, _ = yaml.Marshal(c.v)
+		}()
+	}
 }
 
 func TestWriteYAML_HonoursStructTags(t *testing.T) {

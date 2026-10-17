@@ -38,9 +38,15 @@ import (
 	"github.com/wisborg/output/table"
 )
 
-// The sentinels every error from this package can be tested for with
-// errors.Is. Each returned error wraps one of these and adds what was
-// actually wrong -- which format was asked for, or what was typed.
+// The sentinels for the mistakes this package finds itself, to be tested
+// for with errors.Is: each error wraps one and adds what was actually wrong
+// -- which format was asked for, or what was typed. ErrYAMLIndent is the
+// fourth, beside YAMLStyle.
+//
+// Other errors are passed on wrapped, never flattened, so errors.Is and
+// errors.As reach what is underneath: the writer's own error, encoding/csv's,
+// encoding/json's *json.UnsupportedTypeError and the like, and a value the
+// YAML encoder cannot represent.
 var (
 	// ErrNoData is returned when a format that writes Document.Data is
 	// asked for and Data is nil.
@@ -112,20 +118,32 @@ type Document struct {
 // The receiver is a value because Write reads the Document and changes
 // nothing in it. Copying the struct copies the Table pointer, not the table.
 //
-// Whatever the format, the output is either empty or ends in exactly one
-// newline.
+// Whatever the format, the output is either empty or ends in a newline:
+// never a line left unfinished for whatever is printed next. It is exactly
+// one newline but where YAML's last value is a string ending in newlines of
+// its own, which a block scalar ("|+") keeps, as it must to read back as
+// the same string.
+//
+// An error from writing text or CSV says which, as JSON's and YAML's do,
+// and wraps what went wrong.
 func (d Document) Write(w io.Writer, f Format) error {
 	switch f {
 	case Text:
 		if d.Table == nil {
 			return missing(ErrNoTable, f)
 		}
-		return d.Table.Render(w, d.TextStyle)
+		if err := d.Table.Render(w, d.TextStyle); err != nil {
+			return fmt.Errorf("output: writing text: %w", err)
+		}
+		return nil
 	case CSV:
 		if d.Table == nil {
 			return missing(ErrNoTable, f)
 		}
-		return d.Table.WriteCSV(w, d.CSVStyle)
+		if err := d.Table.WriteCSV(w, d.CSVStyle); err != nil {
+			return fmt.Errorf("output: writing CSV: %w", err)
+		}
+		return nil
 	case JSON:
 		if d.Data == nil {
 			return missing(ErrNoData, f)

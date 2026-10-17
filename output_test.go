@@ -336,3 +336,18 @@ func TestDocument_StyleErrorsWriteNothing(t *testing.T) {
 		t.Errorf("wrote %d bytes despite the error: %q", b.Len(), b.String())
 	}
 }
+
+// TestDocument_TextAndCSVErrorsSayWhichFormat: a writer error from text or
+// CSV came back bare, where JSON's and YAML's said which format failed. All
+// four now say, and all four still wrap the writer's own error.
+func TestDocument_TextAndCSVErrorsSayWhichFormat(t *testing.T) {
+	for _, c := range []struct {
+		f    Format
+		want string
+	}{{Text, "writing text"}, {CSV, "writing CSV"}, {JSON, "writing JSON"}, {YAML, "writing YAML"}} {
+		err := sampleDocument().Write(&failWriter{n: 0}, c.f)
+		if !errors.Is(err, errWrite) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want one wrapping the writer's error and saying %q", c.f, err, c.want)
+		}
+	}
+}

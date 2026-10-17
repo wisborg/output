@@ -46,7 +46,8 @@ type YAMLStyle struct {
 // errUnsupportedYAMLType is what a YAML encoder panic is converted into. It
 // is unexported because the panic's text is all the encoder gives us: there
 // is no typed error to hand back, and an exported sentinel would promise a
-// stability this shim cannot keep if the upstream message changes.
+// stability this shim cannot keep if the upstream message changes. Where
+// the panic's value is an error, the returned error wraps that too.
 var errUnsupportedYAMLType = errors.New("output: unsupported type for YAML")
 
 // ErrYAMLIndent is returned for a YAMLStyle.Indent the emitter would not
@@ -59,13 +60,30 @@ var errUnsupportedYAMLType = errors.New("output: unsupported type for YAML")
 // would be relying on a dependency's private wording.
 var ErrYAMLIndent = errors.New("output: unsupported YAML indent")
 
-// yamlMarshalPanicPrefix is the start of the only panic value this package
-// converts into an error. See WriteYAML; TestWriteYAML_UpstreamStillPanics
+// yamlMarshalPanicPrefix is the start of the panic the encoder raises on a
+// type it cannot represent. See WriteYAML; TestWriteYAML_UpstreamStillPanics
 // is the tripwire that fires when a dependency bump changes it.
 const yamlMarshalPanicPrefix = "cannot marshal type: "
 
+// yamlCallerPanics are the starts of the other panics the encoder raises
+// over what the caller gave it rather than over a fault of its own: a
+// struct whose yaml tags it cannot follow -- two fields with one key, an
+// ",inline" on a field that cannot be inlined, a flag it does not know --
+// raised as an error value; and an inlined map holding a key one of the
+// struct's own fields has, raised as a string. Each is converted into an
+// error as yamlMarshalPanicPrefix's is. TestWriteYAML_UpstreamStillPanics
+// trips on a dependency bump that changes them.
+var yamlCallerPanics = []string{
+	"duplicated key '",
+	"unsupported flag ",
+	"multiple ,inline maps",
+	"option ,inline ",
+	"cannot have key ",
+}
+
 // WriteYAML writes v as YAML, indented per style, followed by exactly one
-// newline. There is no leading "---": a single document does not need one,
+// newline -- or more, where v's last value is a string ending in newlines,
+// which YAML writes as a block scalar that keeps them. There is no leading "---": a single document does not need one,
 // and it is noise in the common case of a program printing one result.
 //
 // A nil v writes "null", exactly as WriteJSON does, and for the same reason:
@@ -85,23 +103,25 @@ const yamlMarshalPanicPrefix = "cannot marshal type: "
 // encodes into a buffer and copies to w only once the whole document is
 // known to be good, which makes it atomic in the way encoding/json already
 // is: on any error, nothing is written at all. That is what lets
-// Document.Write promise that output is either empty or ends in exactly one
-// newline, rather than promising it for three formats and excusing the
-// fourth. The cost is holding the rendered document in memory, which for
+// Document.Write promise that output is either empty or ends in a newline,
+// rather than promising it for three formats and excusing the fourth. The cost is holding the rendered document in memory, which for
 // program output is a document a person or a pipeline was about to read
 // anyway.
 //
-// # A type YAML cannot encode is an error here, not a panic
+// # A value YAML cannot encode is an error here, not a panic
 //
 // The underlying encoder PANICS on a value it cannot marshal -- a channel or
-// a function, where encoding/json returns *json.UnsupportedTypeError. A
-// library where the value of a --format flag decides whether the program
-// crashes is not one you can build a CLI on, so WriteYAML recovers that one
-// panic and returns it as an error wrapping an unexported sentinel. The
-// recovery is deliberately narrow: only a panic whose value is a string
-// beginning "cannot marshal type: " is converted, and anything else is
-// re-panicked, because anything else is a bug in the encoder and swallowing
-// it would hide it.
+// a function, where encoding/json returns *json.UnsupportedTypeError -- and
+// on a struct whose yaml tags it cannot follow: two fields tagged with one
+// key, an ",inline" on a field that is neither a struct nor a map with
+// string keys. A library where the value of a --format flag decides whether
+// the program crashes is not one you can build a CLI on, so WriteYAML
+// recovers those panics and returns each as an error wrapping an
+// unexported sentinel, and the encoder's own error where the panic's value
+// is one. The recovery is deliberately narrow: only the panics whose text
+// is one of those the encoder raises over the caller's value are
+// converted, and anything else is re-panicked, because anything else is a
+// bug in the encoder and swallowing it would hide it.
 //
 // # A cyclic value still takes the process down
 //
@@ -153,13 +173,25 @@ func encodeYAML(buf *bytes.Buffer, v any, indent int) (err error) {
 		if r == nil {
 			return
 		}
-		msg, ok := r.(string)
-		if !ok || !strings.HasPrefix(msg, yamlMarshalPanicPrefix) {
-			// Not the encoder saying "I cannot represent this". Let it
-			// through with its stack intact.
-			panic(r)
+		switch v := r.(type) {
+		case string:
+			if strings.HasPrefix(v, yamlMarshalPanicPrefix) {
+				err = fmt.Errorf("%w: %s", errUnsupportedYAMLType, strings.TrimPrefix(v, yamlMarshalPanicPrefix))
+				return
+			}
+			if callerPanic(v) {
+				err = fmt.Errorf("%w: %s", errUnsupportedYAMLType, v)
+				return
+			}
+		case error:
+			if callerPanic(v.Error()) {
+				err = fmt.Errorf("%w: %w", errUnsupportedYAMLType, v)
+				return
+			}
 		}
-		err = fmt.Errorf("%w: %s", errUnsupportedYAMLType, strings.TrimPrefix(msg, yamlMarshalPanicPrefix))
+		// Not the encoder saying "I cannot represent this". Let it
+		// through with its stack intact.
+		panic(r)
 	}()
 
 	enc := yaml.NewEncoder(buf)
@@ -178,6 +210,16 @@ func encodeYAML(buf *bytes.Buffer, v any, indent int) (err error) {
 		return fmt.Errorf("output: writing YAML: %w", err)
 	}
 	return nil
+}
+
+// callerPanic says msg is one of yamlCallerPanics.
+func callerPanic(msg string) bool {
+	for _, p := range yamlCallerPanics {
+		if strings.HasPrefix(msg, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // indent resolves YAMLStyle.Indent's 0-means-default convention and rejects

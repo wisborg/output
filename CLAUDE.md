@@ -176,6 +176,10 @@ newline, where the JSON equivalent wrote nothing. Weakening the documented
 "empty or ends in exactly one newline" invariant to describe that exception
 was considered and rejected: the invariant is the useful thing, so the format
 was made to keep it. The cost is holding the rendered document in memory.
+(The one exception the invariant does state is YAML's own: a last value that
+is a string ending in newlines is written as a block scalar, `|+`, which keeps
+them, since anything else would not read back as the same string. That is
+the value's newline, not a fragment.)
 A second, welcome effect: the single write is now this package's own, so a
 writer error is wrapped with `%w` and `errors.Is` reaches it — the YAML
 library formats write errors into text of its own and would have lost it.
@@ -191,12 +195,20 @@ ceiling is the library's, so it is documented on the field.
 
 **`WriteYAML`'s recover shim is narrow on purpose, and cycles cannot be
 fixed.** The library panics with a `string` beginning `"cannot marshal type: "`
-on a channel or a function; that one panic becomes an error, and anything else
-is re-panicked because it is an encoder bug. The shim wraps the encode alone,
-not the write, so a panic from the caller's `io.Writer` is not caught by it.
-`TestWriteYAML_UpstreamStillPanics` is a tripwire on that panic value — a
-dependency bump that changes it must fail there, naming the dependency, rather
-than turning every unsupported type back into a crash. A **cyclic** value is
+on a channel or a function, and over the caller's own value in a few more
+ways: with an `error` for struct tags it cannot follow (two fields with one
+key, an `,inline` on a field that cannot be inlined, an unknown flag), and
+with a string for an inlined map holding a key a field has. Those panics,
+recognised by their text (`yamlCallerPanics`), become errors; anything else
+is re-panicked because it is an encoder bug. The shim once converted the
+first alone, on the belief that every other panic was the encoder's fault,
+and `--format yaml` crashed on a struct with a duplicated tag that JSON wrote
+without complaint. The shim wraps the encode alone, not the write, so a panic
+from the caller's `io.Writer` is not caught by it.
+`TestWriteYAML_UpstreamStillPanics` and
+`TestWriteYAML_UpstreamStillPanicsOnStructTags` are tripwires on those panic
+values — a dependency bump that changes them must fail there, naming the
+dependency, rather than turning every unsupported type back into a crash. A **cyclic** value is
 encoded again at every level for ever: it spins, emitting an ever-deeper
 nesting of the same data and consuming CPU and memory without bound until the
 buffer cannot grow or the stack overflows, and a stack overflow is fatal and

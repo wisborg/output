@@ -84,7 +84,8 @@ document with no `Table` is fine, CSV of one with no `Data` is fine. Asking
 for a format whose representation is missing is an error naming the format —
 `ErrNoData` or `ErrNoTable` — and nothing is written. Nothing is written on
 any other failure either: whatever the format, the output is either empty or
-a whole document ending in exactly one newline. A table with **no rows**
+a whole document ending in a newline — exactly one, but where YAML's last
+value is a string ending in newlines of its own, which it keeps. A table with **no rows**
 is not a missing table: it is a supplied answer that happens to be empty, and
 it keeps `table`'s own rules, so text writes nothing and CSV writes its
 header.
