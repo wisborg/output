@@ -2,6 +2,7 @@ package diagram
 
 import (
 	"image/color"
+	"math"
 	"strings"
 	"testing"
 )
@@ -523,6 +524,77 @@ func TestStraightLabelOnItsLine(t *testing.T) {
 		lx := x0 + t0*(x1-x0)
 		if d := mx - lx; d < -0.6 || d > 0.6 {
 			t.Errorf("%q: the label's middle at (%.2f, %.2f), the line there at x %.2f: not on it", label, mx, my, lx)
+		}
+	}
+}
+
+// A straight edge's label written on its own line is excused only the
+// line: where the line crosses a lane's divider, the label is not written
+// along the divider.
+func TestStraightLabelClearOfDivider(t *testing.T) {
+	d := &Diagram{
+		Root: Group{Rows: 2, Items: []Item{
+			{Group: &Group{ID: "east", Style: Lane, Columns: 3, Items: []Item{node("a"), node("p"), node("q")}}},
+			{Group: &Group{ID: "west", Style: Lane, Columns: 3, Items: []Item{node("r"), node("s"), node("b")}}},
+		}},
+		Edges:    []Edge{{From: "a", To: "b", Head: true, Label: "label"}},
+		Straight: true,
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	div := newOccupancy(lay.Width+40, lay.Height+4, 0)
+	for _, g := range lay.Groups {
+		for _, dv := range g.Dividers {
+			div.line(dv[0], dv[1])
+		}
+	}
+	at := lay.Edges[0].PictureLabelAt()
+	for k := range len("label") {
+		if p := (Point{at.X + k, at.Y}); div.has(p) {
+			t.Errorf("the label at %v is over the divider at %v", at, p)
+		}
+	}
+}
+
+// A picture moves a label on its own line by less than half a cell either
+// way from the cells it took, whatever the label's width or lines: more,
+// and it is drawn over cells nobody checked were free.
+func TestStraightLabelNudgeWithinHalfACell(t *testing.T) {
+	// Boxes of several widths, so the line crosses its middle row at
+	// several fractions of a cell.
+	for _, wide := range []string{"d", "dd", "ddd", "dddd", "ddddd"} {
+		for _, label := range []string{"x", "ab", "abc", "abcd", "x\ny", "ab\ncd", "abc\nd\ne"} {
+			d := &Diagram{
+				Root:     Group{Columns: 2, Items: []Item{node("a"), node("b"), node("c"), {Node: &Node{ID: "d", Label: wide}}}},
+				Edges:    []Edge{{From: "a", To: "d", Head: true, Label: label}},
+				Straight: true,
+			}
+			lay, err := d.Layout()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if nx, ny := lay.Edges[0].PictureLabelNudge(); math.Abs(nx) > 0.5 || math.Abs(ny) > 0.5 {
+				t.Errorf("%q to a box %q: nudged (%.2f, %.2f)", label, wide, nx, ny)
+			}
+		}
+	}
+}
+
+// A stretch of one cell along a row is a stretch along a row: its label is
+// tried over and under it, not to its right and left, where the row's
+// line runs.
+func TestOneCellStretchAlongRow(t *testing.T) {
+	pts := []Point{{0, 5}, {10, 5}}
+	shared := map[Point]int{}
+	for x := 1; x <= 8; x++ {
+		shared[Point{x, 5}] = 2 // all but the cell before the end
+	}
+	tries := segmentTries(pts, shared, 3, 1)
+	for _, at := range tries[:6] {
+		if at.Y == 5 {
+			t.Errorf("tried at %v, on the line's own row; tries %v", at, tries[:6])
 		}
 	}
 }

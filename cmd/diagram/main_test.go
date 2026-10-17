@@ -344,9 +344,16 @@ func TestDiagramBraille(t *testing.T) {
 	}
 }
 
-// In every example, drawn every way, no edge's label is written over a box.
+// In every example, drawn every way, no edge's label is written over a box:
+// in a picture, where it is moved by its nudge, too.
 func TestExampleLabelsClearOfBoxes(t *testing.T) {
-	paths, _ := filepath.Glob(filepath.Join("..", "..", "examples", "*.dot"))
+	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.dot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no examples found")
+	}
 	for _, path := range paths {
 		src, err := os.ReadFile(path)
 		if err != nil {
@@ -366,16 +373,23 @@ func TestExampleLabelsClearOfBoxes(t *testing.T) {
 				if e.Edge.Label == "" {
 					continue
 				}
-				for _, at := range []diagram.Point{e.LabelAt, e.PictureLabelAt()} {
-					w := 0
-					for _, l := range strings.Split(e.Edge.Label, "\n") {
-						w = max(w, len([]rune(l)))
+				w := 0
+				for _, l := range strings.Split(e.Edge.Label, "\n") {
+					w = max(w, len([]rune(l)))
+				}
+				h := strings.Count(e.Edge.Label, "\n") + 1
+				nx, ny := e.PictureLabelNudge()
+				for k, at := range []diagram.Point{e.LabelAt, e.PictureLabelAt()} {
+					// In cells, the text's at whole ones, the picture's
+					// moved by its nudge.
+					x, y := float64(at.X), float64(at.Y)
+					if k == 1 {
+						x, y = x+nx, y+ny
 					}
-					h := strings.Count(e.Edge.Label, "\n") + 1
 					for _, n := range lay.Nodes {
 						r := n.Rect
-						if at.X < r.X+r.W && r.X < at.X+w && at.Y < r.Y+r.H && r.Y < at.Y+h {
-							t.Errorf("%s, straight %v: %s to %s's label at %v is over %s at %v", filepath.Base(path), straight, e.Edge.From, e.Edge.To, at, n.Node.ID, r)
+						if x < float64(r.X+r.W) && float64(r.X) < x+float64(w) && y < float64(r.Y+r.H) && float64(r.Y) < y+float64(h) {
+							t.Errorf("%s, straight %v: %s to %s's label at (%.1f, %.1f) is over %s at %v", filepath.Base(path), straight, e.Edge.From, e.Edge.To, x, y, n.Node.ID, r)
 						}
 					}
 				}

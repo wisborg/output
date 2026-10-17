@@ -192,6 +192,10 @@ func (lay *Layout) placeStraightLabels() {
 			o.take(g.LabelAt, []string{" " + g.Group.Label + " "})
 		}
 	}
+	// What is there but the lines: the title, the boxes, the groups'
+	// outlines and labels, and the edges' labels as they are placed. A
+	// label on its own line is excused the line's cells, never these.
+	fixed := o.clone()
 	var drawn []PlacedEdge // the edges the picture draws along their paths
 	for _, e := range lay.Edges {
 		if !e.Straight {
@@ -222,9 +226,11 @@ func (lay *Layout) placeStraightLabels() {
 			continue
 		}
 		taken[i] = lay.straightCells(e)
+		seen := map[Point]bool{}
 		lay.alongStraight(e, func(x, y float64) {
 			p := Point{int(math.Round(x)), int(math.Round(y))}
-			if !lay.inNode(p) {
+			if !seen[p] && !lay.inNode(p) {
+				seen[p] = true
 				lineAt[i] = append(lineAt[i], p)
 			}
 		})
@@ -241,6 +247,7 @@ func (lay *Layout) placeStraightLabels() {
 		}
 		if !e.Straight {
 			e.pictureAt, e.pictured = lay.placeOn(o, segmentTries(e.Points, shared, w, len(lines)), lines, w, top)
+			fixed.take(e.pictureAt, lines)
 			continue
 		}
 		a, _ := lay.Node(e.Edge.From)
@@ -314,7 +321,7 @@ func (lay *Layout) placeStraightLabels() {
 		// another's -- where nothing but the line is there.
 		own := map[Point]bool{}
 		for p := range taken[i] {
-			if !lay.inNode(p) {
+			if !fixed.has(p) {
 				own[p] = true
 			}
 		}
@@ -331,14 +338,17 @@ func (lay *Layout) placeStraightLabels() {
 		for _, f := range []float64{0.5, 0.4, 0.6, 0.3, 0.7} {
 			t := ta + f*(tb-ta)
 			fx, fy := x0+t*(x1-x0), y0+t*(y1-y0)
-			at := Point{int(math.Round(fx)) - w/2, int(math.Round(fy)) - (len(lines)-1)/2}
+			// The cells nearest the words' place centred on the point, so
+			// that the nudge from them is never more than half a cell.
+			cx, cy := fx+0.5-float64(w)/2, fy-float64(len(lines)-1)/2
+			at := Point{int(math.Round(cx)), int(math.Round(cy))}
 			if at.X >= 0 && o.freeBut(at, lines, own) {
 				o.take(at, lines)
 				e.pictureAt, e.pictured, placed = at, true, true
 				// The words' middle on the point exactly, in a picture: a
 				// cell's middle is half a cell into it, the words' middle
 				// half their width.
-				e.nudge = [2]float64{fx + 0.5 - float64(w)/2 - float64(at.X), fy - float64(len(lines)-1)/2 - float64(at.Y)}
+				e.nudge = [2]float64{cx - float64(at.X), cy - float64(at.Y)}
 				lay.Width = max(lay.Width, at.X+w)
 				break
 			}
@@ -346,6 +356,7 @@ func (lay *Layout) placeStraightLabels() {
 		if !placed {
 			e.pictureAt, e.pictured = lay.placeNear(o, tries, lines, w, top, i, lineAt)
 		}
+		fixed.take(e.pictureAt, lines)
 	}
 	least := 0
 	for _, e := range lay.Edges {
