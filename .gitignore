@@ -12,3 +12,6 @@
 # library, and the allowlist in particular names absolute paths that mean
 # nothing in another checkout.
 /.claude/
+
+# The plot command, as `make build` leaves it at the root.
+/plot

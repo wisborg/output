@@ -10,15 +10,25 @@ image, which `chart/terminal` shows in a terminal that can show one.
 
 ## Building and testing
 
-Pure Go, no cgo, no external tools. The plain commands work — there is no
-Makefile or wrapper script here, unlike some of the other repositories on this
-machine, because there is nothing to wrap:
+Pure Go, no cgo, no external tools. `make` lists the targets; each is a plain
+`go` invocation, as in osmbase, rather than a delegation to a script, since
+there is nothing here a script would add:
 
 ```
-gofmt -l .        # must print nothing
-go vet ./...
-go test ./...
+make gates                 # gofmt + vet + test, one status line each
+make test PKG=./chart/ RUN=Date
+make race                  # the tests as CI runs them
+make deps                  # each package compiles in only what it is meant to
+make build                 # -> ./plot
+make run ARGS="-list data.csv"
+make clean                 # remove ./plot, empty .scratch/
 ```
+
+`make deps` is how the layering under Layout below is kept rather than
+merely described: it fails if `chart` or `chart/terminal` compiles in
+anything outside the standard library, `table` or `progress` YAML or x/image,
+or the root package x/image. A new dependency in any package is a visible
+edit to that target.
 
 `go test ./...` runs the `Example` functions too, so the documentation is
 verified rather than merely present. An example whose `// Output:` block drifts
