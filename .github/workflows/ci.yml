@@ -67,6 +67,11 @@ jobs:
       - name: vet
         run: go vet ./...
 
+      - name: layering
+        # Each package compiles in only the modules it is meant to, which
+        # is a promise to the programs depending on them; see the Makefile.
+        run: make deps
+
       - name: test
         # -race even though the package documents that a Table is not safe for
         # concurrent use: the cost is trivial at this size, and the detector

@@ -15,7 +15,7 @@ Pure Go, no cgo, no external tools. `make` lists the targets; each is a plain
 there is nothing here a script would add:
 
 ```
-make gates                 # gofmt + vet + test, one status line each
+make gates                 # gofmt + vet + test + deps, one status line each
 make test PKG=./chart/ RUN=Date
 make race                  # the tests as CI runs them
 make deps                  # each package compiles in only what it is meant to
@@ -25,7 +25,13 @@ make clean                 # remove bin/, empty .scratch/
 ```
 
 `make deps` is how the layering under Layout below is kept rather than
-merely described: it fails if `chart` or `chart/terminal` compiles in
+merely described, and `make gates` and CI both run it. Each group of
+packages is checked against an allowlist of the modules it may compile in,
+so any new dependency fails until the target names it, and the packages the
+layering keeps apart are checked by import too. It once checked each group
+against a few modules it must not have, and let anything else through:
+x/text into `table`, or `table` into `progress`, passed. It fails if
+`chart` or `chart/terminal` compiles in
 anything outside the standard library, the diagram packages anything but
 go-runewidth and uax29, `table` or `progress` YAML or x/image,
 or the root package x/image. A new dependency in any package is a visible

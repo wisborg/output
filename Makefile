@@ -47,7 +47,7 @@ run: build
 
 # gofmt is asked of the packages' directories rather than of `.`, so a probe
 # left in .scratch/ is not taken for the module's code.
-## gates: gofmt, vet and test -- what must pass before a commit
+## gates: gofmt, vet, test and deps -- what must pass before a commit
 gates:
 	@printf 'gofmt: '
 	@out=$$(gofmt -l $$(go list -f '{{.Dir}}' ./...)); \
@@ -56,6 +56,8 @@ gates:
 	@if go vet ./... >/dev/null 2>&1; then echo "clean"; else echo "FAILED"; go vet ./...; exit 1; fi
 	@printf 'test:  '
 	@if go test ./... >/dev/null 2>&1; then echo "all packages ok"; else echo "FAILED"; go test ./...; exit 1; fi
+	@printf 'deps:  '
+	@if $(MAKE) -s deps >/dev/null 2>&1; then echo "layered"; else echo "FAILED"; $(MAKE) -s deps; exit 1; fi
 
 ## test: run the tests, or narrow with PKG= and RUN=
 test:
@@ -91,22 +93,35 @@ tidy:
 #   table, progress         go-runewidth and uax29, and never YAML or x/image
 #   the root package        adds YAML, and never x/image
 #
-# A package is outside the standard library when its first path element has
-# a dot in it: go.yaml.in as much as github.com.
+# Each group is checked against an ALLOWLIST of the modules it may compile
+# in, by module path, so a new dependency anywhere fails here until this
+# target names it -- a list of modules each group must not have let any
+# other through, x/text into table, say. And the packages the layering
+# keeps apart are checked too: progress imports no other package of the
+# module, table none either, and the root package only table.
 ## deps: check each package compiles in only the modules it is meant to
 deps:
 	@fail=0; \
+	  rw='github.com/mattn/go-runewidth|github.com/clipperhouse/uax29/v2'; \
+	  img='golang.org/x/image|golang.org/x/text'; \
 	  check() { \
-	    pkgs=$$1; banned=$$2; \
-	    bad=$$(go list -deps $$pkgs | grep -E '^[^/]*\.[^/]*/' | grep -v '^github.com/wisborg/output' | grep -E "$$banned" || true); \
-	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$pkgs compiles in:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
+	    bad=$$(go list -deps -f '{{with .Module}}{{.Path}}{{end}}' $$1 | sort -u | grep -v '^github.com/wisborg/output$$' | grep -vxE "$$2" || true); \
+	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$1 compiles in:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
 	  }; \
-	  check "./chart ./chart/terminal" '.'; \
-	  check "./diagram ./diagram/dot ./diagram/svg" '^(go.yaml.in|golang.org/x)/'; \
-	  check "./chart/picture ./internal/canvas" '^(github.com/mattn|github.com/clipperhouse|go.yaml.in)/'; \
-	  check "./diagram/picture" '^go.yaml.in/'; \
-	  check "./table ./progress" '^(go.yaml.in|golang.org/x/image)/'; \
-	  check "." '^golang.org/x/image/'; \
+	  own() { \
+	    bad=$$(go list -deps $$1 | grep '^github.com/wisborg/output' | grep -vxE "$$2" || true); \
+	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$1 imports:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
+	  }; \
+	  check "./chart ./chart/terminal" ''; \
+	  check "./diagram ./diagram/dot ./diagram/svg" "$$rw"; \
+	  check "./chart/picture ./internal/canvas" "$$img"; \
+	  check "./diagram/picture" "$$rw|$$img"; \
+	  check "./table ./progress" "$$rw"; \
+	  check "." "$$rw|go.yaml.in/yaml/v3"; \
+	  check "./cmd/plot ./cmd/diagram" "$$rw|$$img"; \
+	  own "./progress" 'github.com/wisborg/output/progress'; \
+	  own "./table" 'github.com/wisborg/output/table'; \
+	  own "." 'github.com/wisborg/output|github.com/wisborg/output/table'; \
 	  [ $$fail -eq 0 ] && echo "deps: chart is the standard library alone, diagram adds only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
 	  exit $$fail
 
