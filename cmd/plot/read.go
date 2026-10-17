@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"unicode"
+
+	"github.com/wisborg/output/internal/cli"
 )
 
 // table is a file's cells as text: its columns' names, and its rows, each
@@ -99,7 +101,7 @@ func parseDelimiter(s string) (rune, error) {
 	if r := []rune(s); len(r) == 1 && r[0] != '"' && r[0] != '\n' && r[0] != '\r' {
 		return r[0], nil
 	}
-	return 0, fmt.Errorf("--delimiter %q: use auto, tab or a single character such as , ; or |", s)
+	return 0, cli.Usagef("--delimiter %q: use auto, tab or a single character such as , ; or |", s)
 }
 
 // headerMode is --header: whether the first row names the columns.

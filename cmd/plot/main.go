@@ -31,24 +31,17 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"golang.org/x/image/font/opentype"
 
 	"github.com/wisborg/output/chart/picture"
 	"github.com/wisborg/output/chart/terminal"
 	"github.com/wisborg/output/internal/cli"
+	tbl "github.com/wisborg/output/table"
 )
 
 func main() {
-	err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv)
-	if errors.Is(err, flag.ErrHelp) {
-		os.Exit(0)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "plot:", err)
-		os.Exit(1)
-	}
+	cli.Exit("plot", run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))
 }
 
 // maxDefaultColumns is the most columns plotted when --y does not name
@@ -100,6 +93,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return nil
 	})
 	files, err := cli.Parse(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		// Asked for, so on standard output, where a pager or grep finds
+		// it.
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return err
+	}
 	if err != nil {
 		return err
 	}
@@ -108,6 +108,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	for _, f := range []struct {
+		name string
+		v    int
+	}{{"width", o.width}, {"height", o.height}, {"smooth", o.smooth}} {
+		if f.v < 0 {
+			return cli.Usagef("--%s %d: a number from 0", f.name, f.v)
+		}
+	}
 
 	in, name := stdin, "standard input"
 	if len(files) == 1 && files[0] != "-" {
@@ -124,11 +132,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	header := headerMode(o.header)
 	if header != headerAuto && header != headerYes && header != headerNo {
-		return fmt.Errorf("--header %q: use auto, yes or no", o.header)
+		return cli.Usagef("--header %q: use auto, yes or no", o.header)
 	}
 	order := dateOrder(o.dates)
 	if order != datesAuto && order != datesDMY && order != datesMDY {
-		return fmt.Errorf("--dates %q: use auto, dmy or mdy", o.dates)
+		return cli.Usagef("--dates %q: use auto, dmy or mdy", o.dates)
 	}
 	t, err := readTable(in, delim, header, order)
 	if err != nil {
@@ -143,8 +151,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		cols[j] = classify(cells, order)
 	}
 	if o.list {
-		writeColumns(stdout, t, cols)
-		return nil
+		return writeColumns(stdout, t, cols)
 	}
 
 	x, err := chooseX(t, cols, o.x)
@@ -297,18 +304,19 @@ func chooseY(t *table, cols []column, x int, spec string) ([]int, error) {
 }
 
 // writeColumns lists t's columns: number, name, what each holds and how
-// many of its rows hold a value.
-func writeColumns(w io.Writer, t *table, cols []column) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tcolumn\tholds\tvalues")
+// many of its rows hold a value. Through the table package, which measures
+// a column's names in a terminal's columns: tabwriter counted runes, and a
+// name in CJK pushed the columns after it out of line.
+func writeColumns(w io.Writer, t *table, cols []column) error {
+	tb := tbl.New(tbl.Column{Header: "#", Align: tbl.Right}, tbl.Column{Header: "column"}, tbl.Column{Header: "holds"}, tbl.Column{Header: "values"})
 	for j, c := range cols {
 		holds := c.kind.String()
 		if c.wrong > 0 {
 			holds += fmt.Sprintf(" (%s not)", cells(c.wrong))
 		}
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%d of %d\n", j+1, t.names[j], holds, c.values, len(t.rows))
+		tb.MustAppend(j+1, t.names[j], holds, fmt.Sprintf("%d of %d", c.values, len(t.rows)))
 	}
-	tw.Flush()
+	return tb.Render(w, tbl.Style{Spacing: 2})
 }
 
 func cells(n int) string {
@@ -381,7 +389,7 @@ func (d drawing) palette(inTerminal bool) (picture.Palette, error) {
 		}
 		return picture.Light, nil
 	}
-	return picture.Palette{}, fmt.Errorf("--theme %q: use auto, light or dark", d.theme)
+	return picture.Palette{}, cli.Usagef("--theme %q: use auto, light or dark", d.theme)
 }
 
 // picture is the chart drawn width by height pixels.
@@ -410,7 +418,7 @@ func (d drawing) picture(width, height int, inTerminal bool) (*image.RGBA, error
 // size where either is zero.
 func (d drawing) writePNG(path string, width, height int) error {
 	if !strings.EqualFold(filepath.Ext(path), ".png") {
-		return fmt.Errorf("--out %q: a chart is written as a PNG; name it .png", path)
+		return cli.Usagef("--out %q: a chart is written as a PNG; name it .png", path)
 	}
 	if width == 0 {
 		width = imageWidth

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
+	"flag"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -401,5 +403,22 @@ func TestExampleLabelsClearOfBoxes(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Help asked for is on standard output; --width given for the text
+// drawing, which it cannot narrow, says so rather than having no effect
+// and no word.
+func TestDiagramHelpAndTextWidth(t *testing.T) {
+	out, errOut, err := draw(t, "", "--help")
+	if !errors.Is(err, flag.ErrHelp) || !strings.Contains(out, "usage: diagram") || errOut != "" {
+		t.Errorf("--help: %v, stdout %d bytes, stderr %q", err, len(out), errOut)
+	}
+	_, errOut, err = draw(t, regions, "--terminal", "text", "--width", "20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "wider than --width 20") {
+		t.Errorf("stderr %q says nothing of --width", errOut)
 	}
 }

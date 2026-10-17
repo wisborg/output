@@ -42,14 +42,7 @@ import (
 )
 
 func main() {
-	err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv)
-	if errors.Is(err, flag.ErrHelp) {
-		os.Exit(0)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "diagram:", err)
-		os.Exit(1)
-	}
+	cli.Exit("diagram", run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))
 }
 
 const usage = `diagram draws a diagram written in Graphviz's DOT language, in the
@@ -115,7 +108,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.edges, "edges", "auto", "how a PNG or an SVG draws edges: auto (as the file's splines attribute says, along rows and columns where it says nothing), straight (a straight line between the boxes, at whatever angle, where it is clear of the others) or orthogonal (along rows and columns); the text drawing draws them along rows and columns too, unless --braille says otherwise")
 	fs.StringVar(&o.braille, "braille", "off", "how the text drawing draws the edges --edges straight, or the file's splines, draws straight: off (along rows and columns), thin or thick (at their angle, in braille dots one or two deep, as the picture draws them)")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a file; the terminal's own in a terminal), light or dark")
-	fs.IntVar(&o.width, "width", 0, "the diagram's width: in characters in the terminal (default: the terminal's, or 100); in pixels in a PNG or an SVG (default: "+strconv.Itoa(imageWidth)+"); its height follows from its proportions")
+	fs.IntVar(&o.width, "width", 0, "the picture's width: in characters for a picture in the terminal (default: the terminal's, or 100); in pixels in a PNG or an SVG (default: "+strconv.Itoa(imageWidth)+"); its height follows from its proportions. The text drawing is as wide as the diagram, which no flag narrows")
 	fs.IntVar(&o.height, "height", 0, "the most the diagram's height may be, narrower where it would be taller: in lines in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none)")
 	fs.Float64Var(&o.textPx, "text-size", 0, "size a PNG or an SVG by its text instead, in pixels, everything else in proportion -- so several diagrams share a text size; not with --width or --height")
 	fs.Func("font", "a TrueType or OpenType font for the letters the built-in font lacks, in a PNG; repeat for several", func(s string) error {
@@ -123,6 +116,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return nil
 	})
 	files, err := cli.Parse(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		// Asked for, so on standard output, where a pager or grep finds
+		// it.
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return err
+	}
 	if err != nil {
 		return err
 	}
@@ -136,11 +136,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		v    float64
 	}{{"width", float64(o.width)}, {"height", float64(o.height)}, {"text-size", o.textPx}} {
 		if set[f.name] && !(f.v > 0 && f.v <= math.MaxFloat64) {
-			return fmt.Errorf("--%s %v: a size above 0", f.name, f.v)
+			return cli.Usagef("--%s %v: a size above 0", f.name, f.v)
 		}
 	}
 	if set["text-size"] && (set["width"] || set["height"]) {
-		return errors.New("--text-size sizes the diagram by its text, --width and --height by its outline: give one or the other")
+		return cli.Usagef("--text-size sizes the diagram by its text, --width and --height by its outline: give one or the other")
 	}
 	// The flags are checked whichever way the diagram is drawn: a wrong
 	// one is a mistake to be told of, not one that waits for a terminal
@@ -151,17 +151,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	switch o.terminal {
 	case "auto", "iterm", "kitty", "text":
 	default:
-		return fmt.Errorf("--terminal %q: use auto, iterm, kitty or text", o.terminal)
+		return cli.Usagef("--terminal %q: use auto, iterm, kitty or text", o.terminal)
 	}
 	switch o.color {
 	case "auto", "always", "never":
 	default:
-		return fmt.Errorf("--color %q: use auto, always or never", o.color)
+		return cli.Usagef("--color %q: use auto, always or never", o.color)
 	}
 	switch o.edges {
 	case "auto", "straight", "orthogonal":
 	default:
-		return fmt.Errorf("--edges %q: use auto, straight or orthogonal", o.edges)
+		return cli.Usagef("--edges %q: use auto, straight or orthogonal", o.edges)
 	}
 	textOpts := diagram.TextOptions{}
 	switch o.braille {
@@ -171,7 +171,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	case "thick":
 		textOpts.Braille = diagram.BrailleThick
 	default:
-		return fmt.Errorf("--braille %q: use off, thin or thick", o.braille)
+		return cli.Usagef("--braille %q: use off, thin or thick", o.braille)
 	}
 	o.text = textOpts
 	in, name := stdin, "standard input"
@@ -226,14 +226,14 @@ func palette(theme string, inTerminal bool, getenv func(string) string) (diagram
 		}
 		return diagram.Light, nil
 	}
-	return diagram.Palette{}, fmt.Errorf("--theme %q: use auto, light or dark", theme)
+	return diagram.Palette{}, cli.Usagef("--theme %q: use auto, light or dark", theme)
 }
 
 // writeFile writes the diagram to --out, in the format its name ends in.
 func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error {
 	ext := strings.ToLower(filepath.Ext(o.out))
 	if ext != ".png" && ext != ".svg" && ext != ".txt" {
-		return fmt.Errorf("--out %q: name it .png, .svg or .txt", o.out)
+		return cli.Usagef("--out %q: name it .png, .svg or .txt", o.out)
 	}
 	pal, err := palette(o.theme, false, getenv)
 	if err != nil {
@@ -302,6 +302,12 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 		return err
 	}
 	if how == terminal.Braille {
+		if o.width > 0 && lay.Width > o.width {
+			// The text drawing is the layout's cells, one a character:
+			// it cannot be drawn narrower, and saying nothing left a
+			// --width that had no effect looking as though it had.
+			fmt.Fprintf(errOut, "the text drawing is %d characters wide, wider than --width %d: --width sizes a picture, and the text cannot be drawn narrower\n", lay.Width, o.width)
+		}
 		lines := lay.Text(o.text)
 		if colour(o.color, tty, getenv) {
 			lines = lay.ColourText(pal, o.text)

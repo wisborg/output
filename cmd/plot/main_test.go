@@ -2,11 +2,17 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"flag"
 	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mattn/go-runewidth"
+
+	"github.com/wisborg/output/internal/cli"
 )
 
 func noEnv(string) string { return "" }
@@ -183,5 +189,42 @@ func TestPlotFlagsAfterTheFile(t *testing.T) {
 	}
 	if !strings.Contains(out, "2  v       number  2 of 2") {
 		t.Errorf("--list after the file did not list it:\n%s", out)
+	}
+}
+
+// Help asked for is written to standard output, where a pager or grep
+// finds it, and is not an error to report; a mistake in a flag is a
+// UsageError, which the command reports in a line and exits 2 for.
+func TestPlotHelpAndMistakes(t *testing.T) {
+	out, errOut, err := plot(t, "", "--help")
+	if !errors.Is(err, flag.ErrHelp) || !strings.Contains(out, "usage: plot") || errOut != "" {
+		t.Errorf("--help: %v, stdout %d bytes, stderr %q", err, len(out), errOut)
+	}
+	for _, args := range [][]string{{"--bogus"}, {"--smooth", "-3"}, {"--width", "-5"}, {"--header", "maybe"}, {"--delimiter", "ab"}} {
+		_, errOut, err := plot(t, "a,b\n1,2\n", args...)
+		var ue *cli.UsageError
+		if !errors.As(err, &ue) {
+			t.Errorf("%q: %v, want a UsageError", args, err)
+		}
+		if errOut != "" {
+			t.Errorf("%q: wrote %q beside the error", args, errOut)
+		}
+	}
+}
+
+// --list lines its columns up in a terminal's columns, a CJK name included,
+// which tabwriter counted in runes.
+func TestPlotListAlignsWideNames(t *testing.T) {
+	out, _, err := plot(t, "a,日本語,c\n1,2,3\n2,3,4\n", "--list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := -1
+	for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n")[2:] {
+		col := runewidth.StringWidth(l[:strings.Index(l, "number")])
+		if at >= 0 && col != at {
+			t.Errorf("\"holds\" at column %d and %d:\n%s", at, col, out)
+		}
+		at = col
 	}
 }
