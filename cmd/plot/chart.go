@@ -115,7 +115,7 @@ func buildChart(s series, opts chartOptions, resolution, xTicks, yTicks int) (ch
 	return c, nil
 }
 
-// yRange is the span of segs's readings: all of them, or with -robust the
+// yRange is the span of segs's readings: all of them, or with --robust the
 // middle 98%, as chart.RobustRange leaves them.
 //
 // All of them by default, because the data is anyone's: a spike in a power

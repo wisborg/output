@@ -55,7 +55,7 @@ func TestReadTableFindsTheHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := []string{"1", "2"}; !reflect.DeepEqual(tb.names, want) {
-		t.Errorf("-header yes: names %q, want %q", tb.names, want)
+		t.Errorf("--header yes: names %q, want %q", tb.names, want)
 	}
 }
 

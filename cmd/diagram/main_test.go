@@ -39,12 +39,12 @@ func TestDiagramDrawsText(t *testing.T) {
 	}
 }
 
-// -out writes the format its name ends in.
+// --out writes the format its name ends in.
 func TestDiagramWritesFiles(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"d.png", "d.svg", "d.txt"} {
 		path := filepath.Join(dir, name)
-		_, stderr, err := draw(t, regions, "-out", path)
+		_, stderr, err := draw(t, regions, "--out", path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,9 +78,9 @@ func TestDiagramRefuses(t *testing.T) {
 		args []string
 		want string
 	}{
-		{regions, []string{"-out", "d.jpg"}, "name it .png, .svg or .txt"},
-		{regions, []string{"-terminal", "braille"}, "use auto, iterm, kitty or text"},
-		{regions, []string{"-theme", "pink"}, "-theme"},
+		{regions, []string{"--out", "d.jpg"}, "name it .png, .svg or .txt"},
+		{regions, []string{"--terminal", "braille"}, "use auto, iterm, kitty or text"},
+		{regions, []string{"--theme", "pink"}, "--theme"},
 		{"digraph {\n a -- b\n}", nil, "standard input: line 2"},
 		{"digraph { subgraph cluster_a { columns=1; a [col=1]; b [col=1, row=1] } }", nil, "both pinned"},
 	} {
@@ -88,5 +88,20 @@ func TestDiagramRefuses(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v, want an error saying %q", c.args, err, c.want)
 		}
+	}
+}
+
+// A flag after the file is a flag, as it is before it.
+func TestDiagramFlagsAfterTheFile(t *testing.T) {
+	dir := t.TempDir()
+	src, out := filepath.Join(dir, "d.dot"), filepath.Join(dir, "d.txt")
+	if err := os.WriteFile(src, []byte(regions), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := draw(t, "", src, "--out", out); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(out); err != nil || !bytes.Contains(data, []byte("dbC")) {
+		t.Errorf("--out after the file wrote %q, %v", data, err)
 	}
 }

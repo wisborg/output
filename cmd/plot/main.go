@@ -3,9 +3,9 @@
 // row -- in the terminal or as a PNG.
 //
 //	plot prices.csv
-//	plot -y close,volume prices.csv
-//	plot -x month -y rain -out rain.png weather.tsv
-//	some-program | plot -smooth 7
+//	plot --y close,volume prices.csv
+//	plot --x month --y rain --out rain.png weather.tsv
+//	some-program | plot --smooth 7
 //
 // It reads CSV: values delimited by commas, tabs, semicolons or bars -- it
 // tells which by looking -- quoted where they hold the delimiter, with or
@@ -15,7 +15,7 @@
 //
 // It draws with github.com/wisborg/output/chart: in iTerm2, WezTerm, kitty
 // and Ghostty a picture the width of the window; in any other terminal, or
-// into a pipe, in braille; with -out, a PNG.
+// into a pipe, in braille; with --out, a PNG.
 package main
 
 import (
@@ -36,6 +36,7 @@ import (
 
 	"github.com/wisborg/output/chart/picture"
 	"github.com/wisborg/output/chart/terminal"
+	"github.com/wisborg/output/internal/cli"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func main() {
 	}
 }
 
-// maxDefaultColumns is the most columns plotted when -y does not name
+// maxDefaultColumns is the most columns plotted when --y does not name
 // them: more strips than this are each too short to read, and a file of
 // fifty columns is better listed than drawn.
 const maxDefaultColumns = 6
@@ -77,7 +78,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage)
-		fs.PrintDefaults()
+		cli.PrintDefaults(fs)
 	}
 	fs.StringVar(&o.x, "x", "", "the column to plot against, by name or number from 1, or 0 for the row (default: the first column, where it holds dates or numbers in order; the row otherwise)")
 	fs.StringVar(&o.y, "y", "", "the columns to plot, by name or number from 1, comma-separated, each in a strip of its own (default: every column of numbers but x, up to "+strconv.Itoa(maxDefaultColumns)+")")
@@ -97,23 +98,24 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		o.fonts = append(o.fonts, s)
 		return nil
 	})
-	if err := fs.Parse(args); err != nil {
+	files, err := cli.Parse(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() > 1 {
-		return fmt.Errorf("one file at a time: %s", strings.Join(fs.Args(), " "))
+	if len(files) > 1 {
+		return fmt.Errorf("one file at a time: %s", strings.Join(files, " "))
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
 	in, name := stdin, "standard input"
-	if fs.NArg() == 1 && fs.Arg(0) != "-" {
-		f, err := os.Open(fs.Arg(0))
+	if len(files) == 1 && files[0] != "-" {
+		f, err := os.Open(files[0])
 		if err != nil {
 			return err
 		}
 		defer f.Close()
-		in, name = f, fs.Arg(0)
+		in, name = f, files[0]
 	}
 	delim, err := parseDelimiter(o.delimiter)
 	if err != nil {
@@ -121,11 +123,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	header := headerMode(o.header)
 	if header != headerAuto && header != headerYes && header != headerNo {
-		return fmt.Errorf("-header %q: use auto, yes or no", o.header)
+		return fmt.Errorf("--header %q: use auto, yes or no", o.header)
 	}
 	order := dateOrder(o.dates)
 	if order != datesAuto && order != datesDMY && order != datesMDY {
-		return fmt.Errorf("-dates %q: use auto, dmy or mdy", o.dates)
+		return fmt.Errorf("--dates %q: use auto, dmy or mdy", o.dates)
 	}
 	t, err := readTable(in, delim, header, order)
 	if err != nil {
@@ -154,7 +156,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	var notes []string
 	if x >= 0 && cols[x].ambiguous {
-		return fmt.Errorf("the dates in %q read as well with the day first as the month: say -dates dmy or -dates mdy", t.names[x])
+		return fmt.Errorf("the dates in %q read as well with the day first as the month: say --dates dmy or --dates mdy", t.names[x])
 	}
 	ycols := make([]column, len(ys))
 	for k, y := range ys {
@@ -201,10 +203,10 @@ input is. Each column plotted is a strip of its own, on its own scale,
 sharing the x axis. An empty cell, NA or null is a gap in the line, never
 a zero.
 
-flags:
+Flags:
 `
 
-// chooseX is the column -x names, or -1 for the row. Without -x it is the
+// chooseX is the column --x names, or -1 for the row. Without --x it is the
 // first column where that holds dates, or numbers in order -- years, a
 // count, a sequence -- and another column holds numbers to plot against
 // it; otherwise the row. A first column of numbers out of order is a
@@ -216,10 +218,10 @@ func chooseX(t *table, cols []column, spec string) (int, error) {
 	if spec != "" {
 		x, err := findColumn(t.names, spec)
 		if err != nil {
-			return 0, fmt.Errorf("-x: %w", err)
+			return 0, fmt.Errorf("--x: %w", err)
 		}
 		if cols[x].kind == textColumn {
-			return 0, fmt.Errorf("-x: %q holds neither numbers nor dates to plot against", t.names[x])
+			return 0, fmt.Errorf("--x: %q holds neither numbers nor dates to plot against", t.names[x])
 		}
 		return x, nil
 	}
@@ -258,21 +260,21 @@ func ordered(t *table, j int, c column) bool {
 	return up || down
 }
 
-// chooseY are the columns -y names, or every column of numbers but x.
+// chooseY are the columns --y names, or every column of numbers but x.
 func chooseY(t *table, cols []column, x int, spec string) ([]int, error) {
 	var ys []int
 	if spec != "" {
 		for part := range strings.SplitSeq(spec, ",") {
 			y, err := findColumn(t.names, part)
 			if err != nil {
-				return nil, fmt.Errorf("-y: %w", err)
+				return nil, fmt.Errorf("--y: %w", err)
 			}
 			if cols[y].kind != numberColumn {
-				return nil, fmt.Errorf("-y: %q holds %s, not numbers", t.names[y], cols[y].kind)
+				return nil, fmt.Errorf("--y: %q holds %s, not numbers", t.names[y], cols[y].kind)
 			}
 			for _, had := range ys {
 				if had == y {
-					return nil, fmt.Errorf("-y names %q twice", t.names[y])
+					return nil, fmt.Errorf("--y names %q twice", t.names[y])
 				}
 			}
 			ys = append(ys, y)
@@ -286,9 +288,9 @@ func chooseY(t *table, cols []column, x int, spec string) ([]int, error) {
 	}
 	switch {
 	case len(ys) == 0:
-		return nil, errors.New("no column holds numbers to plot; -list says what each holds")
+		return nil, errors.New("no column holds numbers to plot; --list says what each holds")
 	case len(ys) > maxDefaultColumns:
-		return nil, fmt.Errorf("%d columns hold numbers, too many to plot at once: choose with -y; -list lists them", len(ys))
+		return nil, fmt.Errorf("%d columns hold numbers, too many to plot at once: choose with --y; --list lists them", len(ys))
 	}
 	return ys, nil
 }
@@ -322,24 +324,24 @@ func rowsOf(n int) string {
 	return strconv.Itoa(n) + " rows with"
 }
 
-// loadFonts reads the fonts -font names.
+// loadFonts reads the fonts --font names.
 func loadFonts(paths []string) ([]*opentype.Font, error) {
 	var fonts []*opentype.Font
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return nil, fmt.Errorf("-font: %w", err)
+			return nil, fmt.Errorf("--font: %w", err)
 		}
 		f, err := opentype.Parse(data)
 		if err != nil {
-			return nil, fmt.Errorf("-font %s: %w", p, err)
+			return nil, fmt.Errorf("--font %s: %w", p, err)
 		}
 		fonts = append(fonts, f)
 	}
 	return fonts, nil
 }
 
-// The size of a PNG where -width and -height do not say: wide, as a chart
+// The size of a PNG where --width and --height do not say: wide, as a chart
 // along an axis reads best, and at a size a screen shows whole -- for one
 // column, and 300 pixels more for each further one.
 const (
@@ -363,7 +365,7 @@ type drawing struct {
 	getenv func(string) string
 }
 
-// palette is the picture's palette for -theme: for auto, light for a PNG,
+// palette is the picture's palette for --theme: for auto, light for a PNG,
 // read on a page, and in a terminal the terminal's own, as COLORFGBG says
 // it -- dark where it does not say.
 func (d drawing) palette(inTerminal bool) (picture.Palette, error) {
@@ -378,7 +380,7 @@ func (d drawing) palette(inTerminal bool) (picture.Palette, error) {
 		}
 		return picture.Light, nil
 	}
-	return picture.Palette{}, fmt.Errorf("-theme %q: use auto, light or dark", d.theme)
+	return picture.Palette{}, fmt.Errorf("--theme %q: use auto, light or dark", d.theme)
 }
 
 // picture is the chart drawn width by height pixels.
@@ -414,7 +416,7 @@ func (d drawing) picture(width, height int, inTerminal bool) (*image.RGBA, error
 // size where either is zero.
 func (d drawing) writePNG(path string, width, height int) error {
 	if !strings.EqualFold(filepath.Ext(path), ".png") {
-		return fmt.Errorf("-out %q: a chart is written as a PNG; name it .png", path)
+		return fmt.Errorf("--out %q: a chart is written as a PNG; name it .png", path)
 	}
 	if width == 0 {
 		width = imageWidth
@@ -448,10 +450,10 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 	}
 	how, note, err := terminal.Choose(mode, d.getenv, tty)
 	if err != nil {
-		return fmt.Errorf("-terminal %w", err)
+		return fmt.Errorf("--terminal %w", err)
 	}
 	if note != "" {
-		fmt.Fprintln(errOut, note+"; -terminal iterm or kitty draws one anyway")
+		fmt.Fprintln(errOut, note+"; --terminal iterm or kitty draws one anyway")
 	}
 	n := len(d.series.yNames)
 	cols, rows := ts.Cols, ts.Rows

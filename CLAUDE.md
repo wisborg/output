@@ -20,7 +20,7 @@ make test PKG=./chart/ RUN=Date
 make race                  # the tests as CI runs them
 make deps                  # each package compiles in only what it is meant to
 make build                 # -> bin/plot, bin/diagram
-make run ARGS="-list data.csv"     # CMD=diagram for the other
+make run ARGS="--list data.csv"     # CMD=diagram for the other
 make clean                 # remove bin/, empty .scratch/
 ```
 
@@ -68,6 +68,11 @@ from reality is a test failure.
   `golang.org/x/image/vector` and Go Mono: shared by `chart/picture` and
   `diagram/picture`, and internal so that it is not an API anyone else
   depends on.
+- `internal/cli/` — what the commands share in reading their command line:
+  `Parse` takes flags before or after the file, and `PrintDefaults` lists
+  them as `--out string`, as fitdash does. The standard `flag` package reads
+  `-out` and `--out` alike; pflag would list them the same but read `-out`
+  as `-o -u -t`, breaking command lines already written.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
   writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
 - `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of text,
@@ -362,7 +367,7 @@ reading, and only where the drawing can show it: a missing cell among a
 hundred thousand rows is less than a column wide, and breaking there would
 shred the line.
 
-**`plot`'s y axis spans every value; `-robust` is opt-in.** `RobustRange`
+**`plot`'s y axis spans every value; `--robust` is opt-in.** `RobustRange`
 suits a sensor whose spikes are dropouts; in someone's spreadsheet the
 outlier is as likely to be the point — the wettest day of the year.
 
@@ -370,7 +375,7 @@ outlier is as likely to be the point — the wettest day of the year.
 typed file holds the odd "n.d."; refusing the column for one would refuse the
 file. The cells left out are counted and reported, so a gap is never
 unexplained. Dates in numbers alone that read the same day-first and
-month-first are refused until `-dates` says which, rather than guessed.
+month-first are refused until `--dates` says which, rather than guessed.
 
 ## Testing conventions
 

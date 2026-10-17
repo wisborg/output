@@ -38,7 +38,7 @@ func parseNumber(cell string) (float64, bool) {
 	return v, true
 }
 
-// dateOrder is -dates: how a date written in numbers alone -- 03/04/2024,
+// dateOrder is --dates: how a date written in numbers alone -- 03/04/2024,
 // 03.04.2024 -- orders its day and month, which nothing in the date says.
 type dateOrder string
 
@@ -156,7 +156,7 @@ type column struct {
 	layout        string
 	values, wrong int
 	// ambiguous says the column's dates are written in numbers alone
-	// and read as well with the day first as the month: -dates must say.
+	// and read as well with the day first as the month: --dates must say.
 	ambiguous bool
 }
 

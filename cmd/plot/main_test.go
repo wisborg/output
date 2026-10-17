@@ -16,7 +16,7 @@ func noEnv(string) string { return "" }
 func plot(t *testing.T, data string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	args = append([]string{"-terminal", "braille", "-width", "60", "-height", "16"}, args...)
+	args = append([]string{"--terminal", "braille", "--width", "60", "--height", "16"}, args...)
 	err = run(args, strings.NewReader(data), &out, &errOut, noEnv)
 	return out.String(), errOut.String(), err
 }
@@ -70,7 +70,7 @@ func TestPlotPutsTheRowsInOrder(t *testing.T) {
 	}
 }
 
-// Without -x, a first column of numbers in order is the axis, and one out
+// Without --x, a first column of numbers in order is the axis, and one out
 // of order is a reading like the others, plotted against the row.
 func TestPlotChoosesTheAxis(t *testing.T) {
 	out, _, err := plot(t, "year,rain\n2001,5\n2002,7\n2003,6\n")
@@ -87,12 +87,12 @@ func TestPlotChoosesTheAxis(t *testing.T) {
 	if !strings.HasPrefix(out, "a and b against row\n") {
 		t.Errorf("numbers out of order taken for the axis:\n%s", out)
 	}
-	out, _, err = plot(t, "year,rain\n2001,5\n2002,7\n", "-x", "0", "-y", "rain", "-title", "Rain")
+	out, _, err = plot(t, "year,rain\n2001,5\n2002,7\n", "--x", "0", "--y", "rain", "--title", "Rain")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(out, "Rain\n") || strings.Contains(out, "2001") {
-		t.Errorf("-x 0 -title Rain:\n%s", out)
+		t.Errorf("--x 0 --title Rain:\n%s", out)
 	}
 }
 
@@ -117,14 +117,14 @@ func TestPlotRefuses(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"a,b\n1,2\n", []string{"-y", "c"}, `no column "c"`},
-		{"name,v\nx,1\ny,2\n", []string{"-y", "name"}, "holds text, not numbers"},
-		{"name,v\nx,1\ny,2\n", []string{"-x", "name"}, "neither numbers nor dates"},
-		{"d,v\n03/04/2024,1\n05/06/2024,2\n", nil, "-dates dmy or -dates mdy"},
+		{"a,b\n1,2\n", []string{"--y", "c"}, `no column "c"`},
+		{"name,v\nx,1\ny,2\n", []string{"--y", "name"}, "holds text, not numbers"},
+		{"name,v\nx,1\ny,2\n", []string{"--x", "name"}, "neither numbers nor dates"},
+		{"d,v\n03/04/2024,1\n05/06/2024,2\n", nil, "--dates dmy or --dates mdy"},
 		{"a,b\nx,y\n", nil, "no column holds numbers"},
-		{"a,b\n1,2\n", []string{"-y", "b,b"}, "twice"},
-		{"a,b\n1,2\n", []string{"-header", "maybe"}, "-header"},
-		{"a,b\n1,2\n", []string{"-out", "chart.jpg"}, "name it .png"},
+		{"a,b\n1,2\n", []string{"--y", "b,b"}, "twice"},
+		{"a,b\n1,2\n", []string{"--header", "maybe"}, "--header"},
+		{"a,b\n1,2\n", []string{"--out", "chart.jpg"}, "name it .png"},
 	} {
 		_, _, err := plot(t, c.data, c.args...)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -133,24 +133,24 @@ func TestPlotRefuses(t *testing.T) {
 	}
 }
 
-// -list says what each column holds.
+// --list says what each column holds.
 func TestPlotList(t *testing.T) {
-	out, _, err := plot(t, "date,v,note\n2024-01-01,1,a\n2024-01-02,,b\n", "-list")
+	out, _, err := plot(t, "date,v,note\n2024-01-01,1,a\n2024-01-02,,b\n", "--list")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"1  date    date    2 of 2", "2  v       number  1 of 2", "3  note    text    2 of 2"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("-list does not say %q:\n%s", want, out)
+			t.Errorf("--list does not say %q:\n%s", want, out)
 		}
 	}
 }
 
-// -out writes a PNG of the default size, taller for each further column.
+// --out writes a PNG of the default size, taller for each further column.
 func TestPlotWritesAPNG(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "chart.png")
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-out", path}, strings.NewReader("x,a,b\n1,2,3\n2,3,4\n3,1,5\n"), &stdout, &stderr, noEnv)
+	err := run([]string{"--out", path}, strings.NewReader("x,a,b\n1,2,3\n2,3,4\n3,1,5\n"), &stdout, &stderr, noEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,5 +168,20 @@ func TestPlotWritesAPNG(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), path) {
 		t.Errorf("stderr %q does not name the file", stderr.String())
+	}
+}
+
+// A flag after the file is a flag, as it is before it.
+func TestPlotFlagsAfterTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.csv")
+	if err := os.WriteFile(path, []byte("date,v,note\n2024-01-01,1,a\n2024-01-02,2,b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := plot(t, "", path, "--list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "2  v       number  2 of 2") {
+		t.Errorf("--list after the file did not list it:\n%s", out)
 	}
 }

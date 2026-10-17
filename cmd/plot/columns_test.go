@@ -49,7 +49,7 @@ func TestClassify(t *testing.T) {
 }
 
 // Dates in numbers alone are told day-first or month-first by a day past
-// the 12th; where none is, -dates must say, and does.
+// the 12th; where none is, --dates must say, and does.
 func TestClassifyNumericDates(t *testing.T) {
 	dmy := classify([]string{"03.04.2024", "25.04.2024"}, datesAuto)
 	if dmy.kind != dateColumn || dmy.ambiguous {
@@ -67,7 +67,7 @@ func TestClassifyNumericDates(t *testing.T) {
 	}
 	c := classify([]string{"03/04/2024", "05/06/2024"}, datesMDY)
 	if v, _ := c.value("03/04/2024"); c.ambiguous || time.Unix(int64(v), 0).UTC().Month() != time.March {
-		t.Errorf("-dates mdy: %+v reads 03/04/2024 as %v", c, time.Unix(int64(v), 0).UTC())
+		t.Errorf("--dates mdy: %+v reads 03/04/2024 as %v", c, time.Unix(int64(v), 0).UTC())
 	}
 }
 

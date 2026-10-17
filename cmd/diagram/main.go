@@ -3,7 +3,7 @@
 // calls -- in the terminal, or as a PNG or SVG.
 //
 //	diagram cluster.dot
-//	diagram -out cluster.svg cluster.dot
+//	diagram --out cluster.svg cluster.dot
 //	some-program --graph | diagram
 //
 // DOT is read as Graphviz reads it, with a few attributes of this
@@ -37,6 +37,7 @@ import (
 	"github.com/wisborg/output/diagram/dot"
 	"github.com/wisborg/output/diagram/picture"
 	"github.com/wisborg/output/diagram/svg"
+	"github.com/wisborg/output/internal/cli"
 )
 
 func main() {
@@ -68,7 +69,7 @@ Graphviz's own attributes, diagram reads:
 
 A cluster is a subgraph whose name begins with "cluster".
 
-flags:
+Flags:
 `
 
 type options struct {
@@ -85,7 +86,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), usage)
-		fs.PrintDefaults()
+		cli.PrintDefaults(fs)
 	}
 	fs.StringVar(&o.out, "out", "", "write the diagram to this file rather than the terminal: .png, .svg, or .txt for the text drawing")
 	fs.StringVar(&o.terminal, "terminal", "auto", "how the diagram is shown in the terminal: auto (a picture where the terminal shows one, text otherwise), iterm, kitty or text")
@@ -95,14 +96,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		o.fonts = append(o.fonts, s)
 		return nil
 	})
-	if err := fs.Parse(args); err != nil {
+	files, err := cli.Parse(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() > 1 {
-		return fmt.Errorf("one file at a time: %s", strings.Join(fs.Args(), " "))
+	if len(files) > 1 {
+		return fmt.Errorf("one file at a time: %s", strings.Join(files, " "))
 	}
 	if o.textPx <= 0 {
-		return fmt.Errorf("-text-size %v: a size in pixels, above 0", o.textPx)
+		return fmt.Errorf("--text-size %v: a size in pixels, above 0", o.textPx)
 	}
 	// The flags are checked whichever way the diagram is drawn: a wrong
 	// one is a mistake to be told of, not one that waits for a terminal
@@ -113,16 +115,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	switch o.terminal {
 	case "auto", "iterm", "kitty", "text":
 	default:
-		return fmt.Errorf("-terminal %q: use auto, iterm, kitty or text", o.terminal)
+		return fmt.Errorf("--terminal %q: use auto, iterm, kitty or text", o.terminal)
 	}
 	in, name := stdin, "standard input"
-	if fs.NArg() == 1 && fs.Arg(0) != "-" {
-		f, err := os.Open(fs.Arg(0))
+	if len(files) == 1 && files[0] != "-" {
+		f, err := os.Open(files[0])
 		if err != nil {
 			return err
 		}
 		defer f.Close()
-		in, name = f, fs.Arg(0)
+		in, name = f, files[0]
 	}
 	src, err := io.ReadAll(in)
 	if err != nil {
@@ -146,7 +148,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	return writeTerminal(o, lay, stdout, stderr, getenv)
 }
 
-// palette is -theme's palette: for auto, light for a file, read on a page,
+// palette is --theme's palette: for auto, light for a file, read on a page,
 // and in a terminal the terminal's own, as COLORFGBG says it -- dark where
 // it does not say.
 func palette(theme string, inTerminal bool, getenv func(string) string) (diagram.Palette, error) {
@@ -161,14 +163,14 @@ func palette(theme string, inTerminal bool, getenv func(string) string) (diagram
 		}
 		return diagram.Light, nil
 	}
-	return diagram.Palette{}, fmt.Errorf("-theme %q: use auto, light or dark", theme)
+	return diagram.Palette{}, fmt.Errorf("--theme %q: use auto, light or dark", theme)
 }
 
-// writeFile writes the diagram to -out, in the format its name ends in.
+// writeFile writes the diagram to --out, in the format its name ends in.
 func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error {
 	ext := strings.ToLower(filepath.Ext(o.out))
 	if ext != ".png" && ext != ".svg" && ext != ".txt" {
-		return fmt.Errorf("-out %q: name it .png, .svg or .txt", o.out)
+		return fmt.Errorf("--out %q: name it .png, .svg or .txt", o.out)
 	}
 	pal, err := palette(o.theme, false, getenv)
 	if err != nil {
@@ -217,7 +219,7 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 		return err
 	}
 	if note != "" {
-		fmt.Fprintln(errOut, strings.Replace(note, "drawn in braille", "drawn as text", 1)+"; -terminal iterm or kitty draws one anyway")
+		fmt.Fprintln(errOut, strings.Replace(note, "drawn in braille", "drawn as text", 1)+"; --terminal iterm or kitty draws one anyway")
 	}
 	if how == terminal.Braille {
 		for _, l := range lay.Text() {
@@ -262,17 +264,17 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	return terminal.Write(out, how, buf.Bytes(), shown)
 }
 
-// loadFonts reads the fonts -font names.
+// loadFonts reads the fonts --font names.
 func loadFonts(paths []string) ([]*opentype.Font, error) {
 	var fonts []*opentype.Font
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return nil, fmt.Errorf("-font: %w", err)
+			return nil, fmt.Errorf("--font: %w", err)
 		}
 		f, err := opentype.Parse(data)
 		if err != nil {
-			return nil, fmt.Errorf("-font %s: %w", p, err)
+			return nil, fmt.Errorf("--font %s: %w", p, err)
 		}
 		fonts = append(fonts, f)
 	}

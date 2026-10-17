@@ -395,30 +395,30 @@ months, anything — with the packages above.
 go install github.com/wisborg/output/cmd/plot@latest
 
 plot prices.csv                          # every column of numbers against the first
-plot -y close,volume prices.csv          # these columns, a strip each
-plot -x month -y rain -out rain.png weather.tsv
-some-program | plot -smooth 7            # from standard input, a 7-row average
-plot -list prices.csv                    # what each column holds
+plot --y close,volume prices.csv         # these columns, a strip each
+plot --x month --y rain --out rain.png weather.tsv
+some-program | plot --smooth 7           # from standard input, a 7-row average
+plot --list prices.csv                   # what each column holds
 ```
 
 It reads values delimited by commas, tabs, semicolons or bars — it tells which
-by looking, or `-delimiter` says — quoted where they hold the delimiter, with
+by looking, or `--delimiter` says — quoted where they hold the delimiter, with
 or without a first row of names. A column is plotted by name or by number.
-Without `-x` the first column is the axis where it holds dates, or numbers in
+Without `--x` the first column is the axis where it holds dates, or numbers in
 order; otherwise the row is. Dates are read in ISO 8601's forms, with month
 names, and in numbers alone — `03/04/2024` — whose day and month are told
-apart by a day past the 12th, or by `-dates dmy` or `mdy` where none is.
+apart by a day past the 12th, or by `--dates dmy` or `mdy` where none is.
 
 The rows are drawn in the axis's order, so a file written newest first is
 drawn oldest first. An empty cell, `NA` or `null` is a gap in the line, never
 a zero, and a cell that is not a number in a column of them is a gap too,
-which `plot` says. The y axis spans every value unless `-robust` asks for the
+which `plot` says. The y axis spans every value unless `--robust` asks for the
 middle 98%: a spike in someone's data is as likely to be the point as an
 error.
 
 In iTerm2, WezTerm, kitty and Ghostty the chart is a picture the width of the
 window; in any other terminal, in tmux, or into a pipe, it is braille; with
-`-out` it is a PNG. CSV is the only format it reads for now: the reading is
+`--out` it is a PNG. CSV is the only format it reads for now: the reading is
 one file of the command, and another format is another reader of the same
 table.
 
@@ -435,7 +435,7 @@ program that already writes DOT.
 go install github.com/wisborg/output/cmd/diagram@latest
 
 diagram cluster.dot                 # in the terminal: a picture, or text
-diagram -out cluster.svg cluster.dot
+diagram --out cluster.svg cluster.dot
 some-program --graph | diagram
 ```
 

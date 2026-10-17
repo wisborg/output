@@ -14,7 +14,7 @@ BINS    := bin/plot bin/diagram
 GOFILES := $(shell find . -name '*.go' -not -path './.scratch/*')
 
 # CMD is the command `make run` runs, and ARGS its flags, e.g.
-#   make run ARGS="-y close prices.csv"
+#   make run ARGS="--y close prices.csv"
 #   make run CMD=diagram ARGS="cluster.dot"
 CMD  ?= plot
 ARGS ?=

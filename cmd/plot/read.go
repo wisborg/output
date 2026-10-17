@@ -73,7 +73,7 @@ func countOutsideQuotes(line string, d rune) int {
 	return n
 }
 
-// parseDelimiter is the delimiter -delimiter names: "auto", which is zero,
+// parseDelimiter is the delimiter --delimiter names: "auto", which is zero,
 // for sniffDelimiter to find; "tab" or "\t"; or the one character.
 func parseDelimiter(s string) (rune, error) {
 	switch s {
@@ -85,10 +85,10 @@ func parseDelimiter(s string) (rune, error) {
 	if r := []rune(s); len(r) == 1 && r[0] != '"' && r[0] != '\n' && r[0] != '\r' {
 		return r[0], nil
 	}
-	return 0, fmt.Errorf("-delimiter %q: use auto, tab or a single character such as , ; or |", s)
+	return 0, fmt.Errorf("--delimiter %q: use auto, tab or a single character such as , ; or |", s)
 }
 
-// headerMode is -header: whether the first row names the columns.
+// headerMode is --header: whether the first row names the columns.
 type headerMode string
 
 const (
