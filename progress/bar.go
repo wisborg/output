@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 // BarSpec describes one bar. Only Label is really needed; a Total of zero or
@@ -13,7 +14,8 @@ import (
 // case rather than an error.
 type BarSpec struct {
 	// Label names the work, e.g. "rendering". It is shown first and is the
-	// last thing dropped when the terminal is narrow.
+	// last thing dropped when the terminal is narrow. A control character
+	// in it, or in Unit, is shown as U+FFFD.
 	Label string
 
 	// Total is how many units the job will take. Zero or less means unknown:
@@ -88,8 +90,26 @@ type Bar struct {
 	plainDone int64
 }
 
+// printable is s with each control character written as U+FFFD. A label is
+// often built from someone's data -- a file's name -- and a line break in
+// it makes one bar two rows where the erase counts one, so the display eats
+// the line above it from then on; a tab moves the cursor a distance the
+// width does not count; an escape is a command to the terminal. In plain
+// mode, a log line holding them is no better.
+func printable(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '\uFFFD'
+		}
+		return r
+	}, s)
+}
+
 func newBar(d *Display, spec BarSpec) *Bar {
-	b := &Bar{d: d, label: spec.Label, unit: spec.Unit, bytes: spec.Bytes, start: d.now(), plainDone: -1}
+	b := &Bar{d: d, label: printable(spec.Label), unit: printable(spec.Unit), bytes: spec.Bytes, start: d.now(), plainDone: -1}
 	b.total.Store(spec.Total)
 	b.lastTime, b.lastMoved = b.start, b.start
 	b.reserveSlots()

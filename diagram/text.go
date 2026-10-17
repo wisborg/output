@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -148,7 +149,16 @@ func (c *textCanvas) write(x, y int, s string, col color.Color) {
 	}
 }
 
+// set puts r at (x, y) in col. A control character is written as U+FFFD:
+// a label is text someone else may have written, and an escape in it
+// written to a terminal is a command to the terminal -- to clear it, retitle
+// the window, or write the clipboard -- where a tab or a carriage return
+// breaks the box it is in. One cell for one, so the layout, which counts a
+// label's runes, still fits it.
 func (c *textCanvas) set(x, y int, r rune, col color.Color) {
+	if unicode.IsControl(r) {
+		r = '\uFFFD'
+	}
 	if c.in(x, y) {
 		c.text[y][x], c.fg[y][x] = r, col
 	}

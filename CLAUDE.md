@@ -381,6 +381,19 @@ than through it.** A straight line through a box reads as a line from it;
 in a grid of replicas, the primary's line to the third replica drawn
 through the second says the second replicates to the third.
 
+**A label is text someone else may have written, and is written as text.**
+A DOT file, a bar's label built from a file name, a CSV's column names: none
+of it is the program's own. In the text drawing and in `progress`, a control
+character is written as one U+FFFD -- an escape reaching the terminal is a
+command to it (clear the screen, retitle the window, write the clipboard),
+and a line break or a tab breaks the box or the bar it is in. In SVG, which
+a browser runs scripts in as it would a page, a label goes only into a
+`<text>` element's content, through `xmlText`, which escapes the markup
+characters and replaces what XML cannot hold; no attribute is ever made
+from a DOT string, and the writer emits no `href`, `url()`, `style` or event
+attribute. `TestWriteHoldsHostileLabelsAsText` holds that, so carrying DOT's
+`URL` through, say, is a decision and not an accident.
+
 **A label belongs to one line, visibly.** A label that sits as near
 another line as its own names neither. So: a label too wide for the gap
 between two neighbours in a grid goes past the boxes' ends -- above the

@@ -761,3 +761,31 @@ func TestBar_DoneClosesAPlainLogAtItsFinalState(t *testing.T) {
 		t.Errorf("a bar whose last line was final: %q, want it once", buf.String())
 	}
 }
+
+// TestDisplay_LabelControlCharactersAreNotWritten is a label built from
+// someone's data. A line break in it made one bar two rows where the erase
+// counts one, and an escape is a command to the terminal: each is shown as
+// one U+FFFD instead, live and plain.
+func TestDisplay_LabelControlCharactersAreNotWritten(t *testing.T) {
+	for _, mode := range []Mode{Live, Plain} {
+		c := newClock()
+		var buf bytes.Buffer
+		d := New(&buf, Options{Mode: mode, Columns: 80, Now: c.now, Interval: time.Second})
+		bar := d.Bar(BarSpec{Label: "a\nb\tc\x1b]0;x\a", Total: 10, Unit: "f\rs"})
+		c.add(time.Second)
+		bar.Set(5)
+		out := regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]").ReplaceAllString(buf.String(), "")
+		out = strings.ReplaceAll(out, "\r", "") // the live redraw's own
+		if strings.ContainsAny(out, "\t\a\x1b") || strings.Count(out, "\n") != strings.Count(buf.String(), "\n") {
+			t.Fatalf("mode %v: control characters in %q", mode, buf.String())
+		}
+		if !strings.Contains(out, "a�b�c�]0;x�") || !strings.Contains(out, "f�s") {
+			t.Errorf("mode %v: the label is not there with its controls replaced: %q", mode, out)
+		}
+		if mode == Live {
+			if lines := replay(buf.String()).text(); len(lines) != 1 {
+				t.Errorf("one bar on %d rows: %q", len(lines), lines)
+			}
+		}
+	}
+}

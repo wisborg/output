@@ -9,7 +9,6 @@ package svg
 
 import (
 	"fmt"
-	"html"
 	"image/color"
 	"io"
 	"math"
@@ -47,7 +46,7 @@ func Write(w io.Writer, lay *diagram.Layout, opts Options) error {
 	d := &doc{s: s, pal: pal, px: px, lay: lay, thin: math.Max(1, px/12)}
 	width, height := s.Size(lay)
 	fmt.Fprintf(&d.b, `<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s" font-family="%s" font-size="%s">`+"\n",
-		num(width), num(height), num(width), num(height), html.EscapeString(fonts), num(px))
+		num(width), num(height), num(width), num(height), xmlText(fonts), num(px))
 	fmt.Fprintf(&d.b, `<rect width="100%%" height="100%%" %s/>`+"\n", fill(pal.Background))
 	d.groups()
 	for _, e := range lay.Edges {
@@ -307,7 +306,36 @@ func (d *doc) text(s string, x, y float64, anchor string, px float64, col color.
 		size = fmt.Sprintf(` font-size="%s"`, num(px))
 	}
 	fmt.Fprintf(&d.b, `<text x="%s" y="%s" text-anchor="%s" dominant-baseline="central" %s%s xml:space="preserve">%s</text>`+"\n",
-		num(x), num(y), anchor, fill(col), size, html.EscapeString(s))
+		num(x), num(y), anchor, fill(col), size, xmlText(s))
+}
+
+// xmlText is s escaped for XML, as text or an attribute's value, with what
+// XML 1.0 cannot hold at all -- a control character other than a tab or a
+// line break, a byte that is not UTF-8, U+FFFE and U+FFFF -- written as
+// U+FFFD. html.EscapeString escapes the five markup characters and passes
+// the rest through, so a label holding a form feed made a file no browser
+// would open: not well-formed, which is not a rendering anyone can repair.
+func xmlText(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '<':
+			b.WriteString("&lt;")
+		case r == '>':
+			b.WriteString("&gt;")
+		case r == '&':
+			b.WriteString("&amp;")
+		case r == '"':
+			b.WriteString("&#34;")
+		case r == '\'':
+			b.WriteString("&#39;")
+		case r == '\t' || r == '\n' || r == '\r' || r >= 0x20 && r < 0xD800 || r >= 0xE000 && r < 0xFFFE || r >= 0x10000 && r <= 0x10FFFF:
+			b.WriteRune(r)
+		default:
+			b.WriteRune('\uFFFD')
+		}
+	}
+	return b.String()
 }
 
 // filledBy is what fills n behind its label: its fill, unless it is plain

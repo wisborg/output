@@ -71,3 +71,72 @@ func TestWriteIsWellFormed(t *testing.T) {
 		t.Errorf("elements %v: want the ellipse, the cylinder's lid, one svg", elements)
 	}
 }
+
+// A label is text someone else may have written, and an SVG is opened in a
+// browser, which runs a script in one as it would in a page. Whatever a
+// label holds -- markup, an attribute's quotes, a control character, a byte
+// that is not UTF-8, a character XML forbids -- the document is still
+// well-formed, holds only the elements this package writes and no
+// attribute that runs or fetches anything, and the label is still there as
+// text.
+func TestWriteHoldsHostileLabelsAsText(t *testing.T) {
+	hostile := []string{
+		`</text><script>alert(1)</script>`,
+		`" onload="alert(1)`,
+		`' onclick='x`,
+		`<a href="javascript:alert(1)">x</a>`,
+		"]]><foreignObject/>",
+		"form\ffeed \x01 bell\a",
+		"bad \xff byte",
+		"￾ not a character",
+	}
+	var items []diagram.Item
+	var edges []diagram.Edge
+	for i, l := range hostile {
+		id := string(rune('a' + i))
+		items = append(items, diagram.Item{Node: &diagram.Node{ID: id, Label: l}})
+		if i > 0 {
+			edges = append(edges, diagram.Edge{From: string(rune('a' + i - 1)), To: id, Head: true, Label: l})
+		}
+	}
+	d := &diagram.Diagram{Title: hostile[0], Root: diagram.Group{Columns: 3, Items: items}, Edges: edges}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, lay, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	written := map[string]bool{"svg": true, "rect": true, "path": true, "ellipse": true, "text": true}
+	var text strings.Builder
+	dec := xml.NewDecoder(bytes.NewReader(buf.Bytes()))
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("not well-formed: %v", err)
+		}
+		switch tok := tok.(type) {
+		case xml.StartElement:
+			if !written[tok.Name.Local] {
+				t.Errorf("a <%s> element", tok.Name.Local)
+			}
+			for _, a := range tok.Attr {
+				name := strings.ToLower(a.Name.Local)
+				if strings.HasPrefix(name, "on") || strings.Contains(name, "href") || strings.Contains(strings.ToLower(a.Value), "javascript:") {
+					t.Errorf("<%s %s=%q>", tok.Name.Local, a.Name.Local, a.Value)
+				}
+			}
+		case xml.CharData:
+			text.Write(tok)
+		}
+	}
+	for _, l := range hostile[:5] {
+		if !strings.Contains(text.String(), l) {
+			t.Errorf("the label %q is not in the text", l)
+		}
+	}
+}

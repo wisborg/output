@@ -229,3 +229,37 @@ func TestBrailleDot(t *testing.T) {
 		}
 	}
 }
+
+// A label's control characters are not written to the terminal: an escape
+// in a label someone else wrote would be a command to it, and a tab or a
+// carriage return breaks the box it is in. Each is one cell of U+FFFD, so
+// the box still closes where the layout put it.
+func TestTextWritesNoControlCharacters(t *testing.T) {
+	d := &Diagram{
+		Title: "t\x1b]0;title\a",
+		Root:  Group{Columns: 2, Items: []Item{node("a\x1b[2Jb"), node("c\td\re")}},
+		Edges: []Edge{{From: "a\x1b[2Jb", To: "c\td\re", Head: true, Label: "x\x9by"}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, colour := range []bool{false, true} {
+		lines := lay.Text()
+		if colour {
+			lines = lay.ColourText(Dark)
+		}
+		text := strings.Join(lines, "\n")
+		plain := regexp.MustCompile("\x1b\\[[0-9;]*m").ReplaceAllString(text, "")
+		for _, r := range plain {
+			if r != '\n' && (r < 0x20 || r == 0x7f || r >= 0x80 && r < 0xa0) {
+				t.Errorf("colour %v: control character %U in:\n%q", colour, r, text)
+			}
+		}
+		for _, want := range []string{"│ a�[2Jb ├", "│ c�d�e │", "x�y"} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("colour %v: no %q in:\n%s", colour, want, plain)
+			}
+		}
+	}
+}
