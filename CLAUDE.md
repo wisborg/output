@@ -426,6 +426,20 @@ dozens of times. A path also leaves and enters by the sides facing the
 other box where it can, so a flow keeps flowing. Do not "simplify" this
 back to shapes worked out per edge.
 
+The page the router searches has a margin on every side, not only the right
+and the bottom: without room above, an edge between two boxes of the top row
+had no way round the box between them. What the lines do not take of it is
+trimmed off, so the whole drawing may sit a row lower or a column further
+right when a line goes round its top or its left -- every box keeps its
+place relative to the others, which is what `TestGridIgnoresEdges` holds.
+Where the lines already drawn leave an edge no path the rules allow, it is
+searched for again with joining another line allowed at a cost far above any
+detour, and running through a box still forbidden: a joined line is a fault,
+a line through a box the worse one, since it reads as that box's own. Only
+where even that search finds nothing is the plain path drawn. A loop is
+searched for as any edge is, and shares no line with another; an invisible
+edge is not routed at all.
+
 **Straight edges are the pictures' alone, and only where clear.** With
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an
 edge as one straight line between its boxes, at whatever angle -- but only

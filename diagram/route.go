@@ -34,8 +34,13 @@ import (
 // Edges are routed shortest first, so the straight lines between
 // neighbours, which most diagrams are mostly made of, are drawn straight,
 // and a long edge finds its way round them. An edge for which there is no
-// such path -- boxes packed too close to leave one -- is drawn as it would
-// be alone, along the plain path between its boxes.
+// such path -- the lines already drawn have closed every way between its
+// boxes -- is searched for again, allowed to run along another's line or
+// end beside another's end at a cost far above any detour: a line joining
+// another is a fault, but one through a box is a worse one, so the search
+// never takes a path through a box at all. Only where even that finds
+// nothing -- a page too big to search -- is the edge drawn along the plain
+// path between its boxes, whatever is in the way.
 func (l *layouter) route() {
 	order := make([]int, len(l.d.Edges))
 	for i := range order {
@@ -80,6 +85,12 @@ func (l *layouter) route() {
 			}
 		}
 		e := &l.d.Edges[i]
+		if e.Invisible {
+			// Drawn nowhere, so routed nowhere: a path for it took cells
+			// from the edges that are drawn, and turned a straight line
+			// between neighbours into a detour round a line nobody sees.
+			continue
+		}
 		a, b := l.rect[e.From], l.rect[e.To]
 		key := [2]string{e.From, e.To}
 		if e.To < e.From {
@@ -87,13 +98,17 @@ func (l *layouter) route() {
 		}
 		nth := parallel[key]
 		parallel[key]++
-		var pts []Point
-		switch {
-		case e.From == e.To:
-			pts = loop(a)
-		default:
-			pts = r.find(a, b, e.Tail, i)
-			if pts == nil {
+		// A loop is searched for as any edge is, from the node back into
+		// it, so that it keeps clear of the lines and frames about it and
+		// a second loop on the same node goes round the first.
+		pts := r.find(a, b, e.Tail, i, true)
+		if pts == nil {
+			pts = r.find(a, b, e.Tail, i, false)
+		}
+		if pts == nil {
+			if e.From == e.To {
+				pts = loop(a)
+			} else {
 				pts = path(a, b, nth)
 			}
 		}
@@ -115,6 +130,10 @@ const (
 	sideCost   = 40 // an end on a side that does not face the other box: more than a turn, so a flow keeps flowing
 	besideCost = 6  // each cell beside another's line, running the same way
 	shareCost  = -4 // each cell along a line it may share: a trunk, not two lines side by side
+	// joinCost is each cell where a path the rules do not allow -- along
+	// another's line, turning on it, at another's end -- is taken all the
+	// same, where nothing else is: more than any detour across a page.
+	joinCost = 1000
 )
 
 // router is the page as the paths found so far have left it.
@@ -129,6 +148,12 @@ type router struct {
 	tails [][][]int   // the same for the tails
 	near  [][]bool    // beside a box
 	slant [][]bool    // a straight line a picture draws crosses here at an angle
+	// bare are the nodes drawn without an outline -- plain text -- whose
+	// every cell a line may end at, its corners too: there is no corner
+	// for a line to be mistaken for. A one-letter label is a box a cell
+	// wide and a row tall, which has no outline cell but its corners, and
+	// every edge into it fell back to the plain path through the boxes.
+	bare map[Rect]bool
 }
 
 // sharing says edge i's line may run along edge j's: the two share their
@@ -139,6 +164,11 @@ func (rt *router) sharing(i, j int) bool {
 		return false
 	}
 	a, b := rt.edges[i], rt.edges[j]
+	// A loop shares with nothing: a loop and an edge out of its node
+	// merged into one stem read as one line forking to two nodes.
+	if a.From == a.To || b.From == b.To {
+		return false
+	}
 	return (a.From == b.From) != (a.To == b.To) && a.Line == b.Line && sameColour(a.Colour, b.Colour)
 }
 
@@ -209,9 +239,15 @@ func newRouter(l *layouter) *router {
 	for _, g := range l.out.Groups {
 		w, h = max(w, g.Rect.X+g.Rect.W), max(h, g.Rect.Y+g.Rect.H)
 	}
-	// Room to go round the boxes at the right and the bottom.
+	// Room to go round the boxes at the right and the bottom, as the
+	// layout leaves room at the left and the top.
 	w, h = w+colGap, h+rowGap
-	r := &router{edges: l.d.Edges, w: w, h: h}
+	r := &router{edges: l.d.Edges, w: w, h: h, bare: map[Rect]bool{}}
+	for _, n := range l.out.Nodes {
+		if n.Node.Shape == Plain {
+			r.bare[n.Rect] = true
+		}
+	}
 	grid := func() [][]bool {
 		g := make([][]bool, h)
 		for y := range g {
@@ -243,9 +279,14 @@ func newRouter(l *layouter) *router {
 			}
 		}
 	}
-	// Nor over the title.
-	for x := 0; x < len([]rune(l.d.Title)) && x < w; x++ {
-		r.box[0][x] = true
+	// Nor along the title's row, or the blank one beneath it: a line
+	// beside the title reads as underlining it, or as coming from it.
+	if l.d.Title != "" {
+		for y := 0; y < 2 && y < h; y++ {
+			for x := range w {
+				r.box[y][x] = true
+			}
+		}
 	}
 	// The groups' lines are lines like any other: to be crossed, not
 	// followed.
@@ -410,22 +451,46 @@ func opposite(way int) int    { return way ^ 1 } // up and down, left and right,
 
 // outline is r's outline cells edge i may end at -- not its corners, nor
 // a cell another edge ends at but one it may share with -- each with the
-// way out of the box there.
-func (rt *router) outline(r Rect, i int) (cells []Point, out []int) {
+// way out of the box there. Where strict is false, any but a corner, each
+// with what ending there costs.
+func (rt *router) outline(r Rect, i int, strict bool) (cells []Point, out, costs []int) {
 	add := func(p Point, way int) {
-		if rt.in(p.X, p.Y) && rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) && rt.foreign(i, p.X, p.Y) == 0 {
-			cells, out = append(cells, p), append(out, way)
+		if !rt.in(p.X, p.Y) {
+			return
 		}
+		cost := 0
+		if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) || rt.foreign(i, p.X, p.Y) != 0 {
+			if strict {
+				return
+			}
+			cost = joinCost
+		}
+		for k, c := range cells {
+			if c == p {
+				// A box one row tall has its top and its bottom in the
+				// same cells: a line may end there from above or below.
+				// The second way is kept beside the first, not over it.
+				if out[k] != way {
+					cells, out, costs = append(cells, p), append(out, way), append(costs, cost)
+				}
+				return
+			}
+		}
+		cells, out, costs = append(cells, p), append(out, way), append(costs, cost)
 	}
-	for x := r.X + 1; x < r.X+r.W-1; x++ {
+	corner := 1
+	if rt.bare[r] {
+		corner = 0
+	}
+	for x := r.X + corner; x < r.X+r.W-corner; x++ {
 		add(Point{x, r.Y}, 0)
 		add(Point{x, r.Y + r.H - 1}, 1)
 	}
-	for y := r.Y + 1; y < r.Y+r.H-1; y++ {
+	for y := r.Y + corner; y < r.Y+r.H-corner; y++ {
 		add(Point{r.X, y}, 2)
 		add(Point{r.X + r.W - 1, y}, 3)
 	}
-	return cells, out
+	return cells, out, costs
 }
 
 // facing says the side of r a path leaves by the way out faces o: o lies
@@ -451,20 +516,28 @@ func offMiddle(p Point, r Rect, way int) int {
 }
 
 // find is the cheapest path from an outline cell of a to one of b, as the
-// router's rules allow, its corners only; nil where there is none.
-func (rt *router) find(a, b Rect, tail bool, i int) []Point {
-	starts, outs := rt.outline(a, i)
-	goals, ins := rt.outline(b, i)
+// router's rules allow, its corners only; nil where there is none. Where
+// strict is false, a path the rules forbid -- along another's line, turning
+// on it, ending beside another's end -- is allowed at joinCost a cell; one
+// through a box never is.
+func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
+	starts, outs, startCosts := rt.outline(a, i, strict)
+	goals, ins, endCosts := rt.outline(b, i, strict)
 	if len(starts) == 0 || len(goals) == 0 {
 		return nil
 	}
 	// A goal is entered the way into the box: the opposite of the way out.
-	goal := map[Point]int{}
-	goalCost := map[Point]int{}
+	// A box one row tall is entered from above or below at the same cell.
+	type entry struct {
+		p   Point
+		way int
+	}
+	goalCost := map[entry]int{}
 	for k, g := range goals {
-		goal[g] = opposite(ins[k])
+		e := entry{g, opposite(ins[k])}
+		goalCost[e] = endCosts[k]
 		if !facing(b, a, ins[k]) {
-			goalCost[g] = sideCost
+			goalCost[e] += sideCost
 		}
 	}
 	estimate := func(x, y int) int {
@@ -477,6 +550,7 @@ func (rt *router) find(a, b Rect, tail bool, i int) []Point {
 	}
 	best := map[state]int{}
 	from := map[state]state{}
+	started := func(s state) bool { _, ok := from[s]; return ok }
 	q := &queue{}
 	n := 0
 	push := func(s state, cost int, prev *state) {
@@ -491,7 +565,7 @@ func (rt *router) find(a, b Rect, tail bool, i int) []Point {
 		heap.Push(q, &item{s: s, cost: cost, at: cost + estimate(s.x, s.y), idx: n})
 	}
 	for k, p := range starts {
-		cost := offMiddle(p, a, outs[k]) * portCost
+		cost := offMiddle(p, a, outs[k])*portCost + startCosts[k]
 		if !facing(a, b, outs[k]) {
 			cost += sideCost
 		}
@@ -503,42 +577,53 @@ func (rt *router) find(a, b Rect, tail bool, i int) []Point {
 		if it.cost != best[s] {
 			continue
 		}
-		here := Point{s.x, s.y}
-		if way, ok := goal[here]; ok && way == s.way && rt.box[s.y][s.x] {
+		if _, ok := goalCost[entry{Point{s.x, s.y}, s.way}]; ok && inside(b, s.x, s.y) {
 			if _, started := from[s]; started {
 				return rt.corners(s, from)
 			}
 		}
-		atStart := rt.box[s.y][s.x] // only a start is a box cell and not yet the goal
+		atStart := inside(a, s.x, s.y) && !started(s) // only a start is in a box and not yet the goal
 		for w, way := range ways {
 			if w == opposite(s.way) {
 				continue
 			}
 			turning := w != s.way
-			if turning && (atStart || !s.settled || rt.foreign(i, s.x, s.y) != 0 || rt.slant[s.y][s.x]) {
+			cost := it.cost + stepCost
+			if turning {
 				// Out of the box straight; not at the first cell where the
 				// tail has a head; and never on another's line.
-				continue
+				if atStart || !s.settled {
+					continue
+				}
+				if rt.foreign(i, s.x, s.y) != 0 || rt.slant[s.y][s.x] {
+					if strict {
+						continue
+					}
+					cost += joinCost
+				}
+				cost += turnCost
 			}
 			nx, ny := s.x+way.dx, s.y+way.dy
 			if !rt.in(nx, ny) {
 				continue
 			}
 			next := Point{nx, ny}
-			cost := it.cost + stepCost
-			if turning {
-				cost += turnCost
-			}
-			if rt.box[ny][nx] {
+			// An invisible node is no box to the router, but its own edges
+			// end at it all the same.
+			if rt.box[ny][nx] || inside(b, nx, ny) {
 				// Into a box only at a goal, the way into it, not turning.
-				if gw, ok := goal[next]; !ok || gw != w || turning {
+				gc, ok := goalCost[entry{next, w}]
+				if !ok || turning {
 					continue
 				}
-				push(state{nx, ny, w, true}, cost+goalCost[next]+offMiddle(next, b, opposite(w))*portCost, &s)
+				push(state{nx, ny, w, true}, cost+gc+offMiddle(next, b, opposite(w))*portCost, &s)
 				continue
 			}
 			if !rt.mayEnd(i, rt.heads[ny][nx], rt.tails[ny][nx]) {
-				continue
+				if strict {
+					continue
+				}
+				cost += joinCost
 			}
 			along := uint8(left | right)
 			if way.dx == 0 {
@@ -548,10 +633,14 @@ func (rt *router) find(a, b Rect, tail bool, i int) []Point {
 				// Across the lines it may not share only, at a right
 				// angle; along those it may.
 				if foreign != 0 {
-					if foreign != (up|down|left|right)&^along {
+					switch {
+					case foreign == (up|down|left|right)&^along:
+						cost += crossCost
+					case strict:
 						continue
+					default:
+						cost += joinCost
 					}
-					cost += crossCost
 				}
 				if shared&along != 0 {
 					cost += shareCost
@@ -582,6 +671,9 @@ func (rt *router) find(a, b Rect, tail bool, i int) []Point {
 	}
 	return nil
 }
+
+// inside says (x, y) is one of r's cells.
+func inside(r Rect, x, y int) bool { return x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H }
 
 // corners walks back from the goal, keeping the cells the path turns at.
 func (rt *router) corners(s state, from map[state]state) []Point {

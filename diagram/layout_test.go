@@ -67,7 +67,10 @@ func TestGridRefusesAClash(t *testing.T) {
 }
 
 // The point of a grid: every box is where the diagram puts it, whatever
-// the edges. A replica that stops replicating moves no box.
+// the edges. A replica that stops replicating moves no box. Every box is
+// where it was relative to the others; the whole drawing may move down or
+// right, where a line goes round the boxes above or to the left of them,
+// which moves no box out of its place in the grid.
 func TestGridIgnoresEdges(t *testing.T) {
 	build := func(edges []Edge) *Diagram {
 		return &Diagram{
@@ -78,9 +81,16 @@ func TestGridIgnoresEdges(t *testing.T) {
 			Edges: edges,
 		}
 	}
-	all := rects(t, build([]Edge{{From: "db1", To: "db2"}, {From: "db1", To: "db3"}, {From: "db1", To: "dr1"}}))
-	broken := rects(t, build([]Edge{{From: "db1", To: "db2"}, {From: "db3", To: "dr1"}}))
-	none := rects(t, build(nil))
+	relative := func(r map[string]Rect) map[string]Rect {
+		o := r["db1"]
+		for id, b := range r {
+			r[id] = Rect{b.X - o.X, b.Y - o.Y, b.W, b.H}
+		}
+		return r
+	}
+	all := relative(rects(t, build([]Edge{{From: "db1", To: "db2"}, {From: "db1", To: "db3"}, {From: "db1", To: "dr1"}})))
+	broken := relative(rects(t, build([]Edge{{From: "db1", To: "db2"}, {From: "db3", To: "dr1"}})))
+	none := relative(rects(t, build(nil)))
 	for id, r := range all {
 		if broken[id] != r || none[id] != r {
 			t.Errorf("%s at %v with every link, %v with one broken, %v with none", id, r, broken[id], none[id])

@@ -227,21 +227,30 @@ func edgeCells(edges []PlacedEdge) map[Point]int {
 // lines tall is tried at beside the path pts: beside each stretch
 // labelSegments gives, a space to the right of one down a column, sliding
 // along it, then to its left; over one along a row, sliding along it,
-// then under it.
+// then under it. A slide stays beside the stretch.
 func segmentTries(pts []Point, shared map[Point]int, width, n int) []Point {
 	var tries []Point
 	for _, seg := range labelSegments(pts, shared) {
 		a, b := seg.a, seg.b
+		// Sliding along the stretch, but never past its ends: a label
+		// three rows beyond a stretch two cells long is beside nothing of
+		// its edge's, and as near another's line as its own.
 		if seg.down {
+			lo, hi := min(a.Y, b.Y), max(a.Y, b.Y)
 			mid := (a.Y + b.Y) / 2
 			for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
-				tries = append(tries, Point{a.X + 2, mid + d})
+				if y := mid + d; y >= lo && y <= hi {
+					tries = append(tries, Point{a.X + 2, y})
+				}
 			}
 			tries = append(tries, Point{a.X - 1 - width, mid})
 		} else {
+			lo, hi := min(a.X, b.X), max(a.X, b.X)
 			mid := (a.X+b.X)/2 - width/2
 			for _, d := range []int{0, 2, -2, 4, -4} {
-				tries = append(tries, Point{mid + d, a.Y - n})
+				if x := mid + d; x <= hi && x+width-1 >= lo {
+					tries = append(tries, Point{x, a.Y - n})
+				}
 			}
 			tries = append(tries, Point{mid, a.Y + 1})
 		}

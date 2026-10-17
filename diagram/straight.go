@@ -20,9 +20,10 @@ func centre(r Rect) (x, y float64) {
 
 // straightens says edge e is drawn straight in a picture: its line from
 // the middle of one node to the middle of the other is clear of every
-// other node. A loop keeps its loop.
+// other node. A loop keeps its loop, and an invisible edge is drawn
+// neither way.
 func (lay *Layout) straightens(e Edge) bool {
-	if e.From == e.To {
+	if e.From == e.To || e.Invisible {
 		return false
 	}
 	a, _ := lay.Node(e.From)

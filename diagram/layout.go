@@ -206,22 +206,81 @@ func (d *Diagram) Layout() (*Layout, error) {
 	if d.Title != "" {
 		top = 2
 	}
-	l.place(p, 0, top, p.w, p.h)
-	l.out.Width = max(p.w, Width(d.Title))
-	l.out.Height = top + p.h
+	// The boxes are placed a margin in from the left and the top, as the
+	// router has one at the right and the bottom, so that a line can go
+	// round them on every side. Without it an edge between two boxes of the
+	// top row, with a third between them, had no way round but through the
+	// third. What no line takes of the margin is given back after routing,
+	// so a drawing that does not need it does not change.
+	l.place(p, colGap, top+rowGap, p.w, p.h)
 	l.route()
-	// A loop may reach past the boxes.
-	for _, e := range l.out.Edges {
-		for _, pt := range e.Points {
-			l.out.Width, l.out.Height = max(l.out.Width, pt.X+1), max(l.out.Height, pt.Y+1)
-		}
-	}
+	l.trim(top, colGap+p.w, top+rowGap+p.h)
 	l.out.placeLabels()
 	if d.Straight {
 		l.out.straighten()
 	}
 	l.out.placeLegend(d.Legend)
 	return l.out, nil
+}
+
+// trim moves everything placed to the left and up, as far as the leftmost
+// and the topmost of the boxes, the groups and the lines allow, and sizes
+// the layout to what is placed: the margin route had round the boxes, less
+// what its lines took. right and bottom are where the boxes' plan ended.
+func (l *layouter) trim(top, right, bottom int) {
+	minX, minY := right, bottom
+	reach := func(x0, y0, x1, y1 int) {
+		minX, minY = min(minX, x0), min(minY, y0)
+		right, bottom = max(right, x1), max(bottom, y1)
+	}
+	for _, n := range l.out.Nodes {
+		reach(n.Rect.X, n.Rect.Y, n.Rect.X+n.Rect.W, n.Rect.Y+n.Rect.H)
+	}
+	for _, g := range l.out.Groups {
+		reach(g.Rect.X, g.Rect.Y, g.Rect.X+g.Rect.W, g.Rect.Y+g.Rect.H)
+	}
+	for _, e := range l.out.Edges {
+		for _, pt := range e.Points {
+			reach(pt.X, pt.Y, pt.X+1, pt.Y+1) // a loop may reach past the boxes
+		}
+	}
+	minY = max(minY-top, 0)
+	l.out.move(-minX, -minY)
+	for id, r := range l.rect {
+		l.rect[id] = Rect{r.X - minX, r.Y - minY, r.W, r.H}
+	}
+	l.out.Width = max(right-minX, Width(l.d.Title))
+	l.out.Height = max(bottom-minY, top)
+}
+
+// move moves everything placed dx cells across and dy rows down.
+func (lay *Layout) move(dx, dy int) {
+	if dx == 0 && dy == 0 {
+		return
+	}
+	at := func(p *Point) { p.X, p.Y = p.X+dx, p.Y+dy }
+	for i := range lay.Nodes {
+		r := &lay.Nodes[i].Rect
+		r.X, r.Y = r.X+dx, r.Y+dy
+		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]
+	}
+	for i := range lay.Groups {
+		g := &lay.Groups[i]
+		g.Rect.X, g.Rect.Y = g.Rect.X+dx, g.Rect.Y+dy
+		at(&g.LabelAt)
+		for j := range g.Dividers {
+			at(&g.Dividers[j][0])
+			at(&g.Dividers[j][1])
+		}
+	}
+	for i := range lay.Edges {
+		e := &lay.Edges[i]
+		for j := range e.Points {
+			at(&e.Points[j])
+		}
+		at(&e.LabelAt)
+		at(&e.pictureAt)
+	}
 }
 
 // A legend entry's sample is legendSample cells wide, its label

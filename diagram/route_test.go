@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,15 @@ func TestEdgesNeverJoin(t *testing.T) {
 			{From: "worker", To: "mail", Head: true}, {From: "db", To: "cache", Head: true, Line: Dashed},
 		},
 	}
+	neverJoin(t, d)
+}
+
+// neverJoin fails the test where two of d's edges that may not share a
+// line meet but crossing at a right angle, or where an edge passes through
+// a box but its own two.
+func neverJoin(t *testing.T, d *Diagram) {
+	t.Helper()
+	noneThrough(t, d)
 	lay, err := d.Layout()
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +69,9 @@ func TestEdgesNeverJoin(t *testing.T) {
 			cb := cellsOf(b)
 			for p, bitsA := range cellsOf(a) {
 				bitsB, both := cb[p]
-				if !both {
+				if !both || endsIn(lay, a, p) && endsIn(lay, b, p) {
+					// Two ends in one node's cells: a plain node a letter
+					// wide has one cell for every line to end at.
 					continue
 				}
 				crossing := bitsA == up|down && bitsB == left|right || bitsA == left|right && bitsB == up|down
@@ -69,7 +81,17 @@ func TestEdgesNeverJoin(t *testing.T) {
 			}
 		}
 	}
-	// And none passes through a box but its own two.
+}
+
+// noneThrough fails the test where an edge of d passes through a box but
+// its own two.
+func noneThrough(t *testing.T, d *Diagram) {
+	t.Helper()
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(lay.Text(), "\n")
 	for _, e := range lay.Edges {
 		for p := range cellsOf(e) {
 			for _, n := range lay.Nodes {
@@ -81,4 +103,163 @@ func TestEdgesNeverJoin(t *testing.T) {
 			}
 		}
 	}
+}
+
+// edges is the edges written "a>b c>d", each with a head.
+func edges(s string) []Edge {
+	var out []Edge
+	for _, f := range strings.Fields(s) {
+		ends := strings.Split(f, ">")
+		out = append(out, Edge{From: ends[0], To: ends[1], Head: true})
+	}
+	return out
+}
+
+// nodes are boxes with the ids ids.
+func nodes(ids ...string) []Item {
+	var out []Item
+	for _, id := range ids {
+		out = append(out, node(id))
+	}
+	return out
+}
+
+// A line goes round the boxes above and to the left as it does below and to
+// the right. The router had room only at the right and the bottom, and an
+// edge between two boxes of the top row, the bottom crowded, fell back to the
+// plain path -- straight through the box between them, where it read as
+// that box's. And a to c and c to a, twice each, in a row of three, were
+// drawn as one line.
+func TestEdgesGoRoundTheTopAndTheLeft(t *testing.T) {
+	neverJoin(t, &Diagram{
+		Root:  Group{Columns: 3, Items: nodes("n0", "n1", "n2", "n3", "n4", "n5")},
+		Edges: edges("n4>n0 n0>n2 n4>n0 n1>n0 n2>n3 n3>n4 n2>n5 n1>n0 n2>n0 n5>n4 n0>n3 n1>n3"),
+	})
+	neverJoin(t, &Diagram{
+		Root:  Group{Columns: 3, Items: nodes("a", "b", "c")},
+		Edges: edges("a>c c>a b>a b>c a>b c>b a>c c>a"),
+	})
+	neverJoin(t, &Diagram{
+		Title: "a title",
+		Root:  Group{Columns: 3, Items: nodes("a", "b", "c")},
+		Edges: edges("a>c c>a b>a b>c a>b c>b a>c c>a"),
+	})
+}
+
+// A diagram drawn as many do -- a grid of a dozen boxes and twice as many
+// edges, a flow of forty and twice as many -- has no two lines joined and
+// none through a box. One so crowded that the lines leave no way between
+// some boxes may join two lines at last, but never runs one through a box:
+// that is the worse lie, since it reads as the box's own line.
+func TestEdgesNeverJoinOnRandomDiagrams(t *testing.T) {
+	random := func(n, m, columns int, seed uint64) *Diagram {
+		d := &Diagram{Root: Group{Columns: columns}}
+		for i := range n {
+			d.Root.Items = append(d.Root.Items, node(fmt.Sprintf("n%d", i)))
+		}
+		x := seed
+		next := func() int { // xorshift: the same edges every run
+			x ^= x << 13
+			x ^= x >> 7
+			x ^= x << 17
+			return int(x % uint64(n))
+		}
+		for range m {
+			if a, b := next(), next(); a != b {
+				d.Edges = append(d.Edges, Edge{From: fmt.Sprintf("n%d", a), To: fmt.Sprintf("n%d", b), Head: true})
+			}
+		}
+		return d
+	}
+	for seed := uint64(1); seed <= 3; seed++ {
+		neverJoin(t, random(12, 24, 4, seed))
+		neverJoin(t, random(40, 80, 0, seed))
+		noneThrough(t, random(50, 98, 8, seed))
+	}
+}
+
+// A plain node is its label alone: a line ends anywhere on it, its corners
+// too, there being no outline to mistake them for. A one-letter label is a
+// box a cell wide and a row tall, which had nowhere for a line to end but
+// its corners, so every edge into one was drawn through the boxes between.
+func TestEdgesReachPlainNodes(t *testing.T) {
+	plain := func(id string) Item { return Item{Node: &Node{ID: id, Shape: Plain}} }
+	d := &Diagram{
+		Root:  Group{Columns: 3, Items: []Item{plain("a"), node("b"), plain("c"), node("d"), node("e"), node("f")}},
+		Edges: edges("a>c d>a e>a f>c"),
+	}
+	neverJoin(t, d)
+}
+
+// An invisible edge is drawn nowhere and so routed nowhere: its path took
+// cells from the edges that are drawn, and turned a straight line between
+// neighbours into a detour. An edge to an invisible node ends at it, round
+// the boxes between, rather than running on through them looking for an
+// outline that is not there.
+func TestInvisibleEdgesAndNodes(t *testing.T) {
+	lay, err := (&Diagram{
+		Root:  Group{Columns: 3, Items: nodes("a", "b", "c", "d", "e", "f")},
+		Edges: []Edge{{From: "d", To: "e", Invisible: true}, {From: "d", To: "e", Head: true, Label: "seen"}},
+	}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := lay.Edges[0].Points; p != nil {
+		t.Errorf("the invisible edge has a path %v", p)
+	}
+	if p := lay.Edges[1].Points; len(p) != 2 || p[0].Y != p[1].Y {
+		t.Errorf("d to e along %v, want one straight line along a row:\n%s", p, strings.Join(lay.Text(), "\n"))
+	}
+	gap := Item{Node: &Node{ID: "gap", Invisible: true}}
+	noneThrough(t, &Diagram{Root: Group{Columns: 3, Items: []Item{node("a"), node("b"), gap}}, Edges: edges("a>gap")})
+}
+
+// A loop goes round outside its node, clear of what is about it: two on
+// one node are two loops, and one in a frame is not drawn along the
+// frame's edge, where it disappeared.
+func TestLoops(t *testing.T) {
+	d := &Diagram{
+		Root: Group{Items: []Item{
+			{Group: &Group{ID: "g", Label: "grp", Items: []Item{node("a")}}},
+		}},
+		Edges: []Edge{{From: "a", To: "a", Head: true, Label: "retry"}, {From: "a", To: "a", Head: true, Label: "again"}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(lay.Text(), "\n")
+	one, two := cellsOf(lay.Edges[0]), cellsOf(lay.Edges[1])
+	a, _ := lay.Node("a")
+	for p := range one {
+		if _, both := two[p]; both && !inside(a.Rect, p.X, p.Y) {
+			t.Errorf("the two loops meet at %v:\n%s", p, text)
+		}
+	}
+	frame := lay.Groups[0].Rect
+	for _, cells := range []map[Point]uint8{one, two} {
+		run := 0
+		for p, bits := range cells {
+			onEdge := p.Y == frame.Y || p.Y == frame.Y+frame.H-1 || p.X == frame.X || p.X == frame.X+frame.W-1
+			if onEdge && bits != up|down && bits != left|right {
+				t.Errorf("a loop turns on the frame's edge at %v:\n%s", p, text)
+			}
+			if onEdge {
+				run++
+			}
+		}
+		if run > 2 {
+			t.Errorf("a loop runs %d cells along the frame's edge:\n%s", run, text)
+		}
+	}
+}
+
+// endsIn says p is a cell of one of e's two nodes.
+func endsIn(lay *Layout, e PlacedEdge, p Point) bool {
+	for _, id := range []string{e.Edge.From, e.Edge.To} {
+		if n, ok := lay.Node(id); ok && inside(n.Rect, p.X, p.Y) {
+			return true
+		}
+	}
+	return false
 }
