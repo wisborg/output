@@ -28,6 +28,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"golang.org/x/image/font/opentype"
@@ -76,9 +77,22 @@ type options struct {
 	out      string
 	terminal string
 	theme    string
+	width    int
+	height   int
 	textPx   float64
 	fonts    []string
 }
+
+// The size of a PNG or an SVG where neither --width, --height nor
+// --text-size says: as wide as plot's charts, so a diagram and a chart
+// side by side on a page are drawn alike, and as tall as its proportions
+// make it.
+const imageWidth = 1600
+
+// terminalMaxWidth is the widest picture drawn for the terminal, in
+// pixels, as for plot: wider is seconds to draw and megabytes to send for
+// a picture the terminal shows no sharper.
+const terminalMaxWidth = 3200.0
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) error {
 	var o options
@@ -91,7 +105,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.out, "out", "", "write the diagram to this file rather than the terminal: .png, .svg, or .txt for the text drawing")
 	fs.StringVar(&o.terminal, "terminal", "auto", "how the diagram is shown in the terminal: auto (a picture where the terminal shows one, text otherwise), iterm, kitty or text")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a file; the terminal's own in a terminal), light or dark")
-	fs.Float64Var(&o.textPx, "text-size", picture.DefaultTextPx, "the size of a PNG's or an SVG's text, in pixels; everything else is in proportion")
+	fs.IntVar(&o.width, "width", 0, "the diagram's width: in characters in the terminal (default: the terminal's, or 100); in pixels in a PNG or an SVG (default: "+strconv.Itoa(imageWidth)+"); its height follows from its proportions")
+	fs.IntVar(&o.height, "height", 0, "the most the diagram's height may be, narrower where it would be taller: in lines in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none)")
+	fs.Float64Var(&o.textPx, "text-size", 0, "size a PNG or an SVG by its text instead, in pixels, everything else in proportion -- so several diagrams share a text size; not with --width or --height")
 	fs.Func("font", "a TrueType or OpenType font for the letters the built-in font lacks, in a PNG; repeat for several", func(s string) error {
 		o.fonts = append(o.fonts, s)
 		return nil
@@ -103,8 +119,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if len(files) > 1 {
 		return fmt.Errorf("one file at a time: %s", strings.Join(files, " "))
 	}
-	if o.textPx <= 0 {
-		return fmt.Errorf("--text-size %v: a size in pixels, above 0", o.textPx)
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	for _, f := range []struct {
+		name string
+		v    float64
+	}{{"width", float64(o.width)}, {"height", float64(o.height)}, {"text-size", o.textPx}} {
+		if set[f.name] && f.v <= 0 {
+			return fmt.Errorf("--%s %v: a size above 0", f.name, f.v)
+		}
+	}
+	if set["text-size"] && (set["width"] || set["height"]) {
+		return errors.New("--text-size sizes the diagram by its text, --width and --height by its outline: give one or the other")
 	}
 	// The flags are checked whichever way the diagram is drawn: a wrong
 	// one is a mistake to be told of, not one that waits for a terminal
@@ -176,6 +202,14 @@ func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error
 	if err != nil {
 		return err
 	}
+	px := o.textPx
+	if px == 0 {
+		w := float64(o.width)
+		if w == 0 {
+			w = imageWidth
+		}
+		px = textPxFor(lay, w, float64(o.height))
+	}
 	var buf bytes.Buffer
 	switch ext {
 	case ".png":
@@ -183,7 +217,7 @@ func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error
 		if err != nil {
 			return err
 		}
-		img, err := picture.Draw(lay, picture.Options{Palette: pal, TextPx: o.textPx, Fonts: fonts})
+		img, err := picture.Draw(lay, picture.Options{Palette: pal, TextPx: px, Fonts: fonts})
 		if err != nil {
 			return err
 		}
@@ -191,7 +225,7 @@ func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error
 			return err
 		}
 	case ".svg":
-		if err := svg.Write(&buf, lay, svg.Options{Palette: pal, TextPx: o.textPx}); err != nil {
+		if err := svg.Write(&buf, lay, svg.Options{Palette: pal, TextPx: px}); err != nil {
 			return err
 		}
 	case ".txt":
@@ -235,23 +269,32 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	if err != nil {
 		return err
 	}
-	// Drawn at twice the pixels its characters cover, so a screen of two
-	// pixels to a point draws it sharp, the text at most twice its usual
-	// size and no wider than the window: a small diagram is not blown up
-	// to fill it. A terminal that does not say its size in pixels is taken
-	// to have characters ten pixels wide.
-	cellW := 10.0
-	if ts.Width > 0 && ts.Cols > 0 {
-		cellW = float64(ts.Width) / float64(ts.Cols)
+	// As wide as the window, or --width characters, and no taller than its
+	// rows less one for the prompt, or --height lines: drawn at twice the
+	// pixels those characters cover, so a screen of two pixels to a point
+	// draws it sharp, held to terminalMaxWidth. A terminal that does not
+	// say its size in pixels is taken to have characters ten by twenty.
+	cellW, cellH := 10.0, 20.0
+	if ts.Width > 0 && ts.Height > 0 && ts.Cols > 0 && ts.Rows > 0 {
+		cellW, cellH = float64(ts.Width)/float64(ts.Cols), float64(ts.Height)/float64(ts.Rows)
 	}
-	cols := ts.Cols
+	cols, rows := ts.Cols, ts.Rows-1
 	if cols <= 0 {
 		cols = 100
 	}
-	px := 2.0 * picture.DefaultTextPx
-	if w, _ := diagram.ScaleFor(px).Size(lay); w > 2*cellW*float64(cols) {
-		px *= 2 * cellW * float64(cols) / w
+	if o.width > 0 {
+		cols = o.width
 	}
+	if o.height > 0 {
+		rows = o.height
+	}
+	scale := min(1, terminalMaxWidth/(2*cellW*float64(cols)))
+	perCol := 2 * cellW * scale
+	maxH := 0.0
+	if rows > 0 {
+		maxH = 2 * cellH * scale * float64(rows)
+	}
+	px := textPxFor(lay, perCol*float64(cols), maxH)
 	img, err := picture.Draw(lay, picture.Options{Palette: pal, TextPx: px, Fonts: fonts})
 	if err != nil {
 		return err
@@ -260,8 +303,22 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	if err := png.Encode(&buf, img); err != nil {
 		return err
 	}
-	shown := min(cols, int(math.Ceil(float64(img.Bounds().Dx())/(2*cellW))))
+	shown := min(cols, int(math.Ceil(float64(img.Bounds().Dx())/perCol)))
 	return terminal.Write(out, how, buf.Bytes(), shown)
+}
+
+// textPxFor is the text size that draws lay width pixels wide, or less
+// where that would be taller than height; a height of 0 does not hold it.
+// Everything in a picture is in proportion to its text, so the size is in
+// proportion to the width.
+func textPxFor(lay *diagram.Layout, width, height float64) float64 {
+	w, h := diagram.ScaleFor(1).Size(lay)
+	px := width / w
+	if height > 0 {
+		px = min(px, height/h)
+	}
+	// A hair under, so the picture rounds up to the width and not past it.
+	return px * (1 - 1e-9)
 }
 
 // loadFonts reads the fonts --font names.

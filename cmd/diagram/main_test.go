@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -81,6 +82,8 @@ func TestDiagramRefuses(t *testing.T) {
 		{regions, []string{"--out", "d.jpg"}, "name it .png, .svg or .txt"},
 		{regions, []string{"--terminal", "braille"}, "use auto, iterm, kitty or text"},
 		{regions, []string{"--theme", "pink"}, "--theme"},
+		{regions, []string{"--width", "0"}, "--width 0"},
+		{regions, []string{"--text-size", "20", "--width", "800"}, "one or the other"},
 		{"digraph {\n a -- b\n}", nil, "standard input: line 2"},
 		{"digraph { subgraph cluster_a { columns=1; a [col=1]; b [col=1, row=1] } }", nil, "both pinned"},
 	} {
@@ -103,5 +106,84 @@ func TestDiagramFlagsAfterTheFile(t *testing.T) {
 	}
 	if data, err := os.ReadFile(out); err != nil || !bytes.Contains(data, []byte("dbC")) {
 		t.Errorf("--out after the file wrote %q, %v", data, err)
+	}
+}
+
+// A PNG or an SVG is as wide as plot's charts unless --width says, in its
+// own proportions, narrower where --height would be passed; --text-size
+// sizes it by its text instead.
+func TestDiagramSize(t *testing.T) {
+	dir := t.TempDir()
+	size := func(args ...string) (int, int) {
+		t.Helper()
+		path := filepath.Join(dir, "d.png")
+		if _, _, err := draw(t, regions, append([]string{"--out", path}, args...)...); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		cfg, err := png.DecodeConfig(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg.Width, cfg.Height
+	}
+	w, h := size()
+	if w != imageWidth || h < 100 {
+		t.Errorf("by default %d by %d, want %d wide", w, h, imageWidth)
+	}
+	if w2, h2 := size("--width", "800"); w2 != 800 || abs(h2*2-h) > 2 {
+		t.Errorf("--width 800: %d by %d, want 800 by about %d", w2, h2, h/2)
+	}
+	if w3, h3 := size("--width", "800", "--height", "200"); h3 != 200 || w3 >= 800 {
+		t.Errorf("--width 800 --height 200: %d by %d, want 200 tall and narrower than 800", w3, h3)
+	}
+	w4, _ := size("--text-size", "16")
+	w5, _ := size("--text-size", "32")
+	if abs(w5-2*w4) > 2 || w4 == imageWidth {
+		t.Errorf("--text-size 16 is %d wide and 32 is %d: want twice as wide", w4, w5)
+	}
+
+	svgPath := filepath.Join(dir, "d.svg")
+	if _, _, err := draw(t, regions, "--out", svgPath, "--width", "800"); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(svgPath); err != nil || !bytes.Contains(data, []byte(`width="800"`)) {
+		t.Errorf("--width 800 SVG begins %q, %v", data[:min(len(data), 80)], err)
+	}
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// In the terminal the picture is --width characters wide, at two pixels to
+// a character's ten where the terminal does not say its size, and is shown
+// that many characters wide.
+func TestDiagramTerminalWidth(t *testing.T) {
+	out, _, err := draw(t, regions, "--terminal", "iterm", "--width", "40")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, data, ok := strings.Cut(strings.TrimSuffix(out, "\a\n"), "preserveAspectRatio=1:")
+	if !ok || !strings.Contains(out, ";width=40;") {
+		t.Fatalf("not an iTerm2 picture 40 characters wide: %.80q", out)
+	}
+	img, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(img))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Width != 800 {
+		t.Errorf("%d pixels wide, want 800", cfg.Width)
 	}
 }
