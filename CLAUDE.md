@@ -51,12 +51,17 @@ from reality is a test failure.
 - `chart/scale.go` — `RobustRange`, `Scale`, `NewScale`, `ExactScale`, ticks
   and labels.
 - `chart/braille.go` — `Chart`, `Strip`, and the braille rendering.
+- `chart/date.go` — the `Date` kind's steps, calendar ticks and labels.
 - `chart/band.go` — `Band`, `BandKind`, and their braille rows.
 - `chart/picture/picture.go` — `Draw`, `Palette`, `Options`, `TextPx`.
 - `chart/picture/draw.go` — the few drawing primitives a picture needs, over
   `golang.org/x/image/vector` and Go Mono.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
   writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
+- `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of text,
+  `columns.go` decides what each column holds and reads its values,
+  `chart.go` turns the columns into a `chart.Chart`, `main.go` is the flags
+  and the drawing. A new input format is a new reader of the same table.
 
 `progress` imports neither the root package nor `table`, the same way `table`
 imports neither of the others. `chart` imports only the standard library, as
@@ -298,6 +303,29 @@ a part wound the other way would cut a hole there.
 terminal, in one known to show pictures, and not inside tmux or screen;
 everywhere else braille. A picture's escape sequence into a pipe or a file is
 a page of base64.
+
+**A `Date` scale reads its seconds in UTC, and `plot` places a date by its
+wall clock as written.** A file's `09:30-05:00` is plotted at 09:30, not at
+14:30 UTC nor at whatever the reader's zone makes it: a chart should read as
+the file does to the people who wrote it. The cost is a step of an hour where
+a file crosses a change of clocks, which is what its own timestamps say too.
+
+**`plot` joins a column's readings row to row, not by their distance on the
+axis.** Its rows have no rhythm to measure a gap by — trading days skip
+weekends, a log skips quiet hours — so a line breaks only where a row has no
+reading, and only where the drawing can show it: a missing cell among a
+hundred thousand rows is less than a column wide, and breaking there would
+shred the line.
+
+**`plot`'s y axis spans every value; `-robust` is opt-in.** `RobustRange`
+suits a sensor whose spikes are dropouts; in someone's spreadsheet the
+outlier is as likely to be the point — the wettest day of the year.
+
+**A column is a column of numbers when most of its values are, not all.** A
+typed file holds the odd "n.d."; refusing the column for one would refuse the
+file. The cells left out are counted and reported, so a gap is never
+unexplained. Dates in numbers alone that read the same day-first and
+month-first are refused until `-dates` says which, rather than guessed.
 
 ## Testing conventions
 

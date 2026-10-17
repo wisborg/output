@@ -175,12 +175,16 @@ func TestExactScaleAtClockSteps(t *testing.T) {
 	}
 }
 
-// A number is written with the decimals its step needs and no more.
+// A number is written with the decimals its step needs and no more, and in
+// thousands or millions where the step is a hundred thousand or more --
+// not below, where a flight's altitude in feet still reads in full.
 func TestNumberLabels(t *testing.T) {
 	for _, c := range []struct {
 		step, v float64
 		want    string
-	}{{50, 250, "250"}, {0.5, 1.5, "1.5"}, {0.02, 0.3, "0.30"}, {10, math.Copysign(0, -1), "0"}} {
+	}{{50, 250, "250"}, {0.5, 1.5, "1.5"}, {0.02, 0.3, "0.30"}, {10, math.Copysign(0, -1), "0"},
+		{1e6, 4e6, "4M"}, {5e5, 2.5e6, "2.5M"}, {1e5, 3e5, "300k"}, {2e9, 6e9, "6G"}, {1e6, 0, "0"},
+		{10000, 40000, "40000"}} {
 		if got := (Scale{Step: c.step}).Label(c.v); got != c.want {
 			t.Errorf("%v at step %v reads %q, want %q", c.v, c.step, got, c.want)
 		}

@@ -3,7 +3,8 @@
 Go packages for producing program output in more than one shape: aligned
 text, CSV, JSON or YAML, chosen when the program runs — while the program
 is still working, live progress on the terminal — and charts, drawn in the
-terminal in braille or as a picture.
+terminal in braille or as a picture. The `plot` command draws one from a CSV
+file.
 
 `table` builds tabular data and renders it as aligned text.
 
@@ -364,8 +365,12 @@ rendering follows them:
   highest and lowest hundredth out, so a dropout or a spike does not flatten the
   rest; a reading beyond the axis is drawn at its edge.
 - **Ticks fall on round numbers, or round times** for a `Clock` scale — 15 s,
-  5 min, 1 h — and the x axis spans the series exactly rather than being rounded
-  out to the next tick.
+  5 min, 1 h — or, for a `Date` scale, where a calendar marks them: the hour,
+  the day, the first of the month, the year. A date's tick is written as
+  briefly as the one beside it allows — `Mar`, and January as `2024` — the
+  first in full. Numbers on an axis stepping by a hundred thousand or more are
+  written `250k`, `4M`. The x axis spans the series exactly rather than being
+  rounded out to the next tick.
 - **A band is the chart's, not a strip's:** a stretch the chart marks is marked
   in every strip, faintly behind the line in a picture and in a row of marks
   beneath the axis in braille, two bands a character apart kept apart.
@@ -378,3 +383,39 @@ screen, where a picture's escape sequence would arrive as a page of base64.
 `terminal.SizeOf` says how big the terminal is, in pixels too where it says,
 and `terminal.LightBackground` whether its background is light, by
 `COLORFGBG`.
+
+## plot
+
+`plot` charts columns of a CSV file — prices against dates, rain against
+months, anything — with the packages above.
+
+```
+go install github.com/wisborg/output/cmd/plot@latest
+
+plot prices.csv                          # every column of numbers against the first
+plot -y close,volume prices.csv          # these columns, a strip each
+plot -x month -y rain -out rain.png weather.tsv
+some-program | plot -smooth 7            # from standard input, a 7-row average
+plot -list prices.csv                    # what each column holds
+```
+
+It reads values delimited by commas, tabs, semicolons or bars — it tells which
+by looking, or `-delimiter` says — quoted where they hold the delimiter, with
+or without a first row of names. A column is plotted by name or by number.
+Without `-x` the first column is the axis where it holds dates, or numbers in
+order; otherwise the row is. Dates are read in ISO 8601's forms, with month
+names, and in numbers alone — `03/04/2024` — whose day and month are told
+apart by a day past the 12th, or by `-dates dmy` or `mdy` where none is.
+
+The rows are drawn in the axis's order, so a file written newest first is
+drawn oldest first. An empty cell, `NA` or `null` is a gap in the line, never
+a zero, and a cell that is not a number in a column of them is a gap too,
+which `plot` says. The y axis spans every value unless `-robust` asks for the
+middle 98%: a spike in someone's data is as likely to be the point as an
+error.
+
+In iTerm2, WezTerm, kitty and Ghostty the chart is a picture the width of the
+window; in any other terminal, in tmux, or into a pipe, it is braille; with
+`-out` it is a PNG. CSV is the only format it reads for now: the reading is
+one file of the command, and another format is another reader of the same
+table.

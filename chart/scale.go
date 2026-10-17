@@ -46,6 +46,11 @@ const (
 	// -- 15 s, 5 min, 1 h -- and written as one: "1:05", "1:30:00". A pace
 	// is one too: seconds a kilometre.
 	Clock
+	// Date is a moment, in seconds since 1970 began -- Unix time -- read
+	// in UTC: ticked at the steps a calendar reads in, from seconds to
+	// days, the first of a month, of a quarter, of a year, and written as
+	// a calendar does: "15:30", "2 Mar", "Mar", "2024". See dateTicks.
+	Date
 )
 
 // Scale is one axis of a chart: the span it shows, the step between its
@@ -121,6 +126,9 @@ var clockSteps = []float64{1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 36
 
 // niceStep is the smallest round step of kind at least raw.
 func niceStep(raw float64, kind Kind) float64 {
+	if kind == Date {
+		return dateStep(raw)
+	}
 	if kind == Clock {
 		for _, s := range clockSteps {
 			if s >= raw {
@@ -142,10 +150,14 @@ func niceStep(raw float64, kind Kind) float64 {
 }
 
 // Ticks are the values the scale marks: every multiple of Step from Min to
-// Max.
+// Max -- or, for a Date scale whose step is ten days or more, the calendar's
+// own marks, which are not evenly spaced: a month is 28 to 31 days.
 func (s Scale) Ticks() []float64 {
 	if s.Step <= 0 || s.Max < s.Min {
 		return nil
+	}
+	if s.Kind == Date {
+		return dateTicks(s.Min, s.Max, s.Step)
 	}
 	first := math.Ceil(s.Min/s.Step - 1e-9)
 	last := math.Floor(s.Max/s.Step + 1e-9)
@@ -173,16 +185,38 @@ func (s Scale) Frac(v float64) (f float64, clipped bool) {
 }
 
 // Label is v as the scale writes it: a number with as many decimals as its
-// step needs, or a clock -- minutes and seconds, or hours and minutes on an
-// axis that reaches an hour, with seconds where the step is under a minute.
+// step needs -- in thousands, millions or more, "250k", "4M", where the
+// step is a hundred thousand or more -- or a clock -- minutes and seconds, or hours and minutes on an
+// axis that reaches an hour, with seconds where the step is under a minute
+// -- or a date, as dateLabel writes it.
 func (s Scale) Label(v float64) string {
 	if s.Kind == Clock {
 		return clockLabel(v, s.Max >= 3600, s.Step < 60)
 	}
-	decimals := max(0, int(-math.Floor(math.Log10(s.Step)+1e-9)))
+	if s.Kind == Date {
+		ticks := s.Ticks()
+		return dateLabel(v, s.Step, len(ticks) > 0 && v == ticks[0])
+	}
 	if v == 0 {
 		v = 0 // no "-0"
 	}
+	// An axis stepping by a hundred thousand or more writes its numbers in
+	// thousands, millions, billions -- "250k", "4M" -- since a column of
+	// "4000000" is a gutter as wide as the zeros and as slow to read. The
+	// unit is the axis's largest number's, so every label on it has the
+	// same: "0.5M, 1.0M, 1.5M", not "500k, 1.0M".
+	top := max(math.Abs(s.Min), math.Abs(s.Max), math.Abs(v))
+	for _, u := range []struct {
+		div    float64
+		suffix string
+	}{{1e12, "T"}, {1e9, "G"}, {1e6, "M"}, {1e3, "k"}} {
+		if s.Step >= 1e5 && top >= u.div && v != 0 {
+			step := s.Step / u.div
+			decimals := max(0, int(-math.Floor(math.Log10(step)+1e-9)))
+			return fmt.Sprintf("%.*f%s", decimals, v/u.div, u.suffix)
+		}
+	}
+	decimals := max(0, int(-math.Floor(math.Log10(s.Step)+1e-9)))
 	return fmt.Sprintf("%.*f", decimals, v)
 }
 
