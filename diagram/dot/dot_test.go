@@ -219,3 +219,53 @@ func TestErrors(t *testing.T) {
 		}
 	}
 }
+
+// A cluster with style=legend is the legend, not a part of the diagram:
+// each node in it an entry, a swatch filled as the node would be, or a
+// stroke for a plain node, in its colour and style.
+func TestLegend(t *testing.T) {
+	d := parse(t, `digraph {
+		node [style=filled]
+		a -> b
+		subgraph cluster_key {
+			label = "Key"; style = legend
+			ok [label = "healthy", fillcolor = green]
+			async [label = "async", shape = plain, style = dashed, color = red]
+		}
+	}`)
+	if got := items(&d.Root); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("the diagram holds %v, want a and b alone", got)
+	}
+	lg := d.Legend
+	if lg == nil || lg.Label != "Key" || len(lg.Entries) != 2 {
+		t.Fatalf("legend %+v, want Key with two entries", lg)
+	}
+	ok, async := lg.Entries[0], lg.Entries[1]
+	if ok.Label != "healthy" || ok.Sample != diagram.Swatch || ok.Fill != (color.RGBA{0, 0xFF, 0, 0xFF}) {
+		t.Errorf("first entry %+v, want healthy, a green swatch", ok)
+	}
+	if async.Label != "async" || async.Sample != diagram.Stroke || async.Line != diagram.Dashed || async.Colour != (color.RGBA{0xFF, 0, 0, 0xFF}) || async.Fill != nil {
+		t.Errorf("second entry %+v, want async, a dashed red stroke", async)
+	}
+	if _, err := d.Layout(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestLegendErrors(t *testing.T) {
+	for _, c := range []struct {
+		src  string
+		line int
+		want string
+	}{
+		{"digraph {\n subgraph cluster_k { style=legend; k }\n a -> k\n}", 2, `"k" is an entry of it`},
+		{"digraph {\n subgraph cluster_k { style=legend; k }\n subgraph cluster_l { style=legend; l }\n}", 3, "one legend"},
+		{"digraph {\n subgraph cluster_k { style=legend; subgraph cluster_x { x } }\n}", 2, "not the cluster"},
+	} {
+		_, err := Parse(c.src)
+		var pe *Error
+		if !errors.As(err, &pe) || pe.Line != c.line || !strings.Contains(pe.Msg, c.want) {
+			t.Errorf("%q: %v, want line %d saying %q", c.src, err, c.line, c.want)
+		}
+	}
+}

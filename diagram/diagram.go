@@ -162,7 +162,38 @@ type Diagram struct {
 	// SameLayer are sets of nodes, by ID, a layered group puts in one
 	// layer: DOT's rank=same.
 	SameLayer [][]string
+	// Legend, where there is one, is drawn below the diagram.
+	Legend *Legend
 }
+
+// Legend is a key to what a diagram's colours and lines mean: a frame of
+// entries, one to a line, each a sample and what it stands for. It is
+// placed below everything else, outside every grid and layer, so nothing
+// in the diagram moves it and it moves nothing.
+type Legend struct {
+	Label   string
+	Entries []LegendEntry
+}
+
+// LegendEntry is one line of a legend.
+type LegendEntry struct {
+	Label  string
+	Sample Sample
+	// Fill fills a swatch; Colour outlines it, or is a stroke's colour --
+	// the foreground where nil; Line is a stroke's style.
+	Fill, Colour color.Color
+	Line         Line
+}
+
+// Sample is what a legend entry shows.
+type Sample int
+
+const (
+	// Swatch is a small box, as a node is filled and outlined.
+	Swatch Sample = iota
+	// Stroke is a short line, as an edge is drawn.
+	Stroke
+)
 
 // label is the node's label, its ID where it has none.
 func (n *Node) label() string {

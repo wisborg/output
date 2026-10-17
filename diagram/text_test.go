@@ -139,3 +139,26 @@ func TestColourTextWithoutColours(t *testing.T) {
 		t.Errorf("in colour:\n%q\nplain:\n%q", coloured, plain)
 	}
 }
+
+// A legend's entries are drawn as a block for a fill, a line -- dashed for
+// a dashed one -- for a stroke, each with its label.
+func TestTextLegend(t *testing.T) {
+	d := &Diagram{Root: Group{Items: []Item{node("a")}}, Legend: &Legend{Label: "Key", Entries: []LegendEntry{
+		{Label: "ok", Fill: color.RGBA{0, 0xFF, 0, 0xFF}},
+		{Label: "sync", Sample: Stroke},
+		{Label: "async", Sample: Stroke, Line: Dashed},
+	}}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(lay.Text(), "\n")
+	for _, want := range []string{"┌─ Key ─", "│  ████  ok", "│  ────  sync", "│  ╌╌╌╌  async"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("no %q in:\n%s", want, text)
+		}
+	}
+	if coloured := strings.Join(lay.ColourText(Light), "\n"); !strings.Contains(coloured, "\x1b[38;2;0;255;0m████") {
+		t.Errorf("the swatch is not green in colour:\n%q", coloured)
+	}
+}

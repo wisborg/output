@@ -56,6 +56,9 @@ func Write(w io.Writer, lay *diagram.Layout, opts Options) error {
 	for _, n := range lay.Nodes {
 		d.node(n)
 	}
+	for _, e := range lay.Legend {
+		d.entry(e)
+	}
 	d.labels()
 	if lay.Title != "" {
 		d.text(lay.Title, s.Left(0), s.Y(0), "start", px*1.15, pal.Foreground)
@@ -312,4 +315,26 @@ func filledBy(n *diagram.Node) color.Color {
 		return nil
 	}
 	return n.Fill
+}
+
+// entry draws a legend entry: its sample, a stroke drawn as an edge is or a
+// swatch filled and outlined as a node is, and its label after it.
+func (d *doc) entry(pe diagram.PlacedEntry) {
+	e, r := pe.Entry, pe.Sample
+	x0, x1, y := d.s.Left(r.X)+d.px*0.2, d.s.Left(r.X+r.W)-d.px*0.2, d.s.Y(r.Y)
+	col := or(e.Colour, d.pal.Foreground)
+	if e.Sample == diagram.Stroke {
+		fmt.Fprintf(&d.b, `<path d="%s" fill="none" %s/>`+"\n", pathOf([]float64{x0, x1}, []float64{y, y}, false), d.stroke(e.Line, col))
+	} else {
+		half := d.s.Line * 0.3
+		filled := `fill="none"`
+		if e.Fill != nil {
+			filled = fill(e.Fill)
+		}
+		fmt.Fprintf(&d.b, `<rect x="%s" y="%s" width="%s" height="%s" %s %s/>`+"\n",
+			num(x0), num(y-half), num(x1-x0), num(2*half), filled, d.stroke(diagram.Solid, col))
+	}
+	for i, l := range strings.Split(e.Label, "\n") {
+		d.text(l, d.s.Left(pe.LabelAt.X), d.s.Y(pe.LabelAt.Y+i), "start", d.px, d.pal.Foreground)
+	}
 }

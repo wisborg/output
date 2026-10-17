@@ -60,6 +60,9 @@ func Draw(lay *diagram.Layout, opts Options) (*image.RGBA, error) {
 	for _, n := range lay.Nodes {
 		d.node(n)
 	}
+	for _, e := range lay.Legend {
+		d.entry(e)
+	}
 	d.labels()
 	if lay.Title != "" {
 		_ = cv.Text(lay.Title, s.Left(0), s.Y(0), 0, textCentre, px*1.15, pal.Foreground)
@@ -305,4 +308,26 @@ func filledBy(n *diagram.Node) color.Color {
 		return nil
 	}
 	return n.Fill
+}
+
+// entry draws a legend entry: its sample, a stroke drawn as an edge is or a
+// swatch filled and outlined as a node is, across the cells given it, and
+// its label after it.
+func (d drawer) entry(pe diagram.PlacedEntry) {
+	e, r := pe.Entry, pe.Sample
+	x0, x1, y := d.s.Left(r.X)+d.px*0.2, d.s.Left(r.X+r.W)-d.px*0.2, d.s.Y(r.Y)
+	col := or(e.Colour, d.pal.Foreground)
+	if e.Sample == diagram.Stroke {
+		d.stroke([]float64{x0, x1}, []float64{y, y}, e.Line, col)
+	} else {
+		half := d.s.Line * 0.3
+		box := rect(x0, y-half, x1, y+half)
+		if e.Fill != nil {
+			d.cv.Polygon(box, e.Fill)
+		}
+		d.outline(box, diagram.Solid, col)
+	}
+	for i, l := range strings.Split(e.Label, "\n") {
+		_ = d.cv.Text(l, d.s.Left(pe.LabelAt.X), d.s.Y(pe.LabelAt.Y+i), 0, textCentre, d.px, d.pal.Foreground)
+	}
 }

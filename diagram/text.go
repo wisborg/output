@@ -274,6 +274,9 @@ func (lay *Layout) text(pal Palette) *textCanvas {
 		}
 		drawTextNode(c, n, pal)
 	}
+	for _, e := range lay.Legend {
+		drawTextEntry(c, e, pal)
+	}
 	// The labels and arrowheads last, over everything.
 	for _, g := range lay.Groups {
 		label := g.Group.Label
@@ -415,5 +418,23 @@ func drawTextNode(c *textCanvas, n PlacedNode, pal Palette) {
 	}
 	for i, line := range lines {
 		c.write(r.X+(r.W-utf8.RuneCountInString(line))/2, top+i, line, ink)
+	}
+}
+
+// drawTextEntry draws a legend entry: a stroke as a line, dashed where it
+// is dashed or dotted, or a swatch as a block in its fill -- an empty box
+// where it has none -- and its label after it.
+func drawTextEntry(c *textCanvas, pe PlacedEntry, pal Palette) {
+	e, r := pe.Entry, pe.Sample
+	switch {
+	case e.Sample == Stroke:
+		c.line(Point{r.X, r.Y}, Point{r.X + r.W - 1, r.Y}, e.Line == Dashed || e.Line == Dotted, e.Colour)
+	case e.Fill != nil:
+		c.write(r.X, r.Y, strings.Repeat("█", r.W), over(e.Fill, pal.Background))
+	default:
+		c.write(r.X, r.Y, "["+strings.Repeat(" ", r.W-2)+"]", e.Colour)
+	}
+	for i, line := range strings.Split(e.Label, "\n") {
+		c.write(pe.LabelAt.X, pe.LabelAt.Y+i, line, nil)
 	}
 }

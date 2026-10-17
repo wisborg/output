@@ -478,6 +478,35 @@ digraph {
 Grids stacked in a grid share their columns, as a table's rows do, so `dbC`
 is under `dbA` though the lanes are laid out apart.
 
+`style=legend` makes a cluster the diagram's **legend** instead of a part of
+it: a frame below the diagram, outside every grid and layer, so it moves
+nothing and nothing moves it. Each node in it is an entry — a swatch filled
+and outlined as the node would be, or, for a node of `shape=plain`, a short
+line in its colour and style, as an edge is drawn — beside its label:
+
+```dot
+  subgraph cluster_legend {
+    label = "Legend"; style = legend
+    healthy [label = "healthy", style = filled, fillcolor = "#8fd18f"]
+    failing [label = "error",   style = filled, fillcolor = "#f08a8a"]
+    async   [label = "asynchronous replication", shape = plain, style = dashed]
+  }
+```
+
+```
+┌─ Legend ─────────────────────────┐
+│                                  │
+│  ████  healthy                   │
+│  ████  error                     │
+│  ╌╌╌╌  asynchronous replication  │
+│                                  │
+└──────────────────────────────────┘
+```
+
+In a terminal the text drawing is in colour — a node's fill behind it, the
+swatches in theirs — unless `--color never` says otherwise, `NO_COLOR` is
+set, or it is going into a pipe or a file.
+
 Everything is measured in character cells, so the text drawing and the
 pictures are one layout: a picture draws each cell as a fixed box of pixels
 in a monospaced font. Every edge runs along rows and columns, round a box in

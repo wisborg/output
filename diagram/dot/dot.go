@@ -25,6 +25,13 @@
 //     grid it is in, counting from 1.
 //   - style=lane, on a cluster, draws it as a band across the diagram set
 //     off by a line, its label at the far side, rather than as a box.
+//   - style=legend, on a cluster, makes it the diagram's legend rather than
+//     a part of it: a frame below the diagram, its label the legend's
+//     title, each node in it an entry -- a swatch filled and outlined as
+//     the node would be, or, for a node of shape plain or none, a short
+//     line in its color and style, as an edge is drawn -- and the node's
+//     label what it stands for. Graphviz draws the cluster as an ordinary
+//     one.
 //
 // Of Graphviz's own attributes, those that say what a diagram means are
 // read -- label, shape, style, color, fillcolor, fontcolor, dir, arrowhead,
@@ -95,6 +102,9 @@ type parser struct {
 	nodes    map[string]*nodeInfo
 	order    []string           // the nodes in the order made
 	seen     map[[2]string]bool // a strict graph's edges
+	// legend is the cluster with style=legend, and the line it begins on.
+	legend     *diagram.Group
+	legendLine int
 }
 
 func (p *parser) advance() error {
@@ -174,7 +184,45 @@ func (p *parser) graph() error {
 			return err
 		}
 	}
+	if err := p.makeLegend(); err != nil {
+		return err
+	}
 	return p.applyGraph(root.graphAttrs, name)
+}
+
+// makeLegend turns the legend's cluster into the diagram's Legend: each
+// node an entry, in the order written.
+func (p *parser) makeLegend() error {
+	g := p.legend
+	if g == nil {
+		return nil
+	}
+	wrap := func(format string, args ...any) error {
+		return &Error{Line: p.legendLine, Msg: fmt.Sprintf("legend %q: ", g.ID) + fmt.Sprintf(format, args...)}
+	}
+	lg := &diagram.Legend{Label: g.Label}
+	in := map[string]bool{}
+	for _, it := range g.Items {
+		if it.Group != nil {
+			return wrap("a legend holds entries, not the cluster %q", it.Group.ID)
+		}
+		n := it.Node
+		in[n.ID] = true
+		e := diagram.LegendEntry{Label: n.Label, Fill: n.Fill, Colour: n.Colour, Line: n.Line}
+		if n.Shape == diagram.Plain {
+			e.Sample, e.Fill = diagram.Stroke, nil
+		}
+		lg.Entries = append(lg.Entries, e)
+	}
+	for _, e := range p.d.Edges {
+		for _, id := range []string{e.From, e.To} {
+			if in[id] {
+				return wrap("%q is an entry of it, not a node an edge can reach", id)
+			}
+		}
+	}
+	p.d.Legend = lg
+	return nil
 }
 
 // stmts reads statements up to the closing brace.
@@ -379,6 +427,19 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 	if g != nil {
 		if err := p.applyGroup(g, sub.graphAttrs, line); err != nil {
 			return nil, err
+		}
+		if styleSet(sub.graphAttrs["style"])["legend"] {
+			if p.legend != nil {
+				return nil, &Error{Line: line, Msg: fmt.Sprintf("cluster %q: a diagram has one legend, and %q is already it", g.ID, p.legend.ID)}
+			}
+			// Not a part of the diagram: out of the group it was in.
+			for i, it := range s.group.Items {
+				if it.Group == g {
+					s.group.Items = append(s.group.Items[:i], s.group.Items[i+1:]...)
+					break
+				}
+			}
+			p.legend, p.legendLine = g, line
 		}
 	}
 	if strings.EqualFold(sub.graphAttrs["rank"], "same") {

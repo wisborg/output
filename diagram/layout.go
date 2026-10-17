@@ -36,7 +36,17 @@ type Layout struct {
 	Nodes         []PlacedNode
 	Groups        []PlacedGroup
 	Edges         []PlacedEdge
-	nodeAt        map[string]PlacedNode
+	// Legend is the legend's entries, its frame being the last of Groups.
+	Legend []PlacedEntry
+	nodeAt map[string]PlacedNode
+}
+
+// PlacedEntry is a legend entry and where it is drawn: its sample, one row
+// tall, and its label after it.
+type PlacedEntry struct {
+	Entry   *LegendEntry
+	Sample  Rect
+	LabelAt Point
 }
 
 // Node is where the node id is placed.
@@ -173,7 +183,43 @@ func (d *Diagram) Layout() (*Layout, error) {
 		}
 	}
 	l.out.placeLabels()
+	l.out.placeLegend(d.Legend)
 	return l.out, nil
+}
+
+// A legend entry's sample is legendSample cells wide, its label
+// legendGap cells after it.
+const legendSample, legendGap = 4, 2
+
+// placeLegend places lg in a frame below everything else, at the left, its
+// entries one under another; an entry's label of several lines takes as
+// many rows.
+func (lay *Layout) placeLegend(lg *Legend) {
+	if lg == nil || len(lg.Entries) == 0 {
+		return
+	}
+	top := 0
+	if lay.Height > 0 {
+		top = lay.Height + 1
+	}
+	w, h := 0, 0
+	for _, e := range lg.Entries {
+		lines := strings.Split(e.Label, "\n")
+		for _, l := range lines {
+			w = max(w, legendSample+legendGap+utf8.RuneCountInString(l))
+		}
+		h += len(lines)
+	}
+	frame := Rect{0, top, max(w, utf8.RuneCountInString(lg.Label)) + 2*frameSide, h + 2*frameTop}
+	y := top + frameTop
+	for i := range lg.Entries {
+		e := &lg.Entries[i]
+		x := frameSide
+		lay.Legend = append(lay.Legend, PlacedEntry{Entry: e, Sample: Rect{x, y, legendSample, 1}, LabelAt: Point{x + legendSample + legendGap, y}})
+		y += strings.Count(e.Label, "\n") + 1
+	}
+	lay.Groups = append(lay.Groups, PlacedGroup{Group: &Group{ID: "legend", Label: lg.Label, Style: Frame}, Rect: frame, LabelAt: Point{frame.X + 2, frame.Y}})
+	lay.Width, lay.Height = max(lay.Width, frame.X+frame.W), frame.Y+frame.H
 }
 
 // index records each node's groups.
@@ -414,6 +460,11 @@ func (p *plan) measureLayers() {
 	ga, gb := p.gaps()
 	n := len(p.sizes)
 	p.along = make([]int, n)
+	if n == 0 {
+		// An empty group -- or an empty diagram, a legend alone, say --
+		// takes no room.
+		return
+	}
 	layerOf := make([]int, n)
 	for li, layer := range p.layers {
 		for _, i := range layer {

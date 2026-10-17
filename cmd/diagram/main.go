@@ -67,6 +67,9 @@ Graphviz's own attributes, diagram reads:
   row=R, col=C        on a node or a cluster: pin it to that cell
   style=lane          on a cluster: a band across the diagram, set off by a
                       line, its label at its side
+  style=legend        on a cluster: the diagram's legend, drawn below it --
+                      each node an entry, a swatch of its fill, or for
+                      shape=plain a line in its style, beside its label
 
 A cluster is a subgraph whose name begins with "cluster".
 

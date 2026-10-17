@@ -263,3 +263,70 @@ func TestTextOn(t *testing.T) {
 		}
 	}
 }
+
+// A legend goes below everything, in a frame of its own holding an entry
+// to a row -- two rows for a label of two lines -- and moves nothing: every
+// box is where it is without it.
+func TestLegend(t *testing.T) {
+	build := func(lg *Legend) *Diagram {
+		return &Diagram{
+			Root:   Group{Columns: 2, Items: []Item{node("a"), node("b")}},
+			Edges:  []Edge{{From: "a", To: "b", Head: true, Label: "sync"}},
+			Legend: lg,
+		}
+	}
+	lg := &Legend{Label: "Key", Entries: []LegendEntry{
+		{Label: "healthy", Fill: color.RGBA{0, 0xFF, 0, 0xFF}},
+		{Label: "two\nlines"},
+		{Label: "async", Sample: Stroke, Line: Dashed},
+	}}
+	with, err := build(lg).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	without, err := build(nil).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range without.Nodes {
+		if got, _ := with.Node(n.Node.ID); got.Rect != n.Rect {
+			t.Errorf("%s at %v with a legend, %v without", n.Node.ID, got.Rect, n.Rect)
+		}
+	}
+	if len(with.Legend) != 3 || len(with.Groups) != len(without.Groups)+1 {
+		t.Fatalf("%d entries and %d groups, want 3 and one more than %d", len(with.Legend), len(with.Groups), len(without.Groups))
+	}
+	frame := with.Groups[len(with.Groups)-1]
+	if frame.Group.Label != "Key" || frame.Group.Style != Frame || frame.Rect.Y < without.Height {
+		t.Errorf("the legend's frame %+v, want Key, below row %d", frame, without.Height)
+	}
+	inside := func(r Rect) bool {
+		return r.X > frame.Rect.X && r.Y > frame.Rect.Y && r.X+r.W < frame.Rect.X+frame.Rect.W && r.Y+r.H < frame.Rect.Y+frame.Rect.H
+	}
+	for i, e := range with.Legend {
+		label := Rect{e.LabelAt.X, e.LabelAt.Y, len(e.Entry.Label), 1}
+		if !inside(e.Sample) || !inside(label) || e.LabelAt.Y != e.Sample.Y || e.LabelAt.X <= e.Sample.X+e.Sample.W {
+			t.Errorf("entry %d: sample %v, label at %v, not side by side in the frame %v", i, e.Sample, e.LabelAt, frame.Rect)
+		}
+	}
+	if rows := []int{with.Legend[1].Sample.Y - with.Legend[0].Sample.Y, with.Legend[2].Sample.Y - with.Legend[1].Sample.Y}; rows[0] != 1 || rows[1] != 2 {
+		t.Errorf("entries %v rows apart, want 1 and then 2 for the label of two lines", rows)
+	}
+	if with.Height != frame.Rect.Y+frame.Rect.H || with.Width < frame.Rect.W {
+		t.Errorf("the layout is %d by %d, the legend's frame %v", with.Width, with.Height, frame.Rect)
+	}
+}
+
+// An empty diagram, an empty cluster, and a legend with nothing else lay
+// out rather than fail.
+func TestLayoutEmpty(t *testing.T) {
+	for name, d := range map[string]*Diagram{
+		"empty":         {},
+		"empty cluster": {Root: Group{Items: []Item{{Group: &Group{ID: "g", Label: "x"}}, node("b")}}},
+		"legend alone":  {Legend: &Legend{Entries: []LegendEntry{{Label: "ok"}}}},
+	} {
+		if _, err := d.Layout(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

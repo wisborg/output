@@ -3,6 +3,7 @@ package svg
 import (
 	"bytes"
 	"encoding/xml"
+	"image/color"
 	"io"
 	"strings"
 	"testing"
@@ -23,6 +24,10 @@ func TestWriteIsWellFormed(t *testing.T) {
 			}}},
 		}},
 		Edges: []diagram.Edge{{From: "a", To: "b", Head: true, Tail: true, Label: "x < y"}},
+		Legend: &diagram.Legend{Label: "Key & more", Entries: []diagram.LegendEntry{
+			{Label: "ok > fine", Fill: color.RGBA{0, 0xFF, 0, 0xFF}},
+			{Label: "async", Sample: diagram.Stroke, Line: diagram.Dashed},
+		}},
 	}
 	lay, err := d.Layout()
 	if err != nil {
@@ -57,7 +62,7 @@ func TestWriteIsWellFormed(t *testing.T) {
 		}
 	}
 	got := strings.Join(texts, "|")
-	for _, want := range []string{`a & "b"`, "<cluster>", "one", "two", "b", "x < y"} {
+	for _, want := range []string{`a & "b"`, "<cluster>", "one", "two", "b", "x < y", "Key & more", "ok > fine", "async"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no text %q in %q", want, got)
 		}

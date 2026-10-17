@@ -64,3 +64,32 @@ func TestDrawDrawsEdges(t *testing.T) {
 		t.Errorf("no ink at (%.0f, %.0f), the middle of the edge", mx, my)
 	}
 }
+
+// A legend's swatch is filled in its colour, and its stroke inked.
+func TestDrawLegend(t *testing.T) {
+	green := color.RGBA{0, 0xC0, 0, 0xFF}
+	red := color.RGBA{0xE0, 0, 0, 0xFF}
+	d := &diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{{Node: &diagram.Node{ID: "a"}}}},
+		Legend: &diagram.Legend{Entries: []diagram.LegendEntry{
+			{Label: "ok", Fill: green},
+			{Label: "async", Sample: diagram.Stroke, Colour: red},
+		}}}
+	lay := layout(t, d)
+	img, err := Draw(lay, Options{TextPx: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := diagram.ScaleFor(20)
+	for _, c := range []struct {
+		e    diagram.PlacedEntry
+		want color.RGBA
+	}{{lay.Legend[0], green}, {lay.Legend[1], red}} {
+		r := c.e.Sample
+		x, y := (s.Left(r.X)+s.Left(r.X+r.W))/2, s.Y(r.Y)
+		// A line one pixel or so wide is blended with the background at
+		// its edges: red enough is red.
+		if got := img.RGBAAt(int(x), int(y)); got != c.want && (c.e.Entry.Sample != diagram.Stroke || got.R < 0xC0 || got.G > 0x60) {
+			t.Errorf("%s's sample at (%.0f, %.0f) is %v, want %v", c.e.Entry.Label, x, y, got, c.want)
+		}
+	}
+}
