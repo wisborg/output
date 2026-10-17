@@ -61,6 +61,29 @@ func (o *occupancy) rect(r Rect, inside bool) {
 	}
 }
 
+// labelRoom is how wide the cells labels are placed in are: the layout, and
+// past its right edge room for the widest label. A fixed forty once: a
+// label wider than that fitted nowhere, and was written over the boxes.
+func (lay *Layout) labelRoom() int {
+	widest := 0
+	for _, e := range lay.Edges {
+		for _, l := range strings.Split(e.Edge.Label, "\n") {
+			widest = max(widest, Width(l))
+		}
+	}
+	for _, g := range lay.Groups {
+		widest = max(widest, Width(g.Group.Label)+2)
+	}
+	return lay.Width + widest + 2
+}
+
+// laneLabelAt is where a lane's label begins: at the lane's far side, on
+// its middle row. The router keeps lines off it, and labels.go writes it
+// there.
+func laneLabelAt(g PlacedGroup) Point {
+	return Point{g.Rect.X + g.Rect.W - Width(g.Group.Label), g.Rect.Y + (g.Rect.H-1)/2}
+}
+
 // free says the block of lines from at is clear, and inside the layout.
 func (o *occupancy) free(at Point, lines []string) bool {
 	for i, l := range lines {
@@ -121,7 +144,7 @@ func (lay *Layout) placeLabels() {
 		top = 0
 	}
 	// Room for labels past the boxes: a column of them to the right.
-	o := newOccupancy(lay.Width+40, lay.Height+4, top)
+	o := newOccupancy(lay.labelRoom(), lay.Height+4, top)
 	crossings := map[Point]bool{} // cells where a line runs down a column
 	for _, e := range lay.Edges {
 		for i := 1; i < len(e.Points); i++ {
@@ -134,8 +157,13 @@ func (lay *Layout) placeLabels() {
 			}
 		}
 	}
+	// boxes is the boxes alone: where no free place is left for a label, it
+	// is written over a line rather than over a box, which hides what the
+	// box says.
+	boxes := newOccupancy(lay.labelRoom(), lay.Height+4, top)
 	for _, n := range lay.Nodes {
 		o.rect(n.Rect, true)
+		boxes.rect(n.Rect, true)
 	}
 	for i := range lay.Groups {
 		g := &lay.Groups[i]
@@ -159,7 +187,7 @@ func (lay *Layout) placeLabels() {
 				break
 			}
 		case Lane:
-			g.LabelAt = Point{r.X + r.W - Width(label), r.Y + (r.H-1)/2}
+			g.LabelAt = laneLabelAt(*g)
 		}
 		if label != "" && g.Group.Style != Hidden {
 			o.take(g.LabelAt, []string{" " + label + " "})
@@ -177,11 +205,27 @@ func (lay *Layout) placeLabels() {
 			width = max(width, Width(l))
 		}
 		tries := segmentTries(e.Points, shared, width, len(lines))
+		// A try past the left edge is moved in to it, rather than passed
+		// over: the tries to the left of a line at the edge were each
+		// refused, and a long label in the bottom row of a grid was
+		// written over the boxes though a free row was beside its line.
+		for k := range tries {
+			tries[k].X = max(tries[k].X, 0)
+		}
 		e.LabelAt = tries[0]
+		placed := false
 		for _, t := range tries {
-			if t.X >= 0 && o.free(t, lines) {
-				e.LabelAt = t
+			if o.free(t, lines) {
+				e.LabelAt, placed = t, true
 				break
+			}
+		}
+		for _, t := range tries {
+			if placed {
+				break
+			}
+			if boxes.free(t, lines) {
+				e.LabelAt, placed = t, true
 			}
 		}
 		e.LabelAt.X, e.LabelAt.Y = max(e.LabelAt.X, 0), max(e.LabelAt.Y, -top)

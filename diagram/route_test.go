@@ -263,3 +263,55 @@ func endsIn(lay *Layout, e PlacedEdge, p Point) bool {
 	}
 	return false
 }
+
+// A lane's label is not on a line: "a ──east──▶ b" reads as an edge
+// called east. Lines go round it.
+func TestLinesKeepOffLaneLabels(t *testing.T) {
+	d := &Diagram{
+		Root: Group{Columns: 2, Items: []Item{
+			{Group: &Group{ID: "1", Style: Lane, Label: "east", Items: []Item{node("a")}}},
+			{Group: &Group{ID: "2", Style: Lane, Label: "west", Items: []Item{node("b")}}},
+		}},
+		Edges: edges("a>b"),
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cells := cellsOf(lay.Edges[0])
+	for _, g := range lay.Groups {
+		at := g.LabelAt
+		for x := at.X - 1; x <= at.X+Width(g.Group.Label); x++ {
+			if _, on := cells[Point{x, at.Y}]; on {
+				t.Errorf("a to b runs by %q at %v:\n%s", g.Group.Label, Point{x, at.Y}, strings.Join(lay.Text(), "\n"))
+			}
+		}
+	}
+}
+
+// A label too long for any free place beside its line is written over a
+// line rather than over a box, and one wider than forty columns past the
+// boxes -- once the most room there was -- still finds its place. A long
+// label in the bottom row goes above its line, where its tries left of the
+// edge were refused, not over the boxes.
+func TestLongLabelsKeepOffBoxes(t *testing.T) {
+	for _, d := range []*Diagram{
+		{Root: Group{Columns: 2, Items: nodes("a", "b")}, Edges: []Edge{{From: "a", To: "b", Head: true, Label: strings.Repeat("long ", 13)}}},
+		{Root: Group{Columns: 3, Items: nodes("a", "b", "c", "d", "e", "f", "g", "h", "i")}, Edges: []Edge{{From: "g", To: "h", Head: true, Label: "bottom long label"}}},
+	} {
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := lay.Edges[0]
+		for k := range Width(e.Edge.Label) {
+			p := Point{e.LabelAt.X + k, e.LabelAt.Y}
+			for _, n := range lay.Nodes {
+				if inside(n.Rect, p.X, p.Y) {
+					t.Errorf("%q is written over %s at %v:\n%s", e.Edge.Label, n.Node.ID, p, strings.Join(lay.Text(), "\n"))
+					break
+				}
+			}
+		}
+	}
+}

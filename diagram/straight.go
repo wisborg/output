@@ -176,7 +176,7 @@ func (lay *Layout) placeStraightLabels() {
 	if lay.Title != "" {
 		top = 0
 	}
-	o := newOccupancy(lay.Width+40, lay.Height+4, top)
+	o := newOccupancy(lay.labelRoom(), lay.Height+4, top)
 	o.take(Point{0, 0}, []string{lay.Title})
 	for _, n := range lay.Nodes {
 		o.rect(n.Rect, true)
@@ -442,7 +442,8 @@ func (lay *Layout) placeOn(o *occupancy, tries []Point, lines []string, w, top i
 		at = tries[0]
 	}
 	for _, t := range tries {
-		if t.X >= 0 && o.free(t, lines) {
+		// Moved in from past the left edge, as placeLabels' tries are.
+		if t.X = max(t.X, 0); o.free(t, lines) {
 			at = t
 			break
 		}

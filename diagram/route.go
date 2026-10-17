@@ -288,6 +288,20 @@ func newRouter(l *layouter) *router {
 			}
 		}
 	}
+	// A lane's label is a box to a line: a line through it, or past its
+	// end, reads as labelled by it -- "a ──east──▶ b" says the edge is
+	// called east. A cell either side keeps the words apart from a line.
+	for _, g := range l.out.Groups {
+		if g.Group.Style != Lane || g.Group.Label == "" {
+			continue
+		}
+		at := laneLabelAt(g)
+		for x := at.X - 1; x <= at.X+Width(g.Group.Label); x++ {
+			if r.in(x, at.Y) {
+				r.box[at.Y][x] = true
+			}
+		}
+	}
 	// The groups' lines are lines like any other: to be crossed, not
 	// followed.
 	for _, g := range l.out.Groups {
