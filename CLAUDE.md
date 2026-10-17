@@ -360,9 +360,11 @@ in a grid of replicas, the primary's line to the third replica drawn
 through the second says the second replicates to the third.
 
 **A label belongs to one line, visibly.** A label that sits as near
-another line as its own names neither. So: a grid widens the gap between
-two neighbours in a row for a labelled edge between them (`labelGaps`),
-rather than letting the label fall over a box; an orthogonal edge's label
+another line as its own names neither. So: a label too wide for the gap
+between two neighbours in a grid goes past the boxes' ends -- above the
+top row, growing the drawing there, if need be -- rather than over a box,
+and never by widening the gap, which would let an edge move a box; an
+orthogonal edge's label
 goes by a stretch of its own path no other edge shares, from the tail,
 even a single cell -- the one before its arrowhead -- before any shared
 trunk; and a straight edge's label is written on its own line, centred on

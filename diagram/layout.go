@@ -151,9 +151,6 @@ type plan struct {
 	// heights of its rows.
 	cells      []Point
 	colW, rowH []int
-	// colGaps is the gap after each column but the last, where a label
-	// needs more than colGap; 0, or missing, for colGap.
-	colGaps []int
 	// A layered group's: its items by layer, in order along each; the items
 	// each item's edges join it to; and where each item begins along its
 	// layer.
@@ -302,7 +299,6 @@ func (l *layouter) plan(g *Group) (*plan, error) {
 		if err := p.assignCells(); err != nil {
 			return nil, err
 		}
-		p.labelGaps(l.d.Edges)
 		p.shareColumns()
 		p.measureGrid()
 	} else {
@@ -418,14 +414,13 @@ func (p *plan) shareColumns() {
 	}
 	for _, kids := range byCol {
 		share(kids, func(k *plan) []int { return k.colW })
-		share(kids, func(k *plan) []int { return k.colGaps })
 	}
 	for _, kids := range byRow {
 		share(kids, func(k *plan) []int { return k.rowH })
 	}
 	for i, kid := range p.kids {
 		if kid != nil && kid.grid {
-			kid.w, kid.h = kid.width(), sum(kid.rowH, rowGap)
+			kid.w, kid.h = sum(kid.colW, colGap), sum(kid.rowH, rowGap)
 			p.sizes[i] = kid.outer()
 		}
 	}
@@ -449,60 +444,7 @@ func (p *plan) measureGrid() {
 		p.colW[c.X] = max(p.colW[c.X], p.sizes[i].w)
 		p.rowH[c.Y] = max(p.rowH[c.Y], p.sizes[i].h)
 	}
-	p.w, p.h = p.width(), sum(p.rowH, rowGap)
-}
-
-// gap is the gap after column j.
-func (p *plan) gap(j int) int {
-	if j < len(p.colGaps) && p.colGaps[j] > colGap {
-		return p.colGaps[j]
-	}
-	return colGap
-}
-
-// width is the grid's columns and the gaps between them.
-func (p *plan) width() int {
-	w := 0
-	for j, cw := range p.colW {
-		if j > 0 {
-			w += p.gap(j - 1)
-		}
-		w += cw
-	}
-	return w
-}
-
-// labelGaps widens the gap between two columns where an edge with a label
-// runs straight across it, between neighbouring nodes of one row: the
-// label is written over the line, between the two boxes, and in colGap
-// alone a word longer than a few letters has nowhere to go but over a box.
-// The gap is the label's width, and room either side for the line to leave
-// one box and for its arrowhead to enter the other.
-func (p *plan) labelGaps(edges []Edge) {
-	cols := 0
-	at := map[string]Point{}
-	for i, it := range p.g.Items {
-		cols = max(cols, p.cells[i].X+1)
-		if it.Node != nil {
-			at[it.Node.ID] = p.cells[i]
-		}
-	}
-	for len(p.colGaps) < cols-1 {
-		p.colGaps = append(p.colGaps, 0)
-	}
-	for _, e := range edges {
-		a, okA := at[e.From]
-		b, okB := at[e.To]
-		if e.Label == "" || !okA || !okB || a.Y != b.Y || abs(a.X-b.X) != 1 {
-			continue
-		}
-		w := 0
-		for _, l := range strings.Split(e.Label, "\n") {
-			w = max(w, utf8.RuneCountInString(l))
-		}
-		j := min(a.X, b.X)
-		p.colGaps[j] = max(p.colGaps[j], w+4)
-	}
+	p.w, p.h = sum(p.colW, colGap), sum(p.rowH, rowGap)
 }
 
 // sum is the total of xs with gap between each two.
@@ -889,7 +831,7 @@ func (l *layouter) placeGrid(p *plan, inner Rect) {
 	colX, rowY := make([]int, len(p.colW)), make([]int, len(p.rowH))
 	for i := range colX {
 		if i > 0 {
-			colX[i] = colX[i-1] + p.colW[i-1] + p.gap(i-1)
+			colX[i] = colX[i-1] + p.colW[i-1] + colGap
 		}
 	}
 	for i := range rowY {
@@ -911,7 +853,7 @@ func (l *layouter) placeGrid(p *plan, inner Rect) {
 					pg.Dividers = append(pg.Dividers, [2]Point{{inner.X, y}, {inner.X + p.w - 1, y}})
 				}
 				if c.X > 0 {
-					x := cx - (p.gap(c.X-1)+1)/2
+					x := cx - (colGap+1)/2
 					pg.Dividers = append(pg.Dividers, [2]Point{{x, inner.Y}, {x, inner.Y + p.h - 1}})
 				}
 			}

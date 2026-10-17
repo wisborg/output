@@ -135,6 +135,32 @@ func lineCells(x, y float64) (c0, c1, r0, r1 int) {
 	return int(math.Floor(x)), int(math.Ceil(x)), int(math.Round(y - 0.2)), int(math.Round(y + 0.2))
 }
 
+// alongStraight calls f at points along e's line, from end to end, four to
+// a cell, as the picture draws it.
+func (lay *Layout) alongStraight(e PlacedEdge, f func(x, y float64)) {
+	x0, y0, x1, y1 := lay.ends(e)
+	steps := int(4*max(math.Abs(x1-x0), math.Abs(y1-y0))) + 1
+	for k := 0; k <= steps; k++ {
+		t := float64(k) / float64(steps)
+		f(x0+t*(x1-x0), y0+t*(y1-y0))
+	}
+}
+
+// straightCells is the cells e's straight line takes: at each point
+// along it, those lineCells says it fills.
+func (lay *Layout) straightCells(e PlacedEdge) map[Point]bool {
+	cells := map[Point]bool{}
+	lay.alongStraight(e, func(x, y float64) {
+		c0, c1, r0, r1 := lineCells(x, y)
+		for cx := c0; cx <= c1; cx++ {
+			for cy := r0; cy <= r1; cy++ {
+				cells[Point{cx, cy}] = true
+			}
+		}
+	})
+	return cells
+}
+
 // placeStraightLabels places the labels where a picture with straight
 // edges writes them, clear of the boxes, the groups' lines and labels, the
 // lines as the picture draws them and the labels placed already: a
@@ -175,39 +201,33 @@ func (lay *Layout) placeStraightLabels() {
 			drawn = append(drawn, e)
 			continue
 		}
-		x0, y0, x1, y1 := lay.ends(e)
-		steps := int(4*max(math.Abs(x1-x0), math.Abs(y1-y0))) + 1
-		for k := 0; k <= steps; k++ {
-			t := float64(k) / float64(steps)
-			x, y := x0+t*(x1-x0), y0+t*(y1-y0)
-			c0, c1, r0, r1 := lineCells(x, y)
-			for cx := c0; cx <= c1; cx++ {
-				for cy := r0; cy <= r1; cy++ {
-					o.mark(cx, cy)
-				}
-			}
+		for p := range lay.straightCells(e) {
+			o.mark(p.X, p.Y)
 		}
 	}
 	shared := edgeCells(drawn)
+	// The cells each edge's line takes, as marked above: a straight one's
+	// over the cells either side of it, as the picture draws it, so that
+	// a label on its own line is excused exactly the cells it took.
+	taken := make([]map[Point]bool, len(lay.Edges))
 	// The cells each edge's line, as the picture draws it, passes through:
 	// to judge whose line a place is nearest.
 	lineAt := make([][]Point, len(lay.Edges))
 	for i, e := range lay.Edges {
 		if !e.Straight {
-			for p := range cellsOfPath(e.Points) {
+			taken[i] = cellsOfPath(e.Points)
+			for p := range taken[i] {
 				lineAt[i] = append(lineAt[i], p)
 			}
 			continue
 		}
-		x0, y0, x1, y1 := lay.ends(e)
-		steps := int(4*max(math.Abs(x1-x0), math.Abs(y1-y0))) + 1
-		for k := 0; k <= steps; k++ {
-			t := float64(k) / float64(steps)
-			p := Point{int(math.Round(x0 + t*(x1-x0))), int(math.Round(y0 + t*(y1-y0)))}
+		taken[i] = lay.straightCells(e)
+		lay.alongStraight(e, func(x, y float64) {
+			p := Point{int(math.Round(x)), int(math.Round(y))}
 			if !lay.inNode(p) {
 				lineAt[i] = append(lineAt[i], p)
 			}
-		}
+		})
 	}
 	for i := range lay.Edges {
 		e := &lay.Edges[i]
@@ -293,14 +313,16 @@ func (lay *Layout) placeStraightLabels() {
 		// under the words -- a label in its own line cannot be read as
 		// another's -- where nothing but the line is there.
 		own := map[Point]bool{}
-		for _, p := range lineAt[i] {
-			own[p] = true
+		for p := range taken[i] {
+			if !lay.inNode(p) {
+				own[p] = true
+			}
 		}
 		// Only where the line is alone: over a cell another line passes
 		// too, the words would cut that one.
-		for j, cells := range lineAt {
+		for j, cells := range taken {
 			if j != i {
-				for _, p := range cells {
+				for p := range cells {
 					delete(own, p)
 				}
 			}
@@ -421,13 +443,21 @@ func (lay *Layout) placeOn(o *occupancy, tries []Point, lines []string, w, top i
 	return at, true
 }
 
-// shiftDown moves everything placed k rows down, making room at the top.
+// shiftDown moves everything placed k rows down, making room at the top
+// for labels only a picture writes there.
 func (lay *Layout) shiftDown(k int) {
+	if k > 0 {
+		lay.shift(k)
+		lay.pictureTop += k
+	}
+}
+
+// shift moves everything placed k rows down, making room at the top.
+func (lay *Layout) shift(k int) {
 	if k <= 0 {
 		return
 	}
 	lay.Height += k
-	lay.pictureTop += k
 	for i := range lay.Nodes {
 		lay.Nodes[i].Rect.Y += k
 		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]

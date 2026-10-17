@@ -97,9 +97,18 @@ func (o *occupancy) take(at Point, lines []string) {
 // another label, it is moved to the nearest free place beside the same
 // segment; where none is free, it stays, and is written over what is there
 // rather than lost.
+//
+// A label may go above the first row -- over a line between two boxes of
+// the top row, too close together for it to go between them -- and the
+// layout then grows at the top to hold it, as placeStraightLabels lets a
+// picture's. Not above a title, which is first whatever else is.
 func (lay *Layout) placeLabels() {
+	top := 4
+	if lay.Title != "" {
+		top = 0
+	}
 	// Room for labels past the boxes: a column of them to the right.
-	o := newOccupancy(lay.Width+40, lay.Height+4, 0)
+	o := newOccupancy(lay.Width+40, lay.Height+4, top)
 	crossings := map[Point]bool{} // cells where a line runs down a column
 	for _, e := range lay.Edges {
 		for i := 1; i < len(e.Points); i++ {
@@ -157,16 +166,23 @@ func (lay *Layout) placeLabels() {
 		tries := segmentTries(e.Points, shared, width, len(lines))
 		e.LabelAt = tries[0]
 		for _, t := range tries {
-			if t.X >= 0 && t.Y >= 0 && o.free(t, lines) {
+			if t.X >= 0 && o.free(t, lines) {
 				e.LabelAt = t
 				break
 			}
 		}
-		e.LabelAt.X, e.LabelAt.Y = max(e.LabelAt.X, 0), max(e.LabelAt.Y, 0)
+		e.LabelAt.X, e.LabelAt.Y = max(e.LabelAt.X, 0), max(e.LabelAt.Y, -top)
 		o.take(e.LabelAt, lines)
 		lay.Width = max(lay.Width, e.LabelAt.X+width)
 		lay.Height = max(lay.Height, e.LabelAt.Y+len(lines))
 	}
+	least := 0
+	for _, e := range lay.Edges {
+		if e.Edge.Label != "" && len(e.Points) >= 2 {
+			least = min(least, e.LabelAt.Y)
+		}
+	}
+	lay.shift(-least)
 }
 
 func length(a, b Point) int { return abs(b.X-a.X) + abs(b.Y-a.Y) }
@@ -215,6 +231,21 @@ func segmentTries(pts []Point, shared map[Point]int, width, n int) []Point {
 				tries = append(tries, Point{mid + d, a.Y - n})
 			}
 			tries = append(tries, Point{mid, a.Y + 1})
+		}
+	}
+	// A label wider than the gap it is beside, between two boxes close
+	// together, goes further out -- past the boxes' ends -- rather than
+	// over them: a grid's gaps are its boxes', and never widen for a label.
+	for k := 1; k <= 6; k++ {
+		for _, seg := range labelSegments(pts, shared) {
+			a, b := seg[0], seg[1]
+			if a.X == b.X {
+				mid := (a.Y + b.Y) / 2
+				tries = append(tries, Point{a.X + 2 + k, mid}, Point{a.X - 1 - width - k, mid})
+			} else {
+				mid := (a.X+b.X)/2 - width/2
+				tries = append(tries, Point{mid, a.Y - n - k}, Point{mid, a.Y + 1 + k})
+			}
 		}
 	}
 	return tries
