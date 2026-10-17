@@ -332,7 +332,7 @@ func TestLayoutEmpty(t *testing.T) {
 }
 
 // Where several branches meet one step along a trunk they share, each
-// branch's label is written where it leaves its own decision, not on the
+// branch's label is written by its own part of the line, not on the
 // trunk, where they would pile up and could not be told apart.
 func TestBranchLabelsAtTheirDecisions(t *testing.T) {
 	d := &Diagram{
@@ -351,19 +351,37 @@ func TestBranchLabelsAtTheirDecisions(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.Join(lay.Text(), "\n")
-	rows := map[int]bool{}
+	// Each "no" is written next to a cell of its own edge that no other
+	// edge passes through -- not on a trunk the three share -- and in a
+	// place of its own.
+	shared := edgeCells(lay.Edges)
+	places := map[Point]bool{}
 	for _, e := range lay.Edges {
 		if e.Edge.Label != "no" {
 			continue
 		}
-		from, _ := lay.Node(e.Edge.From)
-		if r := from.Rect; e.LabelAt.Y < r.Y-1 || e.LabelAt.Y > r.Y+r.H {
-			t.Errorf("%s's no at row %d, not by %s at rows %d to %d:\n%s", e.Edge.From, e.LabelAt.Y, e.Edge.From, r.Y, r.Y+r.H-1, text)
+		near := false
+		for k := 1; k < len(e.Points) && !near; k++ {
+			a, b := e.Points[k-1], e.Points[k]
+			dx, dy := sign(b.X-a.X), sign(b.Y-a.Y)
+			for p := a; !near; p = (Point{p.X + dx, p.Y + dy}) {
+				if shared[p] == 1 {
+					for x := e.LabelAt.X; x < e.LabelAt.X+2; x++ {
+						near = near || abs(p.X-x) <= 2 && abs(p.Y-e.LabelAt.Y) <= 1
+					}
+				}
+				if p == b {
+					break
+				}
+			}
 		}
-		rows[e.LabelAt.Y] = true
-	}
-	if len(rows) != 3 {
-		t.Errorf("the three no labels are on %d rows, want three:\n%s", len(rows), text)
+		if !near {
+			t.Errorf("%s's no at %v is by no part of its own edge:\n%s", e.Edge.From, e.LabelAt, text)
+		}
+		if places[e.LabelAt] {
+			t.Errorf("two no labels at %v:\n%s", e.LabelAt, text)
+		}
+		places[e.LabelAt] = true
 	}
 	// And no branch runs through the steps it skips.
 	for _, e := range lay.Edges {
@@ -418,7 +436,7 @@ func TestStraightEdges(t *testing.T) {
 		t.Errorf("b to d shifted %v and d to b %v: want them either side of the line", s1, s2)
 	}
 	// The label is clear of every box.
-	at := got["ad"].StraightLabelAt
+	at := got["ad"].PictureLabelAt()
 	label := Rect{at.X, at.Y, len("down"), 1}
 	for _, n := range lay.Nodes {
 		r := n.Rect

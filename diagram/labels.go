@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -75,7 +76,7 @@ func (o *occupancy) take(at Point, lines []string) {
 // along where an edge crosses the edge there: the label must not hide where
 // a line goes in or out. A lane's is at its far side, on its middle row.
 //
-// An edge's label goes beside the segment labelSegment chooses -- the
+// An edge's label goes beside the stretch labelSegments chooses -- the
 // first the edge has to itself, where a branch leaves its decision -- a
 // space to the right of a segment down a column or over one along a row.
 // Where that place is taken, by an outline, a line or
@@ -139,26 +140,7 @@ func (lay *Layout) placeLabels() {
 		for _, l := range lines {
 			width = max(width, utf8.RuneCountInString(l))
 		}
-		pts := e.Points
-		seg := labelSegment(pts, shared)
-		a, b := pts[seg-1], pts[seg]
-		var tries []Point
-		if a.X == b.X {
-			// Beside a segment down a column: to its right, sliding along
-			// it, then to its left.
-			mid := (a.Y + b.Y) / 2
-			for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
-				tries = append(tries, Point{a.X + 2, mid + d})
-			}
-			tries = append(tries, Point{a.X - 1 - width, mid})
-		} else {
-			// Over a segment along a row, sliding along it, then under it.
-			mid := (a.X+b.X)/2 - width/2
-			for _, d := range []int{0, 2, -2, 4, -4} {
-				tries = append(tries, Point{mid + d, a.Y - len(lines)})
-			}
-			tries = append(tries, Point{mid, a.Y + 1})
-		}
+		tries := segmentTries(e.Points, shared, width, len(lines))
 		e.LabelAt = tries[0]
 		for _, t := range tries {
 			if t.X >= 0 && t.Y >= 0 && o.free(t, lines) {
@@ -198,40 +180,71 @@ func edgeCells(edges []PlacedEdge) map[Point]int {
 	return n
 }
 
-// labelSegment is the segment of pts, by the index of its end, an edge's
-// label is written beside: the first from the tail at least two cells long
-// that the edge has to itself -- where a branch leaves its decision, which
-// is where a reader looks for "yes" or "no", and never a stem or a trunk it
+// segmentTries are the places, in turn, a label width cells wide and n
+// lines tall is tried at beside the path pts: beside each stretch
+// labelSegments gives, a space to the right of one down a column, sliding
+// along it, then to its left; over one along a row, sliding along it,
+// then under it.
+func segmentTries(pts []Point, shared map[Point]int, width, n int) []Point {
+	var tries []Point
+	for _, seg := range labelSegments(pts, shared) {
+		a, b := seg[0], seg[1]
+		if a.X == b.X {
+			mid := (a.Y + b.Y) / 2
+			for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
+				tries = append(tries, Point{a.X + 2, mid + d})
+			}
+			tries = append(tries, Point{a.X - 1 - width, mid})
+		} else {
+			mid := (a.X+b.X)/2 - width/2
+			for _, d := range []int{0, 2, -2, 4, -4} {
+				tries = append(tries, Point{mid + d, a.Y - n})
+			}
+			tries = append(tries, Point{mid, a.Y + 1})
+		}
+	}
+	return tries
+}
+
+// labelSegments are the stretches of pts, each from one cell to another
+// along a row or a column, an edge's label is tried beside, in turn: first
+// those at least two cells long that the edge has to itself, from the
+// tail -- the first is where a branch leaves its decision, which is where
+// a reader looks for "yes" or "no" -- and never a stem or a trunk it
 // shares with other edges, where the labels of all of them would pile up
-// and could not be told apart. Where it has none to itself, the last, or
-// the longest where the last is too short to hold one.
-func labelSegment(pts []Point, shared map[Point]int) int {
+// and could not be told apart, unless it has nothing else; then its
+// segments, the longest first. A later one is tried where every place
+// beside the ones before is taken.
+func labelSegments(pts []Point, shared map[Point]int) [][2]Point {
+	var own, rest [][2]Point
 	for k := 1; k < len(pts); k++ {
 		a, b := pts[k-1], pts[k]
-		if length(a, b) < 2 {
-			continue
-		}
-		own := true
+		rest = append(rest, [2]Point{a, b})
+		// The runs of cells no other edge passes through: the ends of a
+		// segment are where it meets the next, and are left out.
 		dx, dy := sign(b.X-a.X), sign(b.Y-a.Y)
-		// The cells between its ends: a corner is where it meets another
-		// segment, or another edge leaving the same side, and says nothing.
+		start, n := Point{}, 0
+		flush := func() {
+			if n >= 2 {
+				end := Point{start.X + (n-1)*dx, start.Y + (n-1)*dy}
+				own = append(own, [2]Point{start, end})
+			}
+			n = 0
+		}
 		for p := (Point{a.X + dx, a.Y + dy}); p != b; p = (Point{p.X + dx, p.Y + dy}) {
 			if shared[p] > 1 {
-				own = false
-				break
+				flush()
+				continue
 			}
-		}
-		if own {
-			return k
-		}
-	}
-	seg := len(pts) - 1
-	if length(pts[seg-1], pts[seg]) < 2 {
-		for k := 1; k < len(pts); k++ {
-			if length(pts[k-1], pts[k]) > length(pts[seg-1], pts[seg]) {
-				seg = k
+			if n == 0 {
+				start = p
 			}
+			n++
 		}
+		flush()
 	}
-	return seg
+	sort.SliceStable(rest, func(i, j int) bool {
+		return length(rest[i][0], rest[i][1]) > length(rest[j][0], rest[j][1])
+	})
+	return append(own, rest...)
 }

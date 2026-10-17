@@ -19,23 +19,27 @@ func centre(r Rect) (x, y float64) {
 	return float64(r.X) + float64(r.W-1)/2, float64(r.Y) + float64(r.H-1)/2
 }
 
-// straighten marks the edges a picture draws straight, those whose line
-// from the middle of one node to the middle of the other is clear of every
-// other node, sets several between the same two apart, and places their
-// labels.
+// straightens says edge e is drawn straight in a picture: its line from
+// the middle of one node to the middle of the other is clear of every
+// other node. A loop keeps its loop.
+func (lay *Layout) straightens(e Edge) bool {
+	if e.From == e.To {
+		return false
+	}
+	a, _ := lay.Node(e.From)
+	b, _ := lay.Node(e.To)
+	return !lay.crossesBox(a, b)
+}
+
+// straighten sets the straight edges between the same two nodes apart,
+// and places the labels as the picture draws them.
 func (lay *Layout) straighten() {
 	pairs := map[[2]string][]int{}
 	for i := range lay.Edges {
 		e := &lay.Edges[i]
-		if e.Edge.From == e.Edge.To {
-			continue // a loop keeps its loop
-		}
-		a, _ := lay.Node(e.Edge.From)
-		b, _ := lay.Node(e.Edge.To)
-		if lay.crossesBox(a, b) {
+		if !e.Straight {
 			continue
 		}
-		e.Straight = true
 		key := [2]string{e.Edge.From, e.Edge.To}
 		if key[1] < key[0] {
 			key[0], key[1] = key[1], key[0]
@@ -131,10 +135,11 @@ func lineCells(x, y float64) (c0, c1, r0, r1 int) {
 	return int(math.Floor(x)), int(math.Ceil(x)), int(math.Round(y - 0.2)), int(math.Round(y + 0.2))
 }
 
-// placeStraightLabels places the labels of the straight edges where a
-// picture writes them: beside the middle of the line, clear of the boxes,
-// the groups' lines and labels, the other edges as the picture draws them,
-// and the labels placed already.
+// placeStraightLabels places the labels where a picture with straight
+// edges writes them, clear of the boxes, the groups' lines and labels, the
+// lines as the picture draws them and the labels placed already: a
+// straight edge's beside the middle of its line, any other's as the text
+// drawing places it, but against the picture's lines.
 //
 // A label may go above the first row -- over a line between two boxes of
 // the top row, too close together for it to go between them -- and the
@@ -161,14 +166,13 @@ func (lay *Layout) placeStraightLabels() {
 			o.take(g.LabelAt, []string{" " + g.Group.Label + " "})
 		}
 	}
+	var drawn []PlacedEdge // the edges the picture draws along their paths
 	for _, e := range lay.Edges {
 		if !e.Straight {
 			for i := 1; i < len(e.Points); i++ {
 				o.line(e.Points[i-1], e.Points[i])
 			}
-			if e.Edge.Label != "" {
-				o.take(e.LabelAt, strings.Split(e.Edge.Label, "\n"))
-			}
+			drawn = append(drawn, e)
 			continue
 		}
 		x0, y0, x1, y1 := lay.ends(e)
@@ -184,15 +188,20 @@ func (lay *Layout) placeStraightLabels() {
 			}
 		}
 	}
+	shared := edgeCells(drawn)
 	for i := range lay.Edges {
 		e := &lay.Edges[i]
-		if !e.Straight || e.Edge.Label == "" {
+		if e.Edge.Label == "" {
 			continue
 		}
 		lines := strings.Split(e.Edge.Label, "\n")
 		w := 0
 		for _, l := range lines {
 			w = max(w, utf8.RuneCountInString(l))
+		}
+		if !e.Straight {
+			e.pictureAt, e.pictured = lay.placeOn(o, segmentTries(e.Points, shared, w, len(lines)), lines, w, top)
+			continue
 		}
 		a, _ := lay.Node(e.Edge.From)
 		b, _ := lay.Node(e.Edge.To)
@@ -260,25 +269,35 @@ func (lay *Layout) placeStraightLabels() {
 				}
 			}
 		}
-		e.StraightLabelAt = tries[0]
-		for _, t := range tries {
-			if t.X >= 0 && o.free(t, lines) {
-				e.StraightLabelAt = t
-				break
-			}
-		}
-		e.StraightLabelAt.X, e.StraightLabelAt.Y = max(e.StraightLabelAt.X, 0), max(e.StraightLabelAt.Y, -top)
-		o.take(e.StraightLabelAt, lines)
-		lay.Width = max(lay.Width, e.StraightLabelAt.X+w)
-		lay.Height = max(lay.Height, e.StraightLabelAt.Y+len(lines))
+		e.pictureAt, e.pictured = lay.placeOn(o, tries, lines, w, top)
 	}
 	least := 0
 	for _, e := range lay.Edges {
-		if e.Straight && e.Edge.Label != "" {
-			least = min(least, e.StraightLabelAt.Y)
+		if e.pictured {
+			least = min(least, e.pictureAt.Y)
 		}
 	}
 	lay.shiftDown(-least)
+}
+
+// placeOn places a label at the first of tries that is free, or the first
+// where none is, takes its cells, and grows the layout to hold it.
+func (lay *Layout) placeOn(o *occupancy, tries []Point, lines []string, w, top int) (Point, bool) {
+	at := Point{}
+	if len(tries) > 0 {
+		at = tries[0]
+	}
+	for _, t := range tries {
+		if t.X >= 0 && o.free(t, lines) {
+			at = t
+			break
+		}
+	}
+	at.X, at.Y = max(at.X, 0), max(at.Y, -top)
+	o.take(at, lines)
+	lay.Width = max(lay.Width, at.X+w)
+	lay.Height = max(lay.Height, at.Y+len(lines))
+	return at, true
 }
 
 // shiftDown moves everything placed k rows down, making room at the top.
@@ -306,6 +325,6 @@ func (lay *Layout) shiftDown(k int) {
 			e.Points[j].Y += k
 		}
 		e.LabelAt.Y += k
-		e.StraightLabelAt.Y += k
+		e.pictureAt.Y += k
 	}
 }

@@ -84,7 +84,7 @@ from reality is a test failure.
   and the drawing. A new input format is a new reader of the same table.
 - `diagram/diagram.go` — the package doc, the model (`Diagram`, `Group`,
   `Node`, `Edge`), `Palette`; `layout.go` — `Layout`, grids and layers;
-  `route.go` — edges along rows and columns; `straight.go` — which edges a
+  `route.go` — the search for edges' paths along rows and columns; `straight.go` — which edges a
   picture draws straight, and their labels; `labels.go` — where labels go;
   `scale.go` — cells to a picture's units; `text.go` — the text drawing.
 - `diagram/dot/` — the DOT lexer, parser and colours.
@@ -358,6 +358,20 @@ cost is that a picture's text must be monospaced, at `ScaleFor`'s width.
 than through it.** A straight line through a box reads as a line from it;
 in a grid of replicas, the primary's line to the third replica drawn
 through the second says the second replicates to the third.
+
+**Two edges never meet unless they share an end.** `route.go` searches the
+page's cells for each path, shortest edges first, and a path may cross
+another's line only at a right angle -- never run along it, turn on it, or
+end where it ends -- unless the two share their head or their tail (not
+both) and are drawn alike, when a trunk merging into one arrowhead or a
+stem forking is the truth and the clearest drawing of it. Anything else
+joining two lines reads as a connection that is not there: a to b and b to
+a drawn as one double-headed line, or one edge's line taken over half way
+by another's. `TestEdgesNeverJoin` holds it on a service mesh, where the
+earlier router, which routed each edge alone from fixed shapes, broke it
+dozens of times. A path also leaves and enters by the sides facing the
+other box where it can, so a flow keeps flowing. Do not "simplify" this
+back to shapes worked out per edge.
 
 **Straight edges are the pictures' alone, and only where clear.** With
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an
