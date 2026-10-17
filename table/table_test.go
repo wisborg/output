@@ -299,7 +299,10 @@ func TestMaxWidth_DropsAStraddlingWideRune(t *testing.T) {
 // answer while this encodes WHY it is right. Measuring with len() or
 // utf8.RuneCountInString fails this: both under-measure CJK.
 func TestWidth_WideCharactersKeepColumnsAligned(t *testing.T) {
-	tbl := New(Column{Header: "lang"}, Column{Header: "text"})
+	// The headings wide too: a heading measured in bytes or runes, where
+	// the cells are measured in columns, sets its column a width the
+	// cells do not have.
+	tbl := New(Column{Header: "言語"}, Column{Header: "téxt"})
 	tbl.MustAppend("cjk", "日本語")
 	tbl.MustAppend("ascii", "abcdef")
 	tbl.MustAppend("emoji", "👍")

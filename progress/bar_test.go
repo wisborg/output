@@ -104,7 +104,12 @@ func rateOf(t *testing.T, line string) string {
 // frames is a number nobody should act on.
 func TestBar_NoEstimateUntilThereIsSomethingToEstimateFrom(t *testing.T) {
 	c := newClock()
-	d, buf := liveDisplay(80, c)
+	// Redrawing every millisecond, so the Set at 100ms redraws: at the
+	// display's second it was held back, and the line asserted on below
+	// was the one drawn at the start, which says nothing either way.
+	var out bytes.Buffer
+	d := New(&out, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Millisecond})
+	buf := &out
 	bar := d.Bar(BarSpec{Label: "rendering", Total: 100000, Unit: "frames"})
 
 	c.add(100 * time.Millisecond)

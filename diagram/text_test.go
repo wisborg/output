@@ -325,3 +325,34 @@ func TestTextMeasuresLabelsInColumns(t *testing.T) {
 		}
 	}
 }
+
+// A straight edge drawn in braille that runs along a row or down a column is
+// drawn as a line, with its heads pointing the way it runs: into its head's
+// box, and out of the tail's back into it. No test drew one, so a head
+// pointing the wrong way, or one not drawn, went unseen.
+func TestBrailleStraightHeads(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		root       Group
+		head, tail rune
+	}{
+		{"across", Group{Columns: 2, Items: []Item{node("a"), node("b")}}, '▶', '◀'},
+		{"down", Group{Columns: 1, Items: []Item{node("a"), node("b")}}, '▼', '▲'},
+	} {
+		d := &Diagram{Straight: true, Root: c.root, Edges: []Edge{{From: "a", To: "b", Head: true, Tail: true}}}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(lay.Text(TextOptions{Braille: BrailleThin}), "\n")
+		h, tl := strings.IndexRune(text, c.head), strings.IndexRune(text, c.tail)
+		a, b := strings.Index(text, " a "), strings.Index(text, " b ")
+		if h < 0 || tl < 0 {
+			t.Errorf("%s: no %c and %c in:\n%s", c.name, c.head, c.tail, text)
+			continue
+		}
+		if !(tl < h && a < tl && h < b) {
+			t.Errorf("%s: a at %d, %c at %d, %c at %d, b at %d:\n%s", c.name, a, c.tail, tl, c.head, h, b, text)
+		}
+	}
+}

@@ -1,9 +1,10 @@
 package picture_test
 
 import (
+	"bytes"
+	"fmt"
 	"image/png"
 	"log"
-	"os"
 	"time"
 
 	"github.com/wisborg/output/chart"
@@ -28,16 +29,14 @@ func ExampleDraw() {
 		Bands:     []chart.Band{{From: 600, To: 900, Kind: 0}},
 	}
 	img, err := picture.Draw(c, 1600, 600, picture.Options{Palette: picture.Dark})
-	if err != nil || img == nil {
-		log.Fatal("no picture: ", err)
-	}
-	f, err := os.CreateTemp("", "chart-*.png")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.Remove(f.Name())
-	if err := png.Encode(f, img); err != nil {
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
 		log.Fatal(err)
 	}
-	f.Close()
+	fmt.Println(img.Bounds().Dx(), "by", img.Bounds().Dy(), "pixels")
+	// Output:
+	// 1600 by 600 pixels
 }

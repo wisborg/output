@@ -55,3 +55,61 @@ func TestDateTicksOnTheFirst(t *testing.T) {
 		}
 	}
 }
+
+// Ticks five and ten days apart fall on the same days of every month --
+// the 1st, 6th, 11th, 16th, 21st and 26th; the 1st, 11th and 21st -- so
+// each month's begin on its first however long the month before it was.
+// Ticks two days apart, which a day divides, are every other midnight.
+func TestDateTicksStepsOfDays(t *testing.T) {
+	day := func(y int, m time.Month, d int) float64 {
+		return float64(time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Unix())
+	}
+	for _, c := range []struct {
+		name     string
+		from, to float64
+		ticks    int
+		days     []int
+		firsts   []time.Month
+	}{
+		{"five days", day(2024, 2, 1), day(2024, 3, 31), 12, []int{1, 6, 11, 16, 21, 26}, []time.Month{2, 3}},
+		{"ten days", day(2024, 1, 1), day(2024, 4, 30), 12, []int{1, 11, 21}, []time.Month{1, 2, 3, 4}},
+	} {
+		s := ExactScale(c.from, c.to, c.ticks, Date)
+		seen := map[time.Month]bool{}
+		allowed, missing := map[int]bool{}, map[int]bool{}
+		for _, d := range c.days {
+			allowed[d], missing[d] = true, true
+		}
+		for _, v := range s.Ticks() {
+			d := time.Unix(int64(v), 0).UTC()
+			if !allowed[d.Day()] || d.Hour() != 0 {
+				t.Errorf("%s: a tick on %v", c.name, d)
+			}
+			if d.Day() == 1 {
+				seen[d.Month()] = true
+			}
+			delete(missing, d.Day())
+		}
+		if len(missing) > 0 {
+			t.Errorf("%s: no tick on the days %v of any month", c.name, missing)
+		}
+		for _, m := range c.firsts {
+			if !seen[m] {
+				t.Errorf("%s: no tick on the first of %v in %v", c.name, m, s.Ticks())
+			}
+		}
+	}
+	s := ExactScale(day(2024, 3, 1), day(2024, 3, 21), 10, Date)
+	ticks := s.Ticks()
+	if len(ticks) < 2 {
+		t.Fatalf("two days: ticks %v", ticks)
+	}
+	for k, v := range ticks {
+		if d := time.Unix(int64(v), 0).UTC(); d.Hour() != 0 {
+			t.Errorf("two days: a tick at %v", d)
+		}
+		if k > 0 && v-ticks[k-1] != 2*86400 {
+			t.Errorf("two days: ticks %v apart", time.Duration(v-ticks[k-1])*time.Second)
+		}
+	}
+}

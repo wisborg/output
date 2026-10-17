@@ -40,8 +40,8 @@ func show(c chart.Chart) error {
 		w, h = size.Width*cols/size.Cols, size.Height*rows/max(size.Rows, 1)
 	}
 	img, err := picture.Draw(c, w, h, picture.Options{Palette: pal})
-	if err != nil || img == nil {
-		return fmt.Errorf("no picture: %v", err)
+	if err != nil {
+		return err
 	}
 	var b bytes.Buffer
 	if err := png.Encode(&b, img); err != nil {
@@ -50,7 +50,22 @@ func show(c chart.Chart) error {
 	return terminal.Write(os.Stdout, how, b.Bytes(), cols)
 }
 
-// A chart shown in the terminal however it can be.
+// How a chart is shown: a picture in a terminal known to show one -- iTerm2
+// here, by the variable it sets -- and braille into a pipe, whatever the
+// terminal; show above draws it either way.
 func Example() {
 	_ = show
+	iterm := func(k string) string {
+		if k == "LC_TERMINAL" {
+			return "iTerm2"
+		}
+		return ""
+	}
+	how, _, _ := terminal.Choose(terminal.Auto, iterm, true)
+	fmt.Println("in iTerm2:", how)
+	how, _, _ = terminal.Choose(terminal.Auto, iterm, false)
+	fmt.Println("into a pipe:", how)
+	// Output:
+	// in iTerm2: iterm
+	// into a pipe: braille
 }

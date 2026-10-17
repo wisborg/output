@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
+	"github.com/wisborg/output/chart/picture"
 	"github.com/wisborg/output/internal/cli"
 )
 
@@ -226,5 +228,62 @@ func TestPlotListAlignsWideNames(t *testing.T) {
 			t.Errorf("\"holds\" at column %d and %d:\n%s", at, col, out)
 		}
 		at = col
+	}
+}
+
+// --theme sets the picture's palette: light and dark as asked, and auto
+// light for a PNG, which goes on a page, and dark in a terminal that does
+// not say its background is light -- as the dark terminals that show
+// pictures are -- light in one whose COLORFGBG says so.
+func TestPlotTheme(t *testing.T) {
+	data := "x,a\n1,2\n2,3\n3,1\n"
+	background := func(args ...string) color.Color {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.png")
+		var stdout, stderr bytes.Buffer
+		if err := run(append([]string{"--out", path}, args...), strings.NewReader(data), &stdout, &stderr, noEnv); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		img, err := png.Decode(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return img.At(1, 1)
+	}
+	same := func(a, b color.Color) bool {
+		r1, g1, b1, _ := a.RGBA()
+		r2, g2, b2, _ := b.RGBA()
+		return r1 == r2 && g1 == g2 && b1 == b2
+	}
+	for _, c := range []struct {
+		args []string
+		want color.Color
+	}{
+		{nil, picture.Light.Background},
+		{[]string{"--theme", "light"}, picture.Light.Background},
+		{[]string{"--theme", "dark"}, picture.Dark.Background},
+	} {
+		if got := background(c.args...); !same(got, c.want) {
+			t.Errorf("%q: background %v, want %v", c.args, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		env  string
+		want picture.Palette
+	}{{"", picture.Dark}, {"0;15", picture.Light}, {"15;0", picture.Dark}} {
+		d := drawing{theme: "auto", getenv: func(k string) string {
+			if k == "COLORFGBG" {
+				return c.env
+			}
+			return ""
+		}}
+		if got, err := d.palette(true); err != nil || got != c.want {
+			t.Errorf("auto in a terminal with COLORFGBG=%q: %v, %v", c.env, got.Background, err)
+		}
 	}
 }

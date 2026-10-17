@@ -219,6 +219,11 @@ func TestErrors(t *testing.T) {
 		{"digraph { a } } garbage", 1, "after the graph's closing }"},
 		{"digraph {\n a ->\n}", 3, "expected a node"},
 		{"flowchart {}", 1, "begins with graph or digraph"},
+		{"digraph {\n /* never\n closed\n}", 2, "comment is never closed"},
+		{"digraph {\n a @ b\n}", 2, "unexpected"},
+		// Lines counted inside a comment and a quoted string that span
+		// several.
+		{"digraph {\n/* a\nb\n*/ x [label=\"one\ntwo\"]\n a -- b\n}", 6, "a digraph's edges are ->"},
 		{"digraph {\n a\n", 3, "a } is missing"},
 	} {
 		_, err := Parse(c.src)

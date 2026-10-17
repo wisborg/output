@@ -37,6 +37,10 @@ func TestClassify(t *testing.T) {
 	if c.kind != numberColumn || c.values != 4 || c.wrong != 1 {
 		t.Errorf("%+v, want numbers, 4 values, 1 not a number", c)
 	}
+	// Half numbers is not a column of numbers: more than half is.
+	if c := classify([]string{"1", "a"}, datesAuto); c.kind != textColumn {
+		t.Errorf("one number and one word classified %v", c.kind)
+	}
 	if c := classify([]string{"a", "b", "1"}, datesAuto); c.kind != textColumn {
 		t.Errorf("mostly text read as %v", c.kind)
 	}

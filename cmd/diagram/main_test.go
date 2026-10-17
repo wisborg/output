@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"flag"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -277,13 +279,120 @@ func TestExamples(t *testing.T) {
 	}
 	dir := t.TempDir()
 	for _, path := range paths {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := dot.Parse(string(src))
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		words := labelsOf(d)
 		for _, ext := range []string{".txt", ".png", ".svg"} {
 			out := filepath.Join(dir, strings.TrimSuffix(filepath.Base(path), ".dot")+ext)
 			if _, _, err := draw(t, "", path, "--out", out); err != nil {
 				t.Errorf("%s as %s: %v", path, ext, err)
+				continue
+			}
+			data, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Drawn, not merely written: every label in the text and the
+			// SVG, and a picture with more than its background in it.
+			switch ext {
+			case ".txt":
+				for _, w := range words {
+					if !strings.Contains(string(data), w) {
+						t.Errorf("%s as text has no %q", path, w)
+					}
+				}
+			case ".svg":
+				var text strings.Builder
+				dec := xml.NewDecoder(bytes.NewReader(data))
+				for {
+					tok, err := dec.Token()
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						t.Fatalf("%s as SVG: %v", path, err)
+					}
+					if cd, ok := tok.(xml.CharData); ok {
+						text.Write(cd)
+						text.WriteByte('\n')
+					}
+				}
+				for _, w := range words {
+					if !strings.Contains(text.String(), w) {
+						t.Errorf("%s as SVG has no %q", path, w)
+					}
+				}
+			case ".png":
+				img, err := png.Decode(bytes.NewReader(data))
+				if err != nil {
+					t.Fatalf("%s as PNG: %v", path, err)
+				}
+				b := img.Bounds()
+				bg, inked := img.At(0, 0), 0
+				for y := b.Min.Y; y < b.Max.Y; y += 4 {
+					for x := b.Min.X; x < b.Max.X; x += 4 {
+						if img.At(x, y) != bg {
+							inked++
+						}
+					}
+				}
+				if inked < b.Dx()*b.Dy()/16/100 {
+					t.Errorf("%s as PNG is %d by %d and nearly blank: %d of its samples inked", path, b.Dx(), b.Dy(), inked)
+				}
 			}
 		}
 	}
+}
+
+// labelsOf is every line of every label d draws: its nodes', its edges',
+// its clusters', its legend's.
+func labelsOf(d *diagram.Diagram) []string {
+	var out []string
+	add := func(s string) {
+		for _, l := range strings.Split(s, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				out = append(out, l)
+			}
+		}
+	}
+	var walk func(g *diagram.Group)
+	walk = func(g *diagram.Group) {
+		add(g.Label)
+		for _, it := range g.Items {
+			if it.Node != nil {
+				if it.Node.Invisible {
+					continue
+				}
+				if it.Node.Label != "" {
+					add(it.Node.Label)
+				} else {
+					add(it.Node.ID)
+				}
+			} else {
+				walk(it.Group)
+			}
+		}
+	}
+	walk(&d.Root)
+	for _, e := range d.Edges {
+		if !e.Invisible {
+			add(e.Label)
+		}
+	}
+	if d.Legend != nil {
+		add(d.Legend.Label)
+		for _, e := range d.Legend.Entries {
+			add(e.Label)
+		}
+	}
+	add(d.Title)
+	return out
 }
 
 // --edges straight or orthogonal says what the file's splines would have;

@@ -124,6 +124,15 @@ func TestRobustRangeLeavesOutliersOut(t *testing.T) {
 	if _, _, ok := RobustRange(nil); ok {
 		t.Error("a range of no readings")
 	}
+	// Exactly: of the readings 0 to 100, a hundredth at either end is the
+	// lowest and the highest, so the range is 1 to 99.
+	var even []float64
+	for i := range 101 {
+		even = append(even, float64(100-i))
+	}
+	if lo, hi, _ := RobustRange(Segments(series(even...), time.Second)); lo != 1 || hi != 99 {
+		t.Errorf("0 to 100: range %v to %v, want 1 to 99", lo, hi)
+	}
 }
 
 // A y scale ends on ticks round enough to read, holds the readings with
