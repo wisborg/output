@@ -2,6 +2,7 @@ package picture
 
 import (
 	"image/color"
+	"math"
 	"testing"
 
 	"github.com/wisborg/output/diagram"
@@ -91,5 +92,23 @@ func TestDrawLegend(t *testing.T) {
 		if got := img.RGBAAt(int(x), int(y)); got != c.want && (c.e.Entry.Sample != diagram.Stroke || got.R < 0xC0 || got.G > 0x60) {
 			t.Errorf("%s's sample at (%.0f, %.0f) is %v, want %v", c.e.Entry.Label, x, y, got, c.want)
 		}
+	}
+}
+
+// A text size that is not a number, or one that makes a picture of more
+// than MaxPixels, is an error rather than a NaN-sized image or an
+// allocation of terabytes; so is no layout at all.
+func TestDrawRefuses(t *testing.T) {
+	lay, err := (&diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{{Node: &diagram.Node{ID: "a"}}}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, px := range []float64{math.NaN(), math.Inf(1), 1e6} {
+		if img, err := Draw(lay, Options{TextPx: px}); err == nil {
+			t.Errorf("TextPx %v drew %v", px, img.Bounds())
+		}
+	}
+	if _, err := Draw(nil, Options{}); err == nil {
+		t.Error("a nil layout drew")
 	}
 }

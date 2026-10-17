@@ -135,7 +135,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		name string
 		v    float64
 	}{{"width", float64(o.width)}, {"height", float64(o.height)}, {"text-size", o.textPx}} {
-		if set[f.name] && f.v <= 0 {
+		if set[f.name] && !(f.v > 0 && f.v <= math.MaxFloat64) {
 			return fmt.Errorf("--%s %v: a size above 0", f.name, f.v)
 		}
 	}

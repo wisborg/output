@@ -332,6 +332,10 @@ func (l *layouter) index(g *Group, above []*Group) error {
 			if err := l.index(it.Group, path); err != nil {
 				return err
 			}
+		default:
+			// Every step after this one takes an item for one or the
+			// other; Item{} was a nil dereference half way through.
+			return fmt.Errorf("%s holds an item that is neither a node nor a group", groupName(g))
 		}
 	}
 	return nil
@@ -340,7 +344,13 @@ func (l *layouter) index(g *Group, above []*Group) error {
 // plan plans g and, first, every group it holds.
 func (l *layouter) plan(g *Group) (*plan, error) {
 	p := &plan{g: g, sizes: make([]size, len(g.Items)), kids: make([]*plan, len(g.Items)), dir: l.d.Direction}
+	if g.Rows > MaxGrid || g.Columns > MaxGrid || g.Rows < 0 || g.Columns < 0 {
+		return nil, fmt.Errorf("%s: %d rows and %d columns, where a grid has from 1 to %d", groupName(g), g.Rows, g.Columns, MaxGrid)
+	}
 	for i, it := range g.Items {
+		if r, c := pinOf(it); r > MaxGrid || c > MaxGrid || r < 0 || c < 0 {
+			return nil, fmt.Errorf("%s is pinned to row %d, column %d, where a grid has from 1 to %d", itemName(it), r, c, MaxGrid)
+		}
 		if it.Group != nil {
 			kid, err := l.plan(it.Group)
 			if err != nil {
@@ -366,16 +376,19 @@ func (l *layouter) plan(g *Group) (*plan, error) {
 	return p, nil
 }
 
+// pinOf is the row and the column an item is pinned to, as written.
+func pinOf(it Item) (row, col int) {
+	if it.Node != nil {
+		return it.Node.Row, it.Node.Col
+	}
+	return it.Group.Row, it.Group.Col
+}
+
 // pin is an item's pinned cell, counting from 0, and whether it has one: a
 // row without a column is the first column, and a column without a row the
 // first row.
 func pin(it Item) (Point, bool) {
-	r, c := 0, 0
-	if it.Node != nil {
-		r, c = it.Node.Row, it.Node.Col
-	} else {
-		r, c = it.Group.Row, it.Group.Col
-	}
+	r, c := pinOf(it)
 	if r <= 0 && c <= 0 {
 		return Point{}, false
 	}

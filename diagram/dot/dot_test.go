@@ -2,6 +2,7 @@ package dot
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
 	"reflect"
 	"strings"
@@ -281,5 +282,38 @@ func TestSplines(t *testing.T) {
 		if got := parse(t, src).Straight; got != want {
 			t.Errorf("splines=%q: straight %v, want %v", v, got, want)
 		}
+	}
+}
+
+// A DOT file is often someone else's, and a few bytes of one must not take
+// the reader down: subgraphs nested deeper than any diagram is, an edge
+// between two sets that makes a million, and a pin to a row of millions of
+// cells are each refused, with the line, rather than overflowing the stack
+// -- fatal, in Go -- or running out of memory.
+func TestLimits(t *testing.T) {
+	deep := "digraph{" + strings.Repeat("{", 1_000_000) + "a" + strings.Repeat("}", 1_000_000) + "}"
+	var sets strings.Builder
+	sets.WriteString("digraph{ {")
+	for i := range 200 {
+		fmt.Fprintf(&sets, " a%d", i)
+	}
+	sets.WriteString(" } -> {")
+	for i := range 200 {
+		fmt.Fprintf(&sets, " b%d", i)
+	}
+	sets.WriteString(" } }")
+	for _, c := range []struct{ name, src, want string }{
+		{"nesting", deep, "nested more than 100 deep"},
+		{"edges", sets.String(), "more than 10000 edges"},
+		{"a pin", "digraph{columns=2\na [row=3000]}", "line 2: node \"a\": row=\"3000\": a whole number from 1 to 100"},
+		{"columns", "digraph{columns=101}", "a whole number from 1 to 100"},
+	} {
+		_, err := Parse(c.src)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want an error saying %q", c.name, err, c.want)
+		}
+	}
+	if _, err := Parse("digraph{" + strings.Repeat("{", 100) + "a" + strings.Repeat("}", 100) + "}"); err != nil {
+		t.Errorf("nested 100 deep: %v", err)
 	}
 }

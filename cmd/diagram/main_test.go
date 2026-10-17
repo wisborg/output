@@ -93,6 +93,12 @@ func TestDiagramRefuses(t *testing.T) {
 		{regions, []string{"--text-size", "20", "--width", "800"}, "one or the other"},
 		{"digraph {\n a -- b\n}", nil, "standard input: line 2"},
 		{"digraph { subgraph cluster_a { columns=1; a [col=1]; b [col=1, row=1] } }", nil, "both pinned"},
+		// Sizes that are not numbers, or that make a picture of terabytes:
+		// NaN passed a test of <= 0 and wrote width="NaN" into an SVG.
+		{regions, []string{"--text-size", "NaN", "--out", "d.svg"}, "--text-size NaN"},
+		{regions, []string{"--text-size", "+Inf", "--out", "d.svg"}, "--text-size +Inf"},
+		{regions, []string{"--text-size", "1e6", "--out", "d.png"}, "million"},
+		{regions, []string{"--width", "200000", "--out", "d.png"}, "million"},
 	} {
 		_, _, err := draw(t, c.src, c.args...)
 		if err == nil || !strings.Contains(err.Error(), c.want) {

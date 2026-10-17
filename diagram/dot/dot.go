@@ -109,7 +109,20 @@ type parser struct {
 	// legend is the cluster with style=legend, and the line it begins on.
 	legend     *diagram.Group
 	legendLine int
+	depth      int // how many subgraphs the one being read is inside
 }
+
+// The most a file may ask for. A DOT file is often someone else's, and
+// each of these was a way for a few bytes of it to take the reader down:
+// subgraphs nested millions deep overflowed the stack, which is fatal in
+// Go and cannot be recovered from; "{a0 ... a999} -> {b0 ... b999}", ten
+// kilobytes, is a million edges, which the layout then never finished; and
+// a node pinned to row 3000 sized a grid of millions of cells. No diagram
+// anyone reads comes near any of them.
+const (
+	maxDepth = 100
+	maxEdges = 10000
+)
 
 func (p *parser) advance() error {
 	t, err := p.lex.next()
@@ -386,6 +399,9 @@ func (p *parser) edgeRest(s *scope, from []string) error {
 					}
 					p.seen[key] = true
 				}
+				if len(p.d.Edges) >= maxEdges {
+					return p.errorf("more than %d edges", maxEdges)
+				}
 				e := diagram.Edge{From: a, To: b, Head: p.directed}
 				if err := p.applyEdge(&e, merged); err != nil {
 					return err
@@ -412,6 +428,11 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 		}
 	}
 	line := p.tok.line
+	if p.depth >= maxDepth {
+		return nil, p.errorf("subgraphs nested more than %d deep", maxDepth)
+	}
+	p.depth++
+	defer func() { p.depth-- }()
 	if err := p.expect("{"); err != nil {
 		return nil, err
 	}
@@ -728,15 +749,16 @@ func line(st map[string]bool) diagram.Line {
 	return diagram.Solid
 }
 
-// count is a whole-number attribute of at least 1, or 0 where absent.
+// count is a whole-number attribute from 1 to diagram.MaxGrid, or 0 where
+// absent.
 func count(attrs map[string]string, name string) (int, error) {
 	v, ok := attrs[name]
 	if !ok {
 		return 0, nil
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || n < 1 {
-		return 0, fmt.Errorf("%s=%q: a whole number from 1", name, v)
+	if err != nil || n < 1 || n > diagram.MaxGrid {
+		return 0, fmt.Errorf("%s=%q: a whole number from 1 to %d", name, v, diagram.MaxGrid)
 	}
 	return n, nil
 }

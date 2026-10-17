@@ -8,6 +8,8 @@
 package picture
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -34,18 +36,34 @@ type Options struct {
 	Fonts []*opentype.Font
 }
 
-// Draw draws lay.
+// MaxPixels is the most pixels a picture Draw draws may have: 2^26, a
+// quarter of a gigabyte of RGBA, 8000 by 8000. A size asked for in a
+// flag, or a diagram drawn at a large text size, asked for terabytes,
+// and the program died allocating them rather than saying why.
+const MaxPixels = 1 << 26
+
+// Draw draws lay. A TextPx that is not a number, or that makes a picture of
+// more than MaxPixels, is an error.
 func Draw(lay *diagram.Layout, opts Options) (*image.RGBA, error) {
+	if lay == nil {
+		return nil, errors.New("picture: no layout to draw")
+	}
 	pal := opts.Palette
 	if pal == (diagram.Palette{}) {
 		pal = diagram.Light
 	}
 	px := opts.TextPx
+	if math.IsNaN(px) || math.IsInf(px, 0) {
+		return nil, fmt.Errorf("picture: a text size of %v pixels", px)
+	}
 	if px <= 0 {
 		px = DefaultTextPx
 	}
 	s := diagram.ScaleFor(px)
 	w, h := s.Size(lay)
+	if w*h > MaxPixels {
+		return nil, fmt.Errorf("picture: %.0f by %.0f pixels is more than %d million", math.Ceil(w), math.Ceil(h), MaxPixels/1000000)
+	}
 	img := image.NewRGBA(image.Rect(0, 0, int(math.Ceil(w)), int(math.Ceil(h))))
 	cv, err := canvas.New(img, opts.Fonts)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"image/color"
 	"io"
+	"math"
 	"strings"
 	"testing"
 
@@ -138,5 +139,26 @@ func TestWriteHoldsHostileLabelsAsText(t *testing.T) {
 		if !strings.Contains(text.String(), l) {
 			t.Errorf("the label %q is not in the text", l)
 		}
+	}
+}
+
+// A text size that is not a number is an error, not width="NaN"; no layout
+// is an error, not a nil dereference.
+func TestWriteRefuses(t *testing.T) {
+	lay, err := (&diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{{Node: &diagram.Node{ID: "a"}}}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	for _, px := range []float64{math.NaN(), math.Inf(1)} {
+		if err := Write(&buf, lay, Options{TextPx: px}); err == nil {
+			t.Errorf("TextPx %v wrote %q", px, buf.String())
+		}
+	}
+	if err := Write(&buf, nil, Options{}); err == nil {
+		t.Error("a nil layout was written")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("wrote %d bytes on refusing", buf.Len())
 	}
 }

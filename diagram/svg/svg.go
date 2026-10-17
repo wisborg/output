@@ -9,6 +9,7 @@
 package svg
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
@@ -32,13 +33,21 @@ type Options struct {
 // fonts is the font-family the text is set in.
 const fonts = `'Go Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace`
 
-// Write writes lay to w as an SVG document.
+// Write writes lay to w as an SVG document. A TextPx that is not a number
+// is an error: written into the document it made width="NaN", which no
+// reader draws.
 func Write(w io.Writer, lay *diagram.Layout, opts Options) error {
+	if lay == nil {
+		return errors.New("svg: no layout to write")
+	}
 	pal := opts.Palette
 	if pal == (diagram.Palette{}) {
 		pal = diagram.Light
 	}
 	px := opts.TextPx
+	if math.IsNaN(px) || math.IsInf(px, 0) {
+		return fmt.Errorf("svg: a text size of %v pixels", px)
+	}
 	if px <= 0 {
 		px = DefaultTextPx
 	}

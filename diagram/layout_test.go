@@ -608,3 +608,22 @@ func TestOneCellStretchAlongRow(t *testing.T) {
 		}
 	}
 }
+
+// A diagram built in code is held to what DOT is: a grid of more than
+// MaxGrid rows or columns, a pin past it, and an item that is neither a node
+// nor a group are errors, not gigabytes or a nil dereference.
+func TestLayoutLimits(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		d    *Diagram
+		want string
+	}{
+		{"columns", &Diagram{Root: Group{Columns: MaxGrid + 1, Items: []Item{node("a")}}}, "columns"},
+		{"a pin", &Diagram{Root: Group{Columns: 2, Items: []Item{{Node: &Node{ID: "a", Row: 3000}}}}}, "pinned to row 3000"},
+		{"an empty item", &Diagram{Root: Group{Items: []Item{node("a"), {}}}}, "neither a node nor a group"},
+	} {
+		if _, err := c.d.Layout(); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want an error saying %q", c.name, err, c.want)
+		}
+	}
+}

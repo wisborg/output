@@ -107,7 +107,8 @@ type Node struct {
 	// label's; nil is the palette's.
 	Colour, Fill, Text color.Color
 	// Row and Col pin the node to a cell of its group's grid, counting
-	// from 1; zero leaves it to the order the group's items are written in.
+	// from 1, up to MaxGrid; zero leaves it to the order the group's items
+	// are written in.
 	Row, Col int
 	// Invisible keeps the node's place and draws nothing, as DOT's
 	// style=invis: how a gap in a grid is kept.
@@ -128,6 +129,12 @@ type Edge struct {
 	Invisible bool
 }
 
+// MaxGrid is the most rows or columns a grid may have, and the furthest
+// row or column an item may be pinned to. A grid's every row and column is
+// sized and searched by the router, so a pin to row 3000 -- a few bytes of
+// a DOT file -- asked for millions of cells, and gigabytes, for one box.
+const MaxGrid = 100
+
 // Group is a group of nodes, and of groups.
 type Group struct {
 	ID    string
@@ -135,7 +142,8 @@ type Group struct {
 	Style GroupStyle
 	// Rows and Columns make the group a grid: Columns of them, filled row
 	// by row in the order the items are written, or Rows, filled column by
-	// column. Both zero lays the group out in layers.
+	// column. Both zero lays the group out in layers. Neither may be more
+	// than MaxGrid.
 	Rows, Columns int
 	// Row and Col pin the group to a cell of the group around it, as a
 	// node's do.
