@@ -162,11 +162,14 @@ func New(columns ...Column) *Table {
 // wrong cell count is a caller bug that a table would otherwise absorb into
 // plausible-looking output -- a shifted column reads as bad data, not as a
 // mistake in the code that produced it.
+//
+// The cells are copied: a caller may fill one slice and pass it with row...
+// for every row, and the slice is then the caller's to change again.
 func (t *Table) Append(cells ...any) error {
 	if len(cells) != len(t.Columns) {
 		return fmt.Errorf("table: row has %d cells, want %d (one per column)", len(cells), len(t.Columns))
 	}
-	t.entries = append(t.entries, entry{cells: cells})
+	t.entries = append(t.entries, entry{cells: append([]any(nil), cells...)})
 	return nil
 }
 

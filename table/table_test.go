@@ -280,6 +280,25 @@ func TestMustAppend_PanicsOnWrongCellCount(t *testing.T) {
 	New(Column{Header: "a"}, Column{Header: "b"}).MustAppend("only one")
 }
 
+// TestAppend_CopiesTheCells is the reused row buffer: one slice filled and
+// passed for every row. Kept as passed, every row would be the last one.
+func TestAppend_CopiesTheCells(t *testing.T) {
+	tbl := New(Column{Header: "n"}, Column{Header: "tens"})
+	row := make([]any, 2)
+	for i := range 3 {
+		row[0], row[1] = i, i*10
+		tbl.MustAppend(row...)
+	}
+	want := strings.Join([]string{
+		"n   tens",
+		"--------",
+		"0   0",
+		"1   10",
+		"2   20",
+	}, "\n") + "\n"
+	check(t, tbl.String(), want)
+}
+
 // TestRender_NoRowsWritesNothing pins the choice that an empty table produces
 // no output at all -- not a lone header. A header over nothing reads as data
 // that failed to load; only the caller knows what "no rows" means for them.
