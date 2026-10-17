@@ -189,6 +189,26 @@ func (lay *Layout) placeStraightLabels() {
 		}
 	}
 	shared := edgeCells(drawn)
+	// The cells each edge's line, as the picture draws it, passes through:
+	// to judge whose line a place is nearest.
+	lineAt := make([][]Point, len(lay.Edges))
+	for i, e := range lay.Edges {
+		if !e.Straight {
+			for p := range cellsOfPath(e.Points) {
+				lineAt[i] = append(lineAt[i], p)
+			}
+			continue
+		}
+		x0, y0, x1, y1 := lay.ends(e)
+		steps := int(4*max(math.Abs(x1-x0), math.Abs(y1-y0))) + 1
+		for k := 0; k <= steps; k++ {
+			t := float64(k) / float64(steps)
+			p := Point{int(math.Round(x0 + t*(x1-x0))), int(math.Round(y0 + t*(y1-y0)))}
+			if !lay.inNode(p) {
+				lineAt[i] = append(lineAt[i], p)
+			}
+		}
+	}
 	for i := range lay.Edges {
 		e := &lay.Edges[i]
 		if e.Edge.Label == "" {
@@ -231,9 +251,9 @@ func (lay *Layout) placeStraightLabels() {
 		// is negative. The first try is right, or above.
 		flip := steep && -uy*e.Shift < 0 || !steep && ux*e.Shift > 0
 		var tries []Point
-		// From the middle of that out along it, each side in turn: the
-		// middle where it is free, near it where it is not.
-		for _, f := range []float64{0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8} {
+		// From the middle of that out along it to its ends, by the arrowhead
+		// too, each side in turn: placeNear chooses among them.
+		for _, f := range []float64{0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8, 0.9, 0.1, 1, 0} {
 			t := ta + f*(tb-ta)
 			// From the cells either side of the point, which the line is
 			// taken to fill, outwards.
@@ -269,7 +289,41 @@ func (lay *Layout) placeStraightLabels() {
 				}
 			}
 		}
-		e.pictureAt, e.pictured = lay.placeOn(o, tries, lines, w, top)
+		// On the line itself first, near its middle, the line broken
+		// under the words -- a label in its own line cannot be read as
+		// another's -- where nothing but the line is there.
+		own := map[Point]bool{}
+		for _, p := range lineAt[i] {
+			own[p] = true
+		}
+		// Only where the line is alone: over a cell another line passes
+		// too, the words would cut that one.
+		for j, cells := range lineAt {
+			if j != i {
+				for _, p := range cells {
+					delete(own, p)
+				}
+			}
+		}
+		placed := false
+		for _, f := range []float64{0.5, 0.4, 0.6, 0.3, 0.7} {
+			t := ta + f*(tb-ta)
+			fx, fy := x0+t*(x1-x0), y0+t*(y1-y0)
+			at := Point{int(math.Round(fx)) - w/2, int(math.Round(fy)) - (len(lines)-1)/2}
+			if at.X >= 0 && o.freeBut(at, lines, own) {
+				o.take(at, lines)
+				e.pictureAt, e.pictured, placed = at, true, true
+				// The words' middle on the point exactly, in a picture: a
+				// cell's middle is half a cell into it, the words' middle
+				// half their width.
+				e.nudge = [2]float64{fx + 0.5 - float64(w)/2 - float64(at.X), fy - float64(len(lines)-1)/2 - float64(at.Y)}
+				lay.Width = max(lay.Width, at.X+w)
+				break
+			}
+		}
+		if !placed {
+			e.pictureAt, e.pictured = lay.placeNear(o, tries, lines, w, top, i, lineAt)
+		}
 	}
 	least := 0
 	for _, e := range lay.Edges {
@@ -278,6 +332,73 @@ func (lay *Layout) placeStraightLabels() {
 		}
 	}
 	lay.shiftDown(-least)
+}
+
+// placeNear places edge i's label at the best of tries that is free: the
+// nearest its own line, as drawn, and not as near another's, where a
+// reader could not tell which line it names; the earlier of two as good,
+// as tries run from the middle of the line out. Where none is free, at the
+// first, as placeOn does.
+func (lay *Layout) placeNear(o *occupancy, tries []Point, lines []string, w, top, i int, lineAt [][]Point) (Point, bool) {
+	// How far, as drawn -- a cell narrower than a row is tall -- the
+	// label at t is from the nearest of cells.
+	dist := func(t Point, cells []Point) float64 {
+		d := math.Inf(1)
+		for _, p := range cells {
+			dx := max(t.X-p.X, 0, p.X-(t.X+w-1))
+			dy := max(t.Y-p.Y, 0, p.Y-(t.Y+len(lines)-1))
+			d = min(d, math.Hypot(float64(dx)*cellAspect, float64(dy)))
+		}
+		return d
+	}
+	best, bestScore := -1, math.Inf(1)
+	for k, t := range tries {
+		if t.X < 0 || !o.free(t, lines) {
+			continue
+		}
+		own := dist(t, lineAt[i])
+		score := own + float64(k)*0.001
+		for j, cells := range lineAt {
+			if j != i && dist(t, cells) <= own+0.25 {
+				score += 3 // as near another line: whose is it?
+				break
+			}
+		}
+		if score < bestScore {
+			best, bestScore = k, score
+		}
+	}
+	if best < 0 {
+		return lay.placeOn(o, tries, lines, w, top)
+	}
+	return lay.placeOn(o, tries[best:best+1], lines, w, top)
+}
+
+// inNode says p is in a visible node's box.
+func (lay *Layout) inNode(p Point) bool {
+	for _, n := range lay.Nodes {
+		r := n.Rect
+		if !n.Node.Invisible && p.X >= r.X && p.X < r.X+r.W && p.Y >= r.Y && p.Y < r.Y+r.H {
+			return true
+		}
+	}
+	return false
+}
+
+// cellsOfPath is the cells a path along rows and columns passes through.
+func cellsOfPath(pts []Point) map[Point]bool {
+	cells := map[Point]bool{}
+	for k := 1; k < len(pts); k++ {
+		a, b := pts[k-1], pts[k]
+		dx, dy := sign(b.X-a.X), sign(b.Y-a.Y)
+		for p := a; ; p = (Point{p.X + dx, p.Y + dy}) {
+			cells[p] = true
+			if p == b {
+				break
+			}
+		}
+	}
+	return cells
 }
 
 // placeOn places a label at the first of tries that is free, or the first

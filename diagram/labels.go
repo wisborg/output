@@ -61,6 +61,20 @@ func (o *occupancy) free(at Point, lines []string) bool {
 	return true
 }
 
+// freeBut is free, but for cells in own, which a label may be written
+// over: its own line's.
+func (o *occupancy) freeBut(at Point, lines []string, own map[Point]bool) bool {
+	for i, l := range lines {
+		for k := range utf8.RuneCountInString(l) {
+			x, y := at.X+k, at.Y+i
+			if x < 0 || y < -o.top || x >= o.w || y >= o.h || o.taken[y+o.top][x] && !own[Point{x, y}] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (o *occupancy) take(at Point, lines []string) {
 	for i, l := range lines {
 		for k := range utf8.RuneCountInString(l) {
@@ -225,7 +239,7 @@ func labelSegments(pts []Point, shared map[Point]int) [][2]Point {
 		dx, dy := sign(b.X-a.X), sign(b.Y-a.Y)
 		start, n := Point{}, 0
 		flush := func() {
-			if n >= 2 {
+			if n >= 1 {
 				end := Point{start.X + (n-1)*dx, start.Y + (n-1)*dy}
 				own = append(own, [2]Point{start, end})
 			}

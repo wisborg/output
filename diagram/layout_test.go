@@ -454,3 +454,60 @@ func TestStraightEdges(t *testing.T) {
 		}
 	}
 }
+
+// A labelled edge between neighbours in a row of a grid widens the gap
+// between them to hold the label, so it is written between the boxes and
+// not over one; the other gaps keep their width. Stacked grids keep their
+// columns shared.
+func TestLabelWidensGap(t *testing.T) {
+	d := &Diagram{
+		Root: Group{Rows: 2, Items: []Item{
+			{Group: &Group{ID: "top", Columns: 3, Items: []Item{node("a"), node("b"), node("c")}}},
+			{Group: &Group{ID: "bottom", Columns: 3, Items: []Item{node("x"), node("y"), node("z")}}},
+		}},
+		Edges: []Edge{{From: "b", To: "a", Head: true, Label: "a long label"}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := rects(t, d)
+	if gap := r["b"].X - (r["a"].X + r["a"].W); gap < len("a long label")+2 {
+		t.Errorf("a gap of %d between a and b, for a label of %d", gap, len("a long label"))
+	}
+	if gap := r["c"].X - (r["b"].X + r["b"].W); gap != colGap {
+		t.Errorf("a gap of %d between b and c, which no label needs: want %d", gap, colGap)
+	}
+	if r["x"].X != r["a"].X || r["y"].X != r["b"].X {
+		t.Errorf("x at %d under a at %d, y at %d under b at %d: the columns are not shared", r["x"].X, r["a"].X, r["y"].X, r["b"].X)
+	}
+	at := lay.Edges[0].LabelAt
+	if at.X <= r["a"].X+r["a"].W-1 || at.X+len("a long label") > r["b"].X {
+		t.Errorf("the label at %v is not between a %v and b %v:\n%s", at, r["a"], r["b"], strings.Join(lay.Text(), "\n"))
+	}
+}
+
+// A straight edge's label is written on its own line, centred on it in a
+// picture, where the line is alone there.
+func TestStraightLabelOnItsLine(t *testing.T) {
+	d := &Diagram{
+		Root:     Group{Columns: 2, Items: []Item{node("a"), node("b"), node("c"), node("d")}},
+		Edges:    []Edge{{From: "a", To: "d", Head: true, Label: "x"}},
+		Straight: true,
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := lay.Edges[0]
+	x0, y0, x1, y1 := lay.ends(e)
+	at := e.PictureLabelAt()
+	nx, ny := e.PictureLabelNudge()
+	// The label's middle, in cell coordinates, and the line through it.
+	mx, my := float64(at.X)+nx, float64(at.Y)+ny
+	t0 := (my - y0) / (y1 - y0)
+	lx := x0 + t0*(x1-x0)
+	if d := mx - lx; d < -0.6 || d > 0.6 {
+		t.Errorf("the label's middle at (%.2f, %.2f), the line there at x %.2f: not on it", mx, my, lx)
+	}
+}

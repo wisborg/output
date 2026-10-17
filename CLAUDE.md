@@ -359,6 +359,16 @@ than through it.** A straight line through a box reads as a line from it;
 in a grid of replicas, the primary's line to the third replica drawn
 through the second says the second replicates to the third.
 
+**A label belongs to one line, visibly.** A label that sits as near
+another line as its own names neither. So: a grid widens the gap between
+two neighbours in a row for a labelled edge between them (`labelGaps`),
+rather than letting the label fall over a box; an orthogonal edge's label
+goes by a stretch of its own path no other edge shares, from the tail,
+even a single cell -- the one before its arrowhead -- before any shared
+trunk; and a straight edge's label is written on its own line, centred on
+it in a picture by a fractional nudge, where only that line is there, and
+otherwise at the free place nearest its line and not as near another's.
+
 **Two edges never meet unless they share an end.** `route.go` searches the
 page's cells for each path, shortest edges first, and a path may cross
 another's line only at a right angle -- never run along it, turn on it, or

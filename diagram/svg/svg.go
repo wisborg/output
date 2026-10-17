@@ -272,7 +272,7 @@ func (d *doc) labels() {
 		}
 		col := or(g.Group.Colour, d.pal.Dim)
 		if g.Group.Style == diagram.Frame {
-			d.patch(utf8.RuneCountInString(label)+2, g.LabelAt)
+			d.patch(utf8.RuneCountInString(label)+2, d.s.Left(g.LabelAt.X), d.s.Y(g.LabelAt.Y))
 			d.text(label, d.s.Left(g.LabelAt.X+1), d.s.Y(g.LabelAt.Y), "start", d.px, col)
 			continue
 		}
@@ -283,17 +283,19 @@ func (d *doc) labels() {
 			continue
 		}
 		for i, l := range strings.Split(e.Edge.Label, "\n") {
-			at := diagram.Point{X: e.PictureLabelAt().X, Y: e.PictureLabelAt().Y + i}
-			d.patch(utf8.RuneCountInString(l), at)
-			d.text(l, d.s.Left(at.X), d.s.Y(at.Y), "start", d.px*0.9, d.pal.Dim)
+			at := e.PictureLabelAt()
+			nx, ny := e.PictureLabelNudge()
+			x, y := d.s.Left(at.X)+nx*d.s.Cell, d.s.Y(at.Y+i)+ny*d.s.Line
+			d.patch(utf8.RuneCountInString(l), x, y)
+			d.text(l, x, y, "start", d.px*0.9, d.pal.Dim)
 		}
 	}
 }
 
 // patch fills cells cells from at with the background, beneath a label.
-func (d *doc) patch(cells int, at diagram.Point) {
+func (d *doc) patch(cells int, x, y float64) {
 	fmt.Fprintf(&d.b, `<rect x="%s" y="%s" width="%s" height="%s" %s/>`+"\n",
-		num(d.s.Left(at.X)), num(d.s.Y(at.Y)-d.s.Line/2+1), num(float64(cells)*d.s.Cell), num(d.s.Line-2), fill(d.pal.Background))
+		num(x), num(y-d.s.Line/2+1), num(float64(cells)*d.s.Cell), num(d.s.Line-2), fill(d.pal.Background))
 }
 
 func (d *doc) text(s string, x, y float64, anchor string, px float64, col color.Color) {

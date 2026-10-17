@@ -277,7 +277,7 @@ func (d drawer) labels() {
 		}
 		col := or(g.Group.Colour, d.pal.Dim)
 		if g.Group.Style == diagram.Frame {
-			d.patch(" "+label+" ", g.LabelAt, d.px)
+			d.patch(" "+label+" ", d.s.Left(g.LabelAt.X), d.s.Y(g.LabelAt.Y), d.px)
 			_ = d.cv.Text(label, d.s.Left(g.LabelAt.X+1), d.s.Y(g.LabelAt.Y), 0, textCentre, d.px, col)
 			continue
 		}
@@ -288,17 +288,19 @@ func (d drawer) labels() {
 			continue
 		}
 		for i, l := range strings.Split(e.Edge.Label, "\n") {
-			at := diagram.Point{X: e.PictureLabelAt().X, Y: e.PictureLabelAt().Y + i}
-			d.patch(l, at, d.px)
-			_ = d.cv.Text(l, d.s.Left(at.X), d.s.Y(at.Y), 0, textCentre, d.px*0.9, d.pal.Dim)
+			at := e.PictureLabelAt()
+			nx, ny := e.PictureLabelNudge()
+			x, y := d.s.Left(at.X)+nx*d.s.Cell, d.s.Y(at.Y+i)+ny*d.s.Line
+			d.patch(l, x, y, d.px)
+			_ = d.cv.Text(l, x, y, 0, textCentre, d.px*0.9, d.pal.Dim)
 		}
 	}
 }
 
 // patch fills the cells text written at at would take with the background.
-func (d drawer) patch(text string, at diagram.Point, px float64) {
+func (d drawer) patch(text string, x, y, px float64) {
 	w, _, _ := d.cv.Measure(text, px)
-	d.cv.Rect(d.s.Left(at.X), d.s.Y(at.Y)-d.s.Line/2+1, w, d.s.Line-2, d.pal.Background)
+	d.cv.Rect(x, y-d.s.Line/2+1, w, d.s.Line-2, d.pal.Background)
 }
 
 // filledBy is what fills n behind its label: its fill, unless it is plain

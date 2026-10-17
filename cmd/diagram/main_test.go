@@ -9,6 +9,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/wisborg/output/diagram"
+	"github.com/wisborg/output/diagram/dot"
 )
 
 func noEnv(string) string { return "" }
@@ -337,6 +340,46 @@ func TestDiagramBraille(t *testing.T) {
 		}
 		if got := hasBraille(out); got != c.want {
 			t.Errorf("%v: braille %v, want %v:\n%s", c.args, got, c.want, out)
+		}
+	}
+}
+
+// In every example, drawn every way, no edge's label is written over a box.
+func TestExampleLabelsClearOfBoxes(t *testing.T) {
+	paths, _ := filepath.Glob(filepath.Join("..", "..", "examples", "*.dot"))
+	for _, path := range paths {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, straight := range []bool{false, true} {
+			d, err := dot.Parse(string(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			d.Straight = straight
+			lay, err := d.Layout()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range lay.Edges {
+				if e.Edge.Label == "" {
+					continue
+				}
+				for _, at := range []diagram.Point{e.LabelAt, e.PictureLabelAt()} {
+					w := 0
+					for _, l := range strings.Split(e.Edge.Label, "\n") {
+						w = max(w, len([]rune(l)))
+					}
+					h := strings.Count(e.Edge.Label, "\n") + 1
+					for _, n := range lay.Nodes {
+						r := n.Rect
+						if at.X < r.X+r.W && r.X < at.X+w && at.Y < r.Y+r.H && r.Y < at.Y+h {
+							t.Errorf("%s, straight %v: %s to %s's label at %v is over %s at %v", filepath.Base(path), straight, e.Edge.From, e.Edge.To, at, n.Node.ID, r)
+						}
+					}
+				}
+			}
 		}
 	}
 }
