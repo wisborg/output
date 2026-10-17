@@ -1,7 +1,6 @@
 package diagram
 
 import (
-	"container/heap"
 	"image/color"
 	"sort"
 )
@@ -154,6 +153,8 @@ type router struct {
 	// wide and a row tall, which has no outline cell but its corners, and
 	// every edge into it fell back to the plain path through the boxes.
 	bare map[Rect]bool
+	// search is the arrays find keeps its work in, kept for the next.
+	search search
 }
 
 // sharing says edge i's line may run along edge j's: the two share their
@@ -443,25 +444,99 @@ type state struct {
 	settled   bool
 }
 
-type item struct {
-	s        state
-	cost, at int // at: cost and the estimate of the rest
-	idx      int
+// The search keeps what it knows of each state in arrays the router holds
+// from one search to the next, indexed by id, rather than in maps made for
+// each: on a page of a few hundred boxes the maps' hashing and growth, and
+// a heap item allocated for every push, were most of the time a layout
+// took. gen marks which entries are this search's, so the arrays need not
+// be cleared between searches.
+type search struct {
+	cost []int32  // the cheapest way to the state found so far
+	prev []int32  // the state before it on that way, or -1 at a start
+	seen []uint32 // the gen of the search that set cost and prev
+	gen  uint32
 }
 
-type queue []*item
+// id is s's index in the search's arrays.
+func (rt *router) id(s state) int32 {
+	k := ((s.y*rt.w+s.x)*4 + s.way) * 2
+	if s.settled {
+		k++
+	}
+	return int32(k)
+}
 
-func (q queue) Len() int { return len(q) }
-func (q queue) Less(i, j int) bool {
+// stateOf is the state with id k.
+func (rt *router) stateOf(k int32) state {
+	settled := k%2 == 1
+	k /= 2
+	way := int(k % 4)
+	k /= 4
+	return state{int(k) % rt.w, int(k) / rt.w, way, settled}
+}
+
+// maxSearch is the most states one search visits before it gives up. Every
+// state of a page of 400 by 400 cells, where once it was a third as many,
+// which with the search kept in maps took seconds an edge; on a page that
+// large a search that gave up drew the edge through the boxes.
+const maxSearch = 400 * 400 * 8
+
+// item is a state waiting to be searched from: the cost to it, that and
+// the estimate of the rest, and the order it was found in, so that the
+// search is the same every time.
+type item struct {
+	id, cost, at, n int32
+}
+
+// queue is a binary heap of items, cheapest first, written out rather than
+// through container/heap, whose interface holds each item as an any.
+type queue []item
+
+func (q queue) less(i, j int) bool {
 	if q[i].at != q[j].at {
 		return q[i].at < q[j].at
 	}
-	return q[i].idx < q[j].idx // in the order found, so the search is the same every time
+	return q[i].n < q[j].n
 }
-func (q queue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
-func (q *queue) Push(x any)   { *q = append(*q, x.(*item)) }
-func (q *queue) Pop() any     { old := *q; it := old[len(old)-1]; *q = old[:len(old)-1]; return it }
-func opposite(way int) int    { return way ^ 1 } // up and down, left and right, are pairs
+
+func (q *queue) push(it item) {
+	*q = append(*q, it)
+	h := *q
+	for i := len(h) - 1; i > 0; {
+		parent := (i - 1) / 2
+		if !h.less(i, parent) {
+			break
+		}
+		h[i], h[parent] = h[parent], h[i]
+		i = parent
+	}
+}
+
+func (q *queue) pop() item {
+	h := *q
+	top := h[0]
+	last := len(h) - 1
+	h[0] = h[last]
+	h = h[:last]
+	for i := 0; ; {
+		l, r, least := 2*i+1, 2*i+2, i
+		if l < len(h) && h.less(l, least) {
+			least = l
+		}
+		if r < len(h) && h.less(r, least) {
+			least = r
+		}
+		if least == i {
+			break
+		}
+		h[i], h[least] = h[least], h[i]
+		i = least
+	}
+	*q = h
+	return top
+}
+
+func opposite(way int) int { return way ^ 1 } // up and down, left and right, are pairs
 
 // outline is r's outline cells edge i may end at -- not its corners, nor
 // a cell another edge ends at but one it may share with -- each with the
@@ -562,47 +637,52 @@ func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
 		// found is the cheapest there is.
 		return (dx + dy) * (stepCost + shareCost)
 	}
-	best := map[state]int{}
-	from := map[state]state{}
-	started := func(s state) bool { _, ok := from[s]; return ok }
+	sr := &rt.search
+	if size := rt.w * rt.h * 8; len(sr.cost) < size {
+		sr.cost, sr.prev, sr.seen = make([]int32, size), make([]int32, size), make([]uint32, size)
+	}
+	sr.gen++
+	started := func(id int32) bool { return sr.prev[id] >= 0 }
 	q := &queue{}
-	n := 0
-	push := func(s state, cost int, prev *state) {
-		if c, ok := best[s]; ok && c <= cost {
-			return
+	var n int32
+	visited := 0
+	push := func(s state, cost int, prev int32) {
+		id := rt.id(s)
+		if sr.seen[id] == sr.gen {
+			if int(sr.cost[id]) <= cost {
+				return
+			}
+		} else {
+			sr.seen[id] = sr.gen
+			visited++
 		}
-		best[s] = cost
-		if prev != nil {
-			from[s] = *prev
-		}
+		sr.cost[id], sr.prev[id] = int32(cost), prev
 		n++
-		heap.Push(q, &item{s: s, cost: cost, at: cost + estimate(s.x, s.y), idx: n})
+		q.push(item{id: id, cost: int32(cost), at: int32(cost + estimate(s.x, s.y)), n: n})
 	}
 	for k, p := range starts {
 		cost := offMiddle(p, a, outs[k])*portCost + startCosts[k]
 		if !facing(a, b, outs[k]) {
 			cost += sideCost
 		}
-		push(state{p.X, p.Y, outs[k], false}, cost, nil)
+		push(state{p.X, p.Y, outs[k], false}, cost, -1)
 	}
-	for q.Len() > 0 {
-		it := heap.Pop(q).(*item)
-		s := it.s
-		if it.cost != best[s] {
+	for len(*q) > 0 {
+		it := q.pop()
+		if it.cost != sr.cost[it.id] {
 			continue
 		}
-		if _, ok := goalCost[entry{Point{s.x, s.y}, s.way}]; ok && inside(b, s.x, s.y) {
-			if _, started := from[s]; started {
-				return rt.corners(s, from)
-			}
+		s := rt.stateOf(it.id)
+		if _, ok := goalCost[entry{Point{s.x, s.y}, s.way}]; ok && inside(b, s.x, s.y) && started(it.id) {
+			return rt.corners(it.id)
 		}
-		atStart := inside(a, s.x, s.y) && !started(s) // only a start is in a box and not yet the goal
+		atStart := inside(a, s.x, s.y) && !started(it.id) // only a start is in a box and not yet the goal
 		for w, way := range ways {
 			if w == opposite(s.way) {
 				continue
 			}
 			turning := w != s.way
-			cost := it.cost + stepCost
+			cost := int(it.cost) + stepCost
 			if turning {
 				// Out of the box straight; not at the first cell where the
 				// tail has a head; and never on another's line.
@@ -630,7 +710,7 @@ func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
 				if !ok || turning {
 					continue
 				}
-				push(state{nx, ny, w, true}, cost+gc+offMiddle(next, b, opposite(w))*portCost, &s)
+				push(state{nx, ny, w, true}, cost+gc+offMiddle(next, b, opposite(w))*portCost, it.id)
 				continue
 			}
 			if !rt.mayEnd(i, rt.heads[ny][nx], rt.tails[ny][nx]) {
@@ -677,9 +757,9 @@ func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
 			// The first cell out of a tail with a head may not be a
 			// corner; every later one may.
 			settled := !(atStart && tail)
-			push(state{nx, ny, w, settled}, cost, &s)
+			push(state{nx, ny, w, settled}, cost, it.id)
 		}
-		if len(best) > 400000 {
+		if visited > maxSearch {
 			return nil // a page too big to search: the plain path will do
 		}
 	}
@@ -690,17 +770,14 @@ func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
 func inside(r Rect, x, y int) bool { return x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H }
 
 // corners walks back from the goal, keeping the cells the path turns at.
-func (rt *router) corners(s state, from map[state]state) []Point {
+func (rt *router) corners(id int32) []Point {
 	var cells []Point
 	ways := []int{}
-	for {
+	for id >= 0 {
+		s := rt.stateOf(id)
 		cells = append(cells, Point{s.x, s.y})
 		ways = append(ways, s.way)
-		prev, ok := from[s]
-		if !ok {
-			break
-		}
-		s = prev
+		id = rt.search.prev[id]
 	}
 	// Reverse, start first.
 	for i, j := 0, len(cells)-1; i < j; i, j = i+1, j-1 {
