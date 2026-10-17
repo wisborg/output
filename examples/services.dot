@@ -1,0 +1,28 @@
+// A few services and what each calls: a mesh rather than a flow, which
+// straight lines suit better than right angles.
+//
+//	diagram --out services.png examples/services.dot
+//	diagram --out services.png --edges orthogonal examples/services.dot
+//
+// splines = line asks for straight edges, as it does of Graphviz. A PNG or
+// an SVG draws each edge as one straight line between its boxes wherever
+// that line is clear of the other boxes; one that would cross a box -- api
+// to db, behind cache -- keeps to rows and columns. The text drawing is
+// always along rows and columns.
+digraph {
+	splines = line
+	columns = 3
+	node [shape = ellipse]
+
+	api; cache [shape = cylinder]; db [shape = cylinder]
+	worker; queue [shape = box]; mail
+
+	api    -> cache  [label = "get"]
+	cache  -> api    [label = "hit"]
+	api    -> db     [label = "query"]
+	api    -> queue  [label = "enqueue"]
+	queue  -> worker
+	worker -> db     [label = "write"]
+	worker -> mail   [label = "notify"]
+	db     -> cache  [label = "invalidate", style = dashed]
+}

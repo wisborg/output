@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -84,6 +85,7 @@ func TestDiagramRefuses(t *testing.T) {
 		{regions, []string{"--theme", "pink"}, "--theme"},
 		{regions, []string{"--width", "0"}, "--width 0"},
 		{regions, []string{"--color", "sometimes"}, "use auto, always or never"},
+		{regions, []string{"--edges", "curvy"}, "use auto, straight or orthogonal"},
 		{regions, []string{"--text-size", "20", "--width", "800"}, "one or the other"},
 		{"digraph {\n a -- b\n}", nil, "standard input: line 2"},
 		{"digraph { subgraph cluster_a { columns=1; a [col=1]; b [col=1, row=1] } }", nil, "both pinned"},
@@ -269,5 +271,45 @@ func TestExamples(t *testing.T) {
 				t.Errorf("%s as %s: %v", path, ext, err)
 			}
 		}
+	}
+}
+
+// --edges straight or orthogonal says what the file's splines would have;
+// auto takes the file's word. Only a picture draws straight; the text is
+// the same either way.
+func TestDiagramEdges(t *testing.T) {
+	const src = `digraph { splines = line; columns = 2; a; b; c; d; a -> d }`
+	svg := func(args ...string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "d.svg")
+		if _, _, err := draw(t, src, append([]string{"--out", path}, args...)...); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	// A path of one segment, from the corner of a towards d, is diagonal:
+	// both its coordinates differ from one end to the other.
+	diagonal := func(doc string) bool {
+		for _, m := range regexp.MustCompile(`<path d="M([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+)"`).FindAllStringSubmatch(doc, -1) {
+			if m[1] != m[3] && m[2] != m[4] {
+				return true
+			}
+		}
+		return false
+	}
+	if !diagonal(svg()) || !diagonal(svg("--edges", "straight")) {
+		t.Error("splines=line, or --edges straight, drew no diagonal")
+	}
+	if diagonal(svg("--edges", "orthogonal")) {
+		t.Error("--edges orthogonal drew a diagonal")
+	}
+	a, _, _ := draw(t, src, "--terminal", "text", "--edges", "straight")
+	b, _, _ := draw(t, src, "--terminal", "text", "--edges", "orthogonal")
+	if strings.TrimLeft(a, "\n") != strings.TrimLeft(b, "\n") {
+		t.Errorf("the text differs:\n%s\n---\n%s", a, b)
 	}
 }

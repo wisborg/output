@@ -159,7 +159,7 @@ func (d drawer) edge(e diagram.PlacedEdge) {
 		return
 	}
 	col := or(e.Edge.Colour, d.pal.Foreground)
-	xs, ys := d.s.Path(d.lay, e)
+	xs, ys := d.s.Route(d.lay, e)
 	n := len(xs)
 	// The line stops where the arrowhead begins, so it does not show
 	// through the head's point.
@@ -171,7 +171,7 @@ func (d drawer) edge(e diagram.PlacedEdge) {
 		xs[0], ys[0] = pullBack(xs[1], ys[1], xs[0], ys[0], head*0.8)
 	}
 	d.stroke(xs, ys, e.Edge.Line, col)
-	ox, oy := d.s.Path(d.lay, e)
+	ox, oy := d.s.Route(d.lay, e)
 	if e.Edge.Head {
 		d.arrow(ox[n-2], oy[n-2], ox[n-1], oy[n-1], head, col)
 	}
@@ -288,7 +288,7 @@ func (d drawer) labels() {
 			continue
 		}
 		for i, l := range strings.Split(e.Edge.Label, "\n") {
-			at := diagram.Point{X: e.LabelAt.X, Y: e.LabelAt.Y + i}
+			at := diagram.Point{X: e.PictureLabelAt().X, Y: e.PictureLabelAt().Y + i}
 			d.patch(l, at, d.px)
 			_ = d.cv.Text(l, d.s.Left(at.X), d.s.Y(at.Y), 0, textCentre, d.px*0.9, d.pal.Dim)
 		}

@@ -446,6 +446,8 @@ a legend saying what the colours and lines mean.
 [`examples/friday-deploy.dot`](examples/friday-deploy.dot) is a flow chart,
 laid out in layers from its edges, on whether to deploy on a Friday
 afternoon.
+[`examples/services.dot`](examples/services.dot) is a mesh of services
+drawn with straight edges.
 
 A group of nodes — a DOT subgraph whose name begins with `cluster` — places
 what it holds in one of two ways. Without anything more, in **layers**, as
@@ -517,7 +519,12 @@ set, or it is going into a pipe or a file.
 Everything is measured in character cells, so the text drawing and the
 pictures are one layout: a picture draws each cell as a fixed box of pixels
 in a monospaced font. Every edge runs along rows and columns, round a box in
-its way rather than through it. Shapes are boxes, rounded boxes, ellipses,
+its way rather than through it — except, in a PNG or an SVG, where the DOT
+sets Graphviz's `splines` (`splines = line`, say), or `--edges straight`
+asks: then an edge is one straight line between its boxes, at whatever
+angle, wherever that line is clear of the other boxes. That suits a mesh of
+services more than a flow chart. `--edges orthogonal` turns it off whatever
+the file says; the text drawing is always along rows and columns. Shapes are boxes, rounded boxes, ellipses,
 cylinders and plain text; lines solid, dashed, dotted or bold; colours
 Graphviz's, by `#rrggbb` or by the common X11 names.
 

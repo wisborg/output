@@ -102,3 +102,116 @@ func (s Scale) onOutline(n PlacedNode, x, y, fx, fy float64) (float64, float64) 
 }
 
 func sq(x float64) float64 { return x * x }
+
+// Straight is a straight edge's line in the picture's units: from the
+// middle of its tail node towards the middle of its head, Shift half rows
+// to one side, cut where it leaves the one's outline and meets the other's
+// -- an ellipse's curve and a cylinder's lid included.
+func (s Scale) Straight(lay *Layout, e PlacedEdge) (xs, ys []float64) {
+	from, _ := lay.Node(e.Edge.From)
+	to, _ := lay.Node(e.Edge.To)
+	ax, ay := s.middle(from.Rect)
+	bx, by := s.middle(to.Rect)
+	if e.Shift != 0 {
+		// To the side of the line from the node of the lesser ID to the
+		// other, so that a to b and b to a are set apart, not on one line.
+		ux, uy := bx-ax, by-ay
+		if e.Edge.To < e.Edge.From {
+			ux, uy = -ux, -uy
+		}
+		if l := math.Hypot(ux, uy); l > 0 {
+			d := e.Shift * s.Line / 2
+			px, py := -uy/l*d, ux/l*d
+			ax, ay, bx, by = ax+px, ay+py, bx+px, by+py
+		}
+	}
+	x0, y0 := s.leave(from, ax, ay, bx, by)
+	x1, y1 := s.leave(to, bx, by, ax, ay)
+	return []float64{x0, x1}, []float64{y0, y1}
+}
+
+func (s Scale) middle(r Rect) (x, y float64) {
+	x0, y0, x1, y1 := s.Box(r)
+	return (x0 + x1) / 2, (y0 + y1) / 2
+}
+
+// leave is where the line from (x, y), inside n, towards (tx, ty) crosses
+// n's outline.
+func (s Scale) leave(n PlacedNode, x, y, tx, ty float64) (float64, float64) {
+	x0, y0, x1, y1 := s.Box(n.Rect)
+	dx, dy := tx-x, ty-y
+	cx, rx := (x0+x1)/2, (x1-x0)/2
+	switch n.Node.Shape {
+	case Ellipse:
+		if t, ok := exitEllipse(x, y, dx, dy, cx, (y0+y1)/2, rx, (y1-y0)/2); ok {
+			return x + t*dx, y + t*dy
+		}
+	case Cylinder:
+		// Through the lid or the base where it leaves by the top or the
+		// bottom, as those are drawn as halves of ellipses.
+		t := exitBox(x, y, dx, dy, x0, y0, x1, y1)
+		ey := y + t*dy
+		lid := s.Lid()
+		if ey <= y0+1e-9 {
+			if u, ok := exitEllipse(x, y, dx, dy, cx, y0+lid, rx, lid); ok {
+				t = u
+			}
+		} else if ey >= y1-1e-9 {
+			if u, ok := exitEllipse(x, y, dx, dy, cx, y1-lid, rx, lid); ok {
+				t = u
+			}
+		}
+		return x + t*dx, y + t*dy
+	}
+	t := exitBox(x, y, dx, dy, x0, y0, x1, y1)
+	return x + t*dx, y + t*dy
+}
+
+// exitBox is how far along (dx, dy) from (x, y), inside the box, the line
+// leaves it, as a fraction of (dx, dy).
+func exitBox(x, y, dx, dy, x0, y0, x1, y1 float64) float64 {
+	t := math.Inf(1)
+	if dx > 0 {
+		t = min(t, (x1-x)/dx)
+	} else if dx < 0 {
+		t = min(t, (x0-x)/dx)
+	}
+	if dy > 0 {
+		t = min(t, (y1-y)/dy)
+	} else if dy < 0 {
+		t = min(t, (y0-y)/dy)
+	}
+	if math.IsInf(t, 1) {
+		return 0
+	}
+	return max(t, 0)
+}
+
+// exitEllipse is how far along (dx, dy) from (x, y) the line last crosses
+// the ellipse about (cx, cy) with radii rx and ry, as a fraction of (dx,
+// dy); false where it does not cross it ahead.
+func exitEllipse(x, y, dx, dy, cx, cy, rx, ry float64) (float64, bool) {
+	if rx <= 0 || ry <= 0 {
+		return 0, false
+	}
+	px, py := (x-cx)/rx, (y-cy)/ry
+	qx, qy := dx/rx, dy/ry
+	a := qx*qx + qy*qy
+	b := 2 * (px*qx + py*qy)
+	c := px*px + py*py - 1
+	disc := b*b - 4*a*c
+	if a == 0 || disc < 0 {
+		return 0, false
+	}
+	t := (-b + math.Sqrt(disc)) / (2 * a)
+	return t, t >= 0
+}
+
+// Route is the line a picture draws an edge along: Straight where the
+// edge is drawn straight, Path otherwise.
+func (s Scale) Route(lay *Layout, e PlacedEdge) (xs, ys []float64) {
+	if e.Straight {
+		return s.Straight(lay, e)
+	}
+	return s.Path(lay, e)
+}

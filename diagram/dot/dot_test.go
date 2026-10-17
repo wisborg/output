@@ -269,3 +269,17 @@ func TestLegendErrors(t *testing.T) {
 		}
 	}
 }
+
+// splines asks for straight edges for every value Graphviz draws other
+// than along rows and columns; ortho, and no splines at all, do not.
+func TestSplines(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "ortho": false, "line": true, "polyline": true, "false": true, "true": true, "curved": true} {
+		src := "digraph { a -> b }"
+		if v != "" {
+			src = "digraph { splines = " + v + "; a -> b }"
+		}
+		if got := parse(t, src).Straight; got != want {
+			t.Errorf("splines=%q: straight %v, want %v", v, got, want)
+		}
+	}
+}

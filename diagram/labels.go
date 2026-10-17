@@ -6,15 +6,24 @@ import (
 )
 
 // occupancy is which cells of a layout hold something a label must not be
-// written over: an outline, a line, another label.
+// written over: an outline, a line, another label. Its rows run from -top,
+// so a label can be placed above the layout's first row.
 type occupancy struct {
-	w, h  int
-	taken [][]bool
+	w, h, top int
+	taken     [][]bool
+}
+
+func newOccupancy(w, h, top int) *occupancy {
+	o := &occupancy{w: w, h: h, top: top, taken: make([][]bool, h+top)}
+	for y := range o.taken {
+		o.taken[y] = make([]bool, w)
+	}
+	return o
 }
 
 func (o *occupancy) mark(x, y int) {
-	if x >= 0 && y >= 0 && x < o.w && y < o.h {
-		o.taken[y][x] = true
+	if x >= 0 && y >= -o.top && x < o.w && y < o.h {
+		o.taken[y+o.top][x] = true
 	}
 }
 
@@ -43,7 +52,7 @@ func (o *occupancy) free(at Point, lines []string) bool {
 	for i, l := range lines {
 		for k := range utf8.RuneCountInString(l) {
 			x, y := at.X+k, at.Y+i
-			if x < 0 || y < 0 || x >= o.w || y >= o.h || o.taken[y][x] {
+			if x < 0 || y < -o.top || x >= o.w || y >= o.h || o.taken[y+o.top][x] {
 				return false
 			}
 		}
@@ -66,23 +75,16 @@ func (o *occupancy) take(at Point, lines []string) {
 // along where an edge crosses the edge there: the label must not hide where
 // a line goes in or out. A lane's is at its far side, on its middle row.
 //
-// An edge's label goes beside its last segment, into the head, a space to
-// the right of a segment down a column or over one along a row -- the label
-// of a branch out of a decision is read beside the branch, not on the stem
-// the branches share -- or beside the longest where the last is too short
-// to stand beside. Where that place is taken, by an outline, a line or
+// An edge's label goes beside the segment labelSegment chooses -- the
+// first the edge has to itself, where a branch leaves its decision -- a
+// space to the right of a segment down a column or over one along a row.
+// Where that place is taken, by an outline, a line or
 // another label, it is moved to the nearest free place beside the same
 // segment; where none is free, it stays, and is written over what is there
 // rather than lost.
 func (lay *Layout) placeLabels() {
-	o := &occupancy{w: lay.Width, h: lay.Height}
 	// Room for labels past the boxes: a column of them to the right.
-	o.w += 40
-	o.h += 4
-	o.taken = make([][]bool, o.h)
-	for y := range o.taken {
-		o.taken[y] = make([]bool, o.w)
-	}
+	o := newOccupancy(lay.Width+40, lay.Height+4, 0)
 	crossings := map[Point]bool{} // cells where a line runs down a column
 	for _, e := range lay.Edges {
 		for i := 1; i < len(e.Points); i++ {

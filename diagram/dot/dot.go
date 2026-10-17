@@ -36,7 +36,11 @@
 // Of Graphviz's own attributes, those that say what a diagram means are
 // read -- label, shape, style, color, fillcolor, fontcolor, dir, arrowhead,
 // arrowtail, rankdir, rank -- and those about how Graphviz draws, which
-// mean nothing to this layout, are ignored.
+// mean nothing to this layout, are ignored. One of those is read too:
+// splines, on the graph, asks for the edges of a picture drawn straight,
+// at whatever angle, for line, polyline, false, true, spline or curved --
+// curves are drawn as straight lines, the nearest this draws -- and along
+// rows and columns, as by default, for ortho.
 package dot
 
 import (
@@ -532,6 +536,10 @@ func removeNode(g *diagram.Group, n *diagram.Node) {
 func (p *parser) applyGraph(attrs map[string]string, name string) error {
 	d := p.d
 	d.Title = label(attrs["label"], name, "")
+	switch strings.ToLower(attrs["splines"]) {
+	case "line", "polyline", "false", "true", "spline", "curved":
+		d.Straight = true
+	}
 	switch strings.ToUpper(attrs["rankdir"]) {
 	case "LR":
 		d.Direction = diagram.Right

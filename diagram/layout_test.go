@@ -381,3 +381,58 @@ func TestBranchLabelsAtTheirDecisions(t *testing.T) {
 		}
 	}
 }
+
+// With Straight, an edge whose line from box to box is clear of the other
+// boxes is drawn straight, at an angle where its ends are not in line; one
+// whose line would cross a box, and a loop, keep their paths. Two between
+// the same nodes are set either side of the line between them. Without
+// Straight, nothing is.
+func TestStraightEdges(t *testing.T) {
+	build := func(straight bool) *Diagram {
+		return &Diagram{
+			Root: Group{Columns: 3, Items: []Item{node("a"), node("b"), node("c"), node("d")}},
+			Edges: []Edge{
+				{From: "a", To: "d", Head: true, Label: "down"}, // d is under a: clear
+				{From: "a", To: "c", Head: true},                // along the top row, through b
+				{From: "b", To: "d", Head: true},                // the diagonals, both ways
+				{From: "d", To: "b", Head: true},
+				{From: "c", To: "c"},
+			},
+			Straight: straight,
+		}
+	}
+	lay, err := build(true).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]PlacedEdge{}
+	for _, e := range lay.Edges {
+		got[e.Edge.From+e.Edge.To] = e
+	}
+	for key, want := range map[string]bool{"ad": true, "ac": false, "bd": true, "db": true, "cc": false} {
+		if got[key].Straight != want {
+			t.Errorf("%s straight %v, want %v", key, got[key].Straight, want)
+		}
+	}
+	if s1, s2 := got["bd"].Shift, got["db"].Shift; s1 == 0 || s1 != -s2 {
+		t.Errorf("b to d shifted %v and d to b %v: want them either side of the line", s1, s2)
+	}
+	// The label is clear of every box.
+	at := got["ad"].StraightLabelAt
+	label := Rect{at.X, at.Y, len("down"), 1}
+	for _, n := range lay.Nodes {
+		r := n.Rect
+		if label.X < r.X+r.W && r.X < label.X+label.W && label.Y < r.Y+r.H && r.Y < label.Y+label.H {
+			t.Errorf("the label at %v is over %s at %v", at, n.Node.ID, r)
+		}
+	}
+	plain, err := build(false).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range plain.Edges {
+		if e.Straight {
+			t.Errorf("%s to %s straight without Straight", e.Edge.From, e.Edge.To)
+		}
+	}
+}

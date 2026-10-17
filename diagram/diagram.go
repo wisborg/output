@@ -164,6 +164,12 @@ type Diagram struct {
 	SameLayer [][]string
 	// Legend, where there is one, is drawn below the diagram.
 	Legend *Legend
+	// Straight draws the edges of a picture as straight lines from box to
+	// box, at whatever angle, where such a line is clear of every other
+	// box; an edge whose line would cross one keeps its path along rows
+	// and columns. The text drawing, which can draw only along rows and
+	// columns, keeps every edge's path whatever this says.
+	Straight bool
 }
 
 // Legend is a key to what a diagram's colours and lines mean: a frame of

@@ -175,7 +175,7 @@ func (d *doc) edge(e diagram.PlacedEdge) {
 		return
 	}
 	col := or(e.Edge.Colour, d.pal.Foreground)
-	xs, ys := d.s.Path(d.lay, e)
+	xs, ys := d.s.Route(d.lay, e)
 	ox, oy := append([]float64(nil), xs...), append([]float64(nil), ys...)
 	n := len(xs)
 	// The line stops where the arrowhead begins, so it does not show
@@ -283,7 +283,7 @@ func (d *doc) labels() {
 			continue
 		}
 		for i, l := range strings.Split(e.Edge.Label, "\n") {
-			at := diagram.Point{X: e.LabelAt.X, Y: e.LabelAt.Y + i}
+			at := diagram.Point{X: e.PictureLabelAt().X, Y: e.PictureLabelAt().Y + i}
 			d.patch(utf8.RuneCountInString(l), at)
 			d.text(l, d.s.Left(at.X), d.s.Y(at.Y), "start", d.px*0.9, d.pal.Dim)
 		}

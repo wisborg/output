@@ -81,6 +81,7 @@ type options struct {
 	terminal string
 	theme    string
 	color    string
+	edges    string
 	width    int
 	height   int
 	textPx   float64
@@ -109,6 +110,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.out, "out", "", "write the diagram to this file rather than the terminal: .png, .svg, or .txt for the text drawing")
 	fs.StringVar(&o.terminal, "terminal", "auto", "how the diagram is shown in the terminal: auto (a picture where the terminal shows one, text otherwise), iterm, kitty or text")
 	fs.StringVar(&o.color, "color", "auto", "colour in the text drawing: auto (in a terminal, unless NO_COLOR is set; not into a pipe or a .txt file), always or never")
+	fs.StringVar(&o.edges, "edges", "auto", "how a PNG or an SVG draws edges: auto (as the file's splines attribute says, along rows and columns where it says nothing), straight (a straight line between the boxes, at whatever angle, where it is clear of the others) or orthogonal (along rows and columns); the text drawing is always orthogonal")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a file; the terminal's own in a terminal), light or dark")
 	fs.IntVar(&o.width, "width", 0, "the diagram's width: in characters in the terminal (default: the terminal's, or 100); in pixels in a PNG or an SVG (default: "+strconv.Itoa(imageWidth)+"); its height follows from its proportions")
 	fs.IntVar(&o.height, "height", 0, "the most the diagram's height may be, narrower where it would be taller: in lines in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none)")
@@ -153,6 +155,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	default:
 		return fmt.Errorf("--color %q: use auto, always or never", o.color)
 	}
+	switch o.edges {
+	case "auto", "straight", "orthogonal":
+	default:
+		return fmt.Errorf("--edges %q: use auto, straight or orthogonal", o.edges)
+	}
 	in, name := stdin, "standard input"
 	if len(files) == 1 && files[0] != "-" {
 		f, err := os.Open(files[0])
@@ -169,6 +176,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	d, err := dot.Parse(string(src))
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
+	}
+	switch o.edges {
+	case "straight":
+		d.Straight = true
+	case "orthogonal":
+		d.Straight = false
 	}
 	lay, err := d.Layout()
 	if err != nil {

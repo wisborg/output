@@ -84,7 +84,8 @@ from reality is a test failure.
   and the drawing. A new input format is a new reader of the same table.
 - `diagram/diagram.go` — the package doc, the model (`Diagram`, `Group`,
   `Node`, `Edge`), `Palette`; `layout.go` — `Layout`, grids and layers;
-  `route.go` — edges along rows and columns; `labels.go` — where labels go;
+  `route.go` — edges along rows and columns; `straight.go` — which edges a
+  picture draws straight, and their labels; `labels.go` — where labels go;
   `scale.go` — cells to a picture's units; `text.go` — the text drawing.
 - `diagram/dot/` — the DOT lexer, parser and colours.
 - `diagram/picture/`, `diagram/svg/` — the PNG and the SVG of a layout.
@@ -357,6 +358,18 @@ cost is that a picture's text must be monospaced, at `ScaleFor`'s width.
 than through it.** A straight line through a box reads as a line from it;
 in a grid of replicas, the primary's line to the third replica drawn
 through the second says the second replicates to the third.
+
+**Straight edges are the pictures' alone, and only where clear.** With
+`splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an
+edge as one straight line between its boxes, at whatever angle -- but only
+where that line is clear of every other box; one that would cross a box
+keeps its path along rows and columns, for the reason above. The text
+drawing never draws them: a diagonal in characters is a ragged staircase
+of `╱` and `╲`, worse than the right angles it would replace, so the text
+and the picture of one layout differ here and only here. Straight edges'
+labels are placed by `placeStraightLabels`, against the lines as a picture
+draws them, and may sit above the first row, the layout growing at the top
+to hold them.
 
 **`diagram/dot` reads DOT as Graphviz does, and adds attributes rather than
 syntax.** `columns`, `rows`, `row`, `col` and `style=lane` are attributes

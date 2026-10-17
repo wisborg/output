@@ -82,6 +82,24 @@ type PlacedEdge struct {
 	Points []Point
 	// LabelAt is where the label begins, on the row it is written on.
 	LabelAt Point
+	// Straight says a picture draws the edge as one straight line between
+	// its nodes rather than along Points: the diagram asks for straight
+	// edges, and the line is clear of every other box. Shift is how far
+	// to one side the line is drawn, in half rows, so that several between
+	// the same two nodes are drawn apart; StraightLabelAt is where its label
+	// begins, beside the line. The text drawing draws Points regardless.
+	Straight        bool
+	Shift           float64
+	StraightLabelAt Point
+}
+
+// PictureLabelAt is where a picture writes the edge's label: beside its
+// straight line where it is drawn straight, at LabelAt otherwise.
+func (e PlacedEdge) PictureLabelAt() Point {
+	if e.Straight {
+		return e.StraightLabelAt
+	}
+	return e.LabelAt
 }
 
 // size is the cells a node or a group takes.
@@ -183,6 +201,9 @@ func (d *Diagram) Layout() (*Layout, error) {
 		}
 	}
 	l.out.placeLabels()
+	if d.Straight {
+		l.out.straighten()
+	}
 	l.out.placeLegend(d.Legend)
 	return l.out, nil
 }
