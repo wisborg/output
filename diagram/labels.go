@@ -274,7 +274,8 @@ func edgeCells(edges []PlacedEdge) map[Point]int {
 // then under it. A slide stays beside the stretch.
 func segmentTries(pts []Point, shared map[Point]int, width, n int) []Point {
 	var tries []Point
-	for _, seg := range labelSegments(pts, shared) {
+	segs := labelSegments(pts, shared)
+	for _, seg := range segs {
 		a, b := seg.a, seg.b
 		// Sliding along the stretch, but never past its ends: a label
 		// three rows beyond a stretch two cells long is beside nothing of
@@ -303,7 +304,7 @@ func segmentTries(pts []Point, shared map[Point]int, width, n int) []Point {
 	// together, goes further out -- past the boxes' ends -- rather than
 	// over them: a grid's gaps are its boxes', and never widen for a label.
 	for k := 1; k <= 6; k++ {
-		for _, seg := range labelSegments(pts, shared) {
+		for _, seg := range segs {
 			a, b := seg.a, seg.b
 			if seg.down {
 				mid := (a.Y + b.Y) / 2

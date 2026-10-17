@@ -14,7 +14,7 @@
 //		table.Column{Header: "score", Align: table.Right, Format: "%.3f"},
 //		table.Column{Header: "note"},
 //	)
-//	t.Append(2.75, 0.366, "the corner")
+//	t.MustAppend(2.75, 0.366, "the corner")
 //	fmt.Println(t)
 //
 // # Display width, not byte length

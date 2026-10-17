@@ -142,8 +142,8 @@ type Group struct {
 	Style GroupStyle
 	// Rows and Columns make the group a grid: Columns of them, filled row
 	// by row in the order the items are written, or Rows, filled column by
-	// column. Both zero lays the group out in layers. Neither may be more
-	// than MaxGrid.
+	// column. Both zero lays the group out in layers; where both are set,
+	// Columns is the one followed. Neither may be more than MaxGrid.
 	Rows, Columns int
 	// Row and Col pin the group to a cell of the group around it, as a
 	// node's do.

@@ -52,7 +52,8 @@ const (
 	// Date is a moment, in seconds since 1970 began -- Unix time -- read
 	// in UTC: ticked at the steps a calendar reads in, from seconds to
 	// days, the first of a month, of a quarter, of a year, and written as
-	// a calendar does: "15:30", "2 Mar", "Mar", "2024". See dateTicks.
+	// a calendar does: "15:30", "2 Mar", "Mar", "2024". See Scale.Ticks
+	// and Scale.Label.
 	Date
 )
 
@@ -256,7 +257,8 @@ func (s Scale) Frac(v float64) (f float64, clipped bool) {
 // step is a hundred thousand or more, and as a power of ten, "4.5e+17",
 // past a thousand trillion -- or a clock -- minutes and seconds, or hours and minutes on an
 // axis that reaches an hour, with seconds where the step is under a minute
-// -- or a date, as dateLabel writes it.
+// -- or a date, as briefly as the tick before it allows: "2 Mar", then
+// "6 Mar"; "Mar 2024", then "Apr"; the first tick of the axis in full.
 func (s Scale) Label(v float64) string {
 	if s.Kind == Clock {
 		return clockLabel(v, s.Max >= 3600, s.Step < 60)

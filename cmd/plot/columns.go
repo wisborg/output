@@ -241,7 +241,7 @@ func classify(cells []string, order dateOrder) column {
 		switch {
 		case n > bestN:
 			best, bestN, tied = l, n, false
-		case n == bestN && n > 0 && monthFirst2(l) == best:
+		case n == bestN && n > 0 && dayFirstTwin(l) == best:
 			tied = true
 		}
 	}
@@ -251,10 +251,10 @@ func classify(cells []string, order dateOrder) column {
 	return col
 }
 
-// monthFirst2 is l's day-first twin, where l is a month-first numeric
-// layout, and "" otherwise: the layout l ties with when a column reads the
-// same both ways.
-func monthFirst2(l string) string {
+// dayFirstTwin is the day-first layout l is the month-first form of, and ""
+// where l is no month-first layout: the layout l ties with when a column
+// reads the same both ways.
+func dayFirstTwin(l string) string {
 	for _, d := range numericLayouts {
 		if monthFirst(d) == l {
 			return d

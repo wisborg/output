@@ -287,3 +287,11 @@ func TestPlotTheme(t *testing.T) {
 		}
 	}
 }
+
+// A file of a header and nothing under it says so, rather than that no
+// column holds numbers.
+func TestPlotHeaderOnly(t *testing.T) {
+	if _, _, err := plot(t, "a,b\n", "--header", "yes"); err == nil || !strings.Contains(err.Error(), "no rows") {
+		t.Errorf("%v, want an error saying there are no rows", err)
+	}
+}

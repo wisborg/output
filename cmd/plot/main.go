@@ -142,6 +142,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
+	if len(t.rows) == 0 && !o.list {
+		// Said as it is: "no column holds numbers" sent the reader looking
+		// at columns when the file has no rows at all.
+		return fmt.Errorf("%s: a header and no rows of values to plot", name)
+	}
 	cols := make([]column, len(t.names))
 	for j := range t.names {
 		cells := make([]string, len(t.rows))

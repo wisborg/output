@@ -191,7 +191,11 @@ means for them, so only the caller should say it.
 
 ## Status
 
-Text and CSV in `table`; text, CSV, JSON and YAML through `output.Document`.
+Text and CSV in `table`; text, CSV, JSON and YAML through `output.Document`;
+live progress bars in `progress`; charts in braille, as pictures and in the
+terminal's picture protocols in `chart` and its packages; diagrams from
+Graphviz's DOT, as text, PNG and SVG, in `diagram` and its packages; and the
+two commands built on them, `plot` and `diagram`.
 
 JSON and YAML are still not *table* renderers, and that is the same decision
 as before rather than a reversal of it: nothing converts a table into an
@@ -204,7 +208,9 @@ The API is not yet frozen.
 
 ## Dependencies
 
-Three, all compatible with this project's Apache-2.0 licence:
+Three, all compatible with this project's Apache-2.0 licence, and recorded
+with their notices in [NOTICE](NOTICE), which a program shipping these
+packages carries along:
 
 - [`mattn/go-runewidth`](https://github.com/mattn/go-runewidth) (MIT), for
   display-width measurement, which in turn uses
@@ -225,10 +231,6 @@ tables does not link it; `chart` imports nothing outside the standard library;
 `chart/picture` and `diagram/picture` import `golang.org/x/image`, so a program
 that draws charts or diagrams in text, or as SVG, or not at all, does not link
 that. `make deps` checks all of this.
-
-## Licence
-
-Apache License 2.0 — see [LICENSE](LICENSE).
 
 ## progress
 
@@ -543,3 +545,6 @@ read as their words, ports are read and not drawn; an edge ending at a
 cluster itself (Graphviz's `lhead` and `ltail`), record shapes and
 Graphviz's other layout engines are not supported.
 
+## Licence
+
+Apache License 2.0 — see [LICENSE](LICENSE).

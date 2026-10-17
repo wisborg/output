@@ -54,9 +54,11 @@ func GradientPalette(from, to RGB) Palette {
 //
 // Both ends are mid-tone on purpose. A gradient running into a very light or
 // very dark colour disappears at one end against a terminal whose background
-// happens to be the same, and this package cannot know which that is: a
-// terminal reports its size, never its colours. These two are legible on
-// white and on black.
+// happens to be the same, and this package does not ask which that is:
+// a terminal's size comes from one ioctl, and its colours only from
+// variables some terminals set (COLORFGBG) or a query whose answer comes
+// back on the terminal's input. These two are legible on white and on
+// black.
 func DefaultGradient() Palette {
 	return GradientPalette(RGB{0x3B, 0x82, 0xF6}, RGB{0x22, 0xC5, 0x5E})
 }

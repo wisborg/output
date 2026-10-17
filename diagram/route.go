@@ -1,9 +1,6 @@
 package diagram
 
-import (
-	"image/color"
-	"sort"
-)
+import "sort"
 
 // route finds each edge's path between the nodes as placed, along rows and
 // columns only, by searching the page's cells for the cheapest way from an
@@ -170,16 +167,7 @@ func (rt *router) sharing(i, j int) bool {
 	if a.From == a.To || b.From == b.To {
 		return false
 	}
-	return (a.From == b.From) != (a.To == b.To) && a.Line == b.Line && sameColour(a.Colour, b.Colour)
-}
-
-func sameColour(a, b color.Color) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	r1, g1, b1, a1 := a.RGBA()
-	r2, g2, b2, a2 := b.RGBA()
-	return r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2
+	return (a.From == b.From) != (a.To == b.To) && a.Line == b.Line && same(a.Colour, b.Colour)
 }
 
 // mayEnd says edge i may pass a cell where the heads and the tails of
@@ -219,17 +207,6 @@ func (rt *router) split(i, x, y int) (foreign, shared uint8) {
 		}
 	}
 	return foreign, shared
-}
-
-// mayShare says edge i may run along, turn on or end at everything in the
-// cell owned by those.
-func (rt *router) mayShare(i int, owners []int) bool {
-	for _, j := range owners {
-		if !rt.sharing(i, j) {
-			return false
-		}
-	}
-	return true
 }
 
 func newRouter(l *layouter) *router {
@@ -856,15 +833,6 @@ func loop(a Rect) []Point {
 	cy := a.Y + a.H/2
 	x := a.X + a.W*3/4
 	return []Point{{ax1, cy}, {ax1 + 3, cy}, {ax1 + 3, ay1 + 2}, {x, ay1 + 2}, {x, ay1}}
-}
-
-func firstLine(s string) string {
-	for i, r := range s {
-		if r == '\n' {
-			return s[:i]
-		}
-	}
-	return s
 }
 
 func abs(x int) int {

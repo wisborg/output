@@ -263,6 +263,9 @@ func sgr(layer int, col color.Color) string {
 	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", layer, n.R, n.G, n.B)
 }
 
+// same says a and b are the same colour, nil the same as nil alone: the
+// text drawing's test for a change of colour, and the router's for two
+// lines drawn alike.
 func same(a, b color.Color) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
