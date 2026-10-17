@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/clipperhouse/uax29/v2/graphemes"
 )
 
 // The directions a line leaves a cell in; a cell's box-drawing character is
@@ -36,16 +38,20 @@ var joins = [16]rune{
 type textCanvas struct {
 	w, h   int
 	lines  [][]uint8
-	dashed [][]bool        // a cell whose lines are all dashed
-	text   [][]rune        // written over the lines; 0 where nothing is
-	dots   [][]uint8       // a straight edge's braille dots, where no line or text is
-	merged [][]bool        // a cell where a straight edge crosses a line, both drawn in dots
-	thick  bool            // braille two dots deep
-	fg, bg [][]color.Color // nil for the terminal's own
+	dashed [][]bool // a cell whose lines are all dashed
+	text   [][]rune // written over the lines; 0 where nothing is, wideTail after a wide character
+	// clusters are the cells whose character is more than one rune -- an
+	// accented letter written with a combining accent, a flag, a family
+	// joined by zero-width joiners -- text holding the first.
+	clusters map[Point]string
+	dots     [][]uint8       // a straight edge's braille dots, where no line or text is
+	merged   [][]bool        // a cell where a straight edge crosses a line, both drawn in dots
+	thick    bool            // braille two dots deep
+	fg, bg   [][]color.Color // nil for the terminal's own
 }
 
 func newTextCanvas(w, h int) *textCanvas {
-	c := &textCanvas{w: w, h: h}
+	c := &textCanvas{w: w, h: h, clusters: map[Point]string{}}
 	c.lines, c.dashed, c.text = make([][]uint8, h), make([][]bool, h), make([][]rune, h)
 	c.fg, c.bg, c.dots, c.merged = make([][]color.Color, h), make([][]color.Color, h), make([][]uint8, h), make([][]bool, h)
 	for y := range h {
@@ -125,6 +131,7 @@ func (c *textCanvas) clear(r Rect, bg color.Color) {
 		for x := r.X; x < r.X+r.W; x++ {
 			if c.in(x, y) {
 				c.lines[y][x], c.text[y][x], c.fg[y][x], c.bg[y][x] = 0, 0, nil, bg
+				delete(c.clusters, Point{x, y})
 			}
 		}
 	}
@@ -141,26 +148,46 @@ func (c *textCanvas) fill(r Rect, bg color.Color) {
 	}
 }
 
-// write writes s from (x, y) in col, over the lines.
+// wideTail is the text of the cell after a character two columns wide,
+// which the character covers: nothing is written for it.
+const wideTail rune = -1
+
+// write writes s from (x, y) in col, over the lines: a character to a
+// cell, or two for a wide one, as Width counts them. A control character is
+// written as U+FFFD, as printable has it; a combining mark with nothing
+// before it to combine with takes no cell, and is not written.
 func (c *textCanvas) write(x, y int, s string, col color.Color) {
-	for _, r := range s {
+	g := graphemes.FromString(printable(s))
+	for g.Next() {
+		cl := g.Value()
+		w := cells.StringWidth(cl)
+		if w == 0 {
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(cl)
 		c.set(x, y, r, col)
-		x++
+		if size < len(cl) && c.in(x, y) {
+			c.clusters[Point{x, y}] = cl
+		}
+		for k := 1; k < w; k++ {
+			c.set(x+k, y, wideTail, col)
+		}
+		x += w
 	}
 }
 
-// set puts r at (x, y) in col. A control character is written as U+FFFD:
-// a label is text someone else may have written, and an escape in it
-// written to a terminal is a command to the terminal -- to clear it, retitle
-// the window, or write the clipboard -- where a tab or a carriage return
-// breaks the box it is in. One cell for one, so the layout, which counts a
-// label's runes, still fits it.
+// set puts r at (x, y) in col. A control character is written as U+FFFD,
+// as write writes one: a label is text someone else may have written, and
+// an escape in it written to a terminal is a command to the terminal -- to
+// clear it, retitle the window, or write the clipboard -- where a tab or a
+// carriage return breaks the box it is in.
 func (c *textCanvas) set(x, y int, r rune, col color.Color) {
-	if unicode.IsControl(r) {
+	if r != wideTail && unicode.IsControl(r) {
 		r = '\uFFFD'
 	}
 	if c.in(x, y) {
 		c.text[y][x], c.fg[y][x] = r, col
+		delete(c.clusters, Point{x, y})
 	}
 }
 
@@ -178,6 +205,9 @@ func (c *textCanvas) rows(colour bool) []string {
 		var fg, bg color.Color
 		for x := range end {
 			r := c.text[y][x]
+			if r == wideTail {
+				continue // covered by the wide character before it
+			}
 			if r == 0 && (c.lines[y][x] == 0 || c.merged[y][x]) && c.dots[y][x] != 0 {
 				r = rune(0x2800) + rune(c.dots[y][x])
 			}
@@ -206,7 +236,11 @@ func (c *textCanvas) rows(colour bool) []string {
 					bg = c.bg[y][x]
 				}
 			}
-			b.WriteRune(r)
+			if cl, ok := c.clusters[Point{x, y}]; ok {
+				b.WriteString(cl)
+			} else {
+				b.WriteRune(r)
+			}
 		}
 		if colour && (fg != nil || bg != nil) {
 			b.WriteString("\x1b[0m")
@@ -516,7 +550,7 @@ func drawTextNode(c *textCanvas, n PlacedNode, pal Palette) {
 		top = r.Y
 	}
 	for i, line := range lines {
-		c.write(r.X+(r.W-utf8.RuneCountInString(line))/2, top+i, line, ink)
+		c.write(r.X+(r.W-Width(line))/2, top+i, line, ink)
 	}
 }
 

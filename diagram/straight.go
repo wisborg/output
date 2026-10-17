@@ -3,7 +3,6 @@ package diagram
 import (
 	"math"
 	"strings"
-	"unicode/utf8"
 )
 
 // The layout's straight edges are worked out in cell coordinates, a cell's
@@ -243,7 +242,7 @@ func (lay *Layout) placeStraightLabels() {
 		lines := strings.Split(e.Edge.Label, "\n")
 		w := 0
 		for _, l := range lines {
-			w = max(w, utf8.RuneCountInString(l))
+			w = max(w, Width(l))
 		}
 		if !e.Straight {
 			e.pictureAt, e.pictured = lay.placeOn(o, segmentTries(e.Points, shared, w, len(lines)), lines, w, top)

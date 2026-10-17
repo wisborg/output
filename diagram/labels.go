@@ -3,7 +3,6 @@ package diagram
 import (
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
 
 // occupancy is which cells of a layout hold something a label must not be
@@ -65,7 +64,7 @@ func (o *occupancy) rect(r Rect, inside bool) {
 // free says the block of lines from at is clear, and inside the layout.
 func (o *occupancy) free(at Point, lines []string) bool {
 	for i, l := range lines {
-		for k := range utf8.RuneCountInString(l) {
+		for k := range Width(l) {
 			x, y := at.X+k, at.Y+i
 			if x < 0 || y < -o.top || x >= o.w || y >= o.h || o.taken[y+o.top][x] {
 				return false
@@ -79,7 +78,7 @@ func (o *occupancy) free(at Point, lines []string) bool {
 // over: its own line's.
 func (o *occupancy) freeBut(at Point, lines []string, own map[Point]bool) bool {
 	for i, l := range lines {
-		for k := range utf8.RuneCountInString(l) {
+		for k := range Width(l) {
 			x, y := at.X+k, at.Y+i
 			if x < 0 || y < -o.top || x >= o.w || y >= o.h || o.taken[y+o.top][x] && !own[Point{x, y}] {
 				return false
@@ -91,7 +90,7 @@ func (o *occupancy) freeBut(at Point, lines []string, own map[Point]bool) bool {
 
 func (o *occupancy) take(at Point, lines []string) {
 	for i, l := range lines {
-		for k := range utf8.RuneCountInString(l) {
+		for k := range Width(l) {
 			o.mark(at.X+k, at.Y+i)
 		}
 	}
@@ -147,7 +146,7 @@ func (lay *Layout) placeLabels() {
 		switch g.Group.Style {
 		case Frame:
 			o.rect(r, false)
-			n := utf8.RuneCountInString(label) + 2
+			n := Width(label) + 2
 			g.LabelAt = Point{r.X + 2, r.Y}
 		search:
 			for x := r.X + 2; x+n <= r.X+r.W-2; x++ {
@@ -160,7 +159,7 @@ func (lay *Layout) placeLabels() {
 				break
 			}
 		case Lane:
-			g.LabelAt = Point{r.X + r.W - utf8.RuneCountInString(label), r.Y + (r.H-1)/2}
+			g.LabelAt = Point{r.X + r.W - Width(label), r.Y + (r.H-1)/2}
 		}
 		if label != "" && g.Group.Style != Hidden {
 			o.take(g.LabelAt, []string{" " + label + " "})
@@ -175,7 +174,7 @@ func (lay *Layout) placeLabels() {
 		lines := strings.Split(e.Edge.Label, "\n")
 		width := 0
 		for _, l := range lines {
-			width = max(width, utf8.RuneCountInString(l))
+			width = max(width, Width(l))
 		}
 		tries := segmentTries(e.Points, shared, width, len(lines))
 		e.LabelAt = tries[0]

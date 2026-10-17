@@ -263,3 +263,65 @@ func TestTextWritesNoControlCharacters(t *testing.T) {
 		}
 	}
 }
+
+// A label is measured in a terminal's columns: a CJK character two, a
+// combining accent none, a flag two. Counted in runes, a CJK label
+// overflowed its box and pushed the boxes after it on its line out of true;
+// a combining accent made its box a column too wide.
+func TestTextMeasuresLabelsInColumns(t *testing.T) {
+	for in, want := range map[string]int{"abc": 3, "日本": 4, "e\u0301t\u00e9": 3, "🇩🇰": 2, "a\x1bb": 3, "±°": 2} {
+		if got := Width(in); got != want {
+			t.Errorf("Width(%q) = %d, want %d", in, got, want)
+		}
+	}
+	d := &Diagram{
+		Root:  Group{Columns: 3, Items: []Item{node("日本"), node("e\u0301te\u0301"), node("🇩🇰 漢字")}},
+		Edges: []Edge{{From: "日本", To: "e\u0301te\u0301", Head: true, Label: "東京"}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := lay.Text()
+	text := strings.Join(lines, "\n")
+	for _, want := range []string{"│ 日本 ├", "│ e\u0301te\u0301 │", "│ 🇩🇰 漢字 │", "東京"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("no %q in:\n%s", want, text)
+		}
+	}
+	// Every box's corners and sides line up: each column holding a corner
+	// in one row holds the box's side or other corner in the rows of its
+	// height. Checked on the display columns, not the runes.
+	cols := func(l string) map[int]rune {
+		m := map[int]rune{}
+		x := 0
+		for _, r := range l {
+			m[x] = r
+			x += Width(string(r))
+		}
+		return m
+	}
+	for i := range lines {
+		row := cols(lines[i])
+		for x, r := range row {
+			if r != '┌' && r != '┐' {
+				continue
+			}
+			for j := i + 1; j < len(lines); j++ {
+				below := cols(lines[j])[x]
+				if below == '└' || below == '┘' {
+					break
+				}
+				if below != '│' && below != '├' && below != '┤' && below != '┼' {
+					t.Errorf("the corner at row %d, column %d has %q beneath it in row %d:\n%s", i, x, below, j, text)
+					break
+				}
+			}
+		}
+	}
+	for i, l := range lines {
+		if w := Width(l); w > lay.Width {
+			t.Errorf("line %d is %d columns, wider than the layout's %d", i, w, lay.Width)
+		}
+	}
+}

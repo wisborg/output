@@ -82,12 +82,12 @@ tidy:
 # import today. CLAUDE.md gives the reasons; this checks them, against what
 # each package actually compiles in:
 #
-#   chart, chart/terminal,
+#   chart, chart/terminal   the standard library only
 #   diagram, diagram/dot,
-#   diagram/svg             the standard library only
+#   diagram/svg             go-runewidth and uax29, to measure labels
 #   chart/picture,
-#   diagram/picture,
 #   internal/canvas         add golang.org/x/image, and x/text beneath it
+#   diagram/picture         x/image, and diagram's go-runewidth
 #   table, progress         go-runewidth and uax29, and never YAML or x/image
 #   the root package        adds YAML, and never x/image
 #
@@ -101,11 +101,13 @@ deps:
 	    bad=$$(go list -deps $$pkgs | grep -E '^[^/]*\.[^/]*/' | grep -v '^github.com/wisborg/output' | grep -E "$$banned" || true); \
 	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$pkgs compiles in:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
 	  }; \
-	  check "./chart ./chart/terminal ./diagram ./diagram/dot ./diagram/svg" '.'; \
-	  check "./chart/picture ./diagram/picture ./internal/canvas" '^(github.com/mattn|github.com/clipperhouse|go.yaml.in)/'; \
+	  check "./chart ./chart/terminal" '.'; \
+	  check "./diagram ./diagram/dot ./diagram/svg" '^(go.yaml.in|golang.org/x)/'; \
+	  check "./chart/picture ./internal/canvas" '^(github.com/mattn|github.com/clipperhouse|go.yaml.in)/'; \
+	  check "./diagram/picture" '^go.yaml.in/'; \
 	  check "./table ./progress" '^(go.yaml.in|golang.org/x/image)/'; \
 	  check "." '^golang.org/x/image/'; \
-	  [ $$fail -eq 0 ] && echo "deps: chart and diagram are the standard library alone, x/image only in their picture packages, YAML only in the root package"; \
+	  [ $$fail -eq 0 ] && echo "deps: chart is the standard library alone, diagram adds only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
 	  exit $$fail
 
 ## clean: remove bin/, and empty .scratch/

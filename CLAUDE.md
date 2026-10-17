@@ -26,7 +26,8 @@ make clean                 # remove bin/, empty .scratch/
 
 `make deps` is how the layering under Layout below is kept rather than
 merely described: it fails if `chart` or `chart/terminal` compiles in
-anything outside the standard library, `table` or `progress` YAML or x/image,
+anything outside the standard library, the diagram packages anything but
+go-runewidth and uax29, `table` or `progress` YAML or x/image,
 or the root package x/image. A new dependency in any package is a visible
 edit to that target.
 
@@ -93,10 +94,15 @@ from reality is a test failure.
 
 `progress` imports neither the root package nor `table`, the same way `table`
 imports neither of the others. `chart` imports only the standard library, as
-do `chart/terminal`, `diagram`, `diagram/dot` and `diagram/svg`; only
-`chart/picture`, `diagram/picture` and `internal/canvas` import
-`golang.org/x/image`, so a program drawing charts or diagrams in text, or a
-diagram as SVG, does not link it.
+does `chart/terminal`. `diagram`, `diagram/dot` and `diagram/svg` import
+go-runewidth and the grapheme clusters beneath it, and nothing else: a label
+is measured in a terminal's columns, as a table's cell is, because counting
+its runes overflowed a CJK label's box and pushed the boxes after it out of
+true. That was a decision, against the standard library alone, which the
+diagram packages had kept until then. Only `chart/picture`,
+`diagram/picture` and `internal/canvas` import `golang.org/x/image`, so a
+program drawing charts or diagrams in text, or a diagram as SVG, does not
+link it.
 
 `table` does not import the root package, and nothing imports the YAML
 library twice: a program that only builds tables does not link it.

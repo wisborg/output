@@ -26,8 +26,11 @@
 // picture draws each cell as a fixed box of pixels, in a monospaced font,
 // whose letters are a cell wide as the terminal's are.
 //
-// The package imports only the standard library. Reading a diagram from
-// Graphviz's DOT language is the dot package's.
+// A label is measured in a terminal's columns, as the table package measures
+// a cell, with go-runewidth -- a CJK character two, a combining accent none
+// -- which, with the grapheme clusters it uses, is the package's one
+// dependency. Reading a diagram from Graphviz's DOT language is the dot
+// package's.
 package diagram
 
 import (

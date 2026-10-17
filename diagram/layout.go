@@ -5,7 +5,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
 
 // The spaces a layout leaves, in cells: between the columns of a grid or the
@@ -127,7 +126,7 @@ func nodeSize(n *Node) size {
 	lines := strings.Split(n.label(), "\n")
 	w := 0
 	for _, l := range lines {
-		w = max(w, utf8.RuneCountInString(l))
+		w = max(w, Width(l))
 	}
 	h := len(lines)
 	switch n.Shape {
@@ -166,12 +165,12 @@ type plan struct {
 func (p *plan) outer() size {
 	switch p.g.Style {
 	case Frame:
-		return size{max(p.w+2*frameSide, utf8.RuneCountInString(p.g.Label)+2*frameSide), p.h + 2*frameTop}
+		return size{max(p.w+2*frameSide, Width(p.g.Label)+2*frameSide), p.h + 2*frameTop}
 	case Lane:
 		if p.g.Label == "" {
 			return size{p.w, p.h}
 		}
-		return size{p.w + laneLabelGap + utf8.RuneCountInString(p.g.Label), p.h}
+		return size{p.w + laneLabelGap + Width(p.g.Label), p.h}
 	}
 	return size{p.w, p.h}
 }
@@ -208,7 +207,7 @@ func (d *Diagram) Layout() (*Layout, error) {
 		top = 2
 	}
 	l.place(p, 0, top, p.w, p.h)
-	l.out.Width = max(p.w, utf8.RuneCountInString(d.Title))
+	l.out.Width = max(p.w, Width(d.Title))
 	l.out.Height = top + p.h
 	l.route()
 	// A loop may reach past the boxes.
@@ -244,11 +243,11 @@ func (lay *Layout) placeLegend(lg *Legend) {
 	for _, e := range lg.Entries {
 		lines := strings.Split(e.Label, "\n")
 		for _, l := range lines {
-			w = max(w, legendSample+legendGap+utf8.RuneCountInString(l))
+			w = max(w, legendSample+legendGap+Width(l))
 		}
 		h += len(lines)
 	}
-	frame := Rect{0, top, max(w, utf8.RuneCountInString(lg.Label)) + 2*frameSide, h + 2*frameTop}
+	frame := Rect{0, top, max(w, Width(lg.Label)) + 2*frameSide, h + 2*frameTop}
 	y := top + frameTop
 	for i := range lg.Entries {
 		e := &lg.Entries[i]
@@ -813,7 +812,7 @@ func (l *layouter) place(p *plan, x, y, w, h int) {
 			inner = Rect{x + frameSide, y + frameTop, w - 2*frameSide, h - 2*frameTop}
 		case Lane:
 			if g.Label != "" {
-				inner.W -= laneLabelGap + utf8.RuneCountInString(g.Label)
+				inner.W -= laneLabelGap + Width(g.Label)
 			}
 		}
 	}

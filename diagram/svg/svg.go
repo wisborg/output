@@ -4,7 +4,8 @@
 //
 // The text is set in a monospaced font -- Go Mono where the reader has it,
 // else the platform's own -- since the layout measures every letter as one
-// cell wide. It imports only the standard library.
+// cell wide, or two for a wide one, as diagram.Width counts them. It
+// imports nothing the diagram package does not.
 package svg
 
 import (
@@ -13,7 +14,6 @@ import (
 	"io"
 	"math"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/wisborg/output/diagram"
 )
@@ -271,7 +271,7 @@ func (d *doc) labels() {
 		}
 		col := or(g.Group.Colour, d.pal.Dim)
 		if g.Group.Style == diagram.Frame {
-			d.patch(utf8.RuneCountInString(label)+2, d.s.Left(g.LabelAt.X), d.s.Y(g.LabelAt.Y))
+			d.patch(diagram.Width(label)+2, d.s.Left(g.LabelAt.X), d.s.Y(g.LabelAt.Y))
 			d.text(label, d.s.Left(g.LabelAt.X+1), d.s.Y(g.LabelAt.Y), "start", d.px, col)
 			continue
 		}
@@ -285,7 +285,7 @@ func (d *doc) labels() {
 			at := e.PictureLabelAt()
 			nx, ny := e.PictureLabelNudge()
 			x, y := d.s.Left(at.X)+nx*d.s.Cell, d.s.Y(at.Y+i)+ny*d.s.Line
-			d.patch(utf8.RuneCountInString(l), x, y)
+			d.patch(diagram.Width(l), x, y)
 			d.text(l, x, y, "start", d.px*0.9, d.pal.Dim)
 		}
 	}
