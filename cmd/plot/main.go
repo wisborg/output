@@ -9,7 +9,8 @@
 //
 // It reads CSV: values delimited by commas, tabs, semicolons or bars -- it
 // tells which by looking -- quoted where they hold the delimiter, with or
-// without a first row naming the columns. Other formats may come; the
+// without a first row naming the columns, and with decimal commas where the
+// delimiter is not a comma. Other formats may come; the
 // reading is one file of this command, and the chart does not care where
 // its numbers came from.
 //

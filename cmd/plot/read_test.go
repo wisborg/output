@@ -21,6 +21,7 @@ func TestSniffDelimiter(t *testing.T) {
 		{"commas in a tab file", "note\tv\nhi, there\t1\nyes\t2\n", '\t'},
 		{"one column", "v\n1\n2\n", ','},
 		{"CRLF", "a;b\r\n1;2\r\n", ';'},
+		{"decimal commas, no header", "1,5;2,5\n2,5;3,5\n", ';'},
 	} {
 		if got := sniffDelimiter([]byte(c.data)); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
@@ -85,5 +86,47 @@ func TestParseDelimiter(t *testing.T) {
 		if _, err := parseDelimiter(in); err == nil {
 			t.Errorf("%q taken as a delimiter", in)
 		}
+	}
+}
+
+// In a tab file an empty cell is two tabs in a row, and the values after it
+// stay in their own columns rather than each moving one left.
+func TestReadTableKeepsATabFilesEmptyCells(t *testing.T) {
+	tb, err := readTable(strings.NewReader("a\tb\tc\n1\t\t3\n\t5\t6\n"), 0, headerAuto, datesAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"1", "", "3"}, {"", "5", "6"}}
+	if !reflect.DeepEqual(tb.rows, want) {
+		t.Errorf("rows %q, want %q", tb.rows, want)
+	}
+}
+
+// A file delimited by semicolons, or tabs, writes its numbers with decimal
+// commas: "1,250" there is one and a quarter, and a headerless file of them
+// is told from a comma file though each line holds as many commas as
+// semicolons. In a comma file a quoted "1,250" is still twelve hundred and
+// fifty.
+func TestReadTableReadsDecimalCommas(t *testing.T) {
+	for _, c := range []struct {
+		name, data string
+		want       [][]string
+	}{
+		{"semicolons", "t;v\n1;1,250\n2;-1.234,5\n3;2,5\n", [][]string{{"1", "1.250"}, {"2", "-1234.5"}, {"3", "2.5"}}},
+		{"no header", "1,5;2,5\n2,5;3,5\n", [][]string{{"1.5", "2.5"}, {"2.5", "3.5"}}},
+		{"tabs", "t\tv\n1\t0,5\n", [][]string{{"1", "0.5"}}},
+		{"commas", "t,v\n1,\"1,250\"\n", [][]string{{"1", "1,250"}}},
+		{"text", "t;v\n1;a,b\n", [][]string{{"1", "a,b"}}},
+	} {
+		tb, err := readTable(strings.NewReader(c.data), 0, headerAuto, datesAuto)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if !reflect.DeepEqual(tb.rows, c.want) {
+			t.Errorf("%s: rows %q, want %q", c.name, tb.rows, c.want)
+		}
+	}
+	if v, ok := parseNumber("1,250"); !ok || v != 1250 {
+		t.Errorf("a grouped number reads %v, %v", v, ok)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 )
 
 // table is a file's cells as text: its columns' names, and its rows, each
@@ -30,6 +31,12 @@ var delimiters = []rune{'\t', ',', ';', '|'}
 // A count that differs from line to line rules a delimiter out: a comma
 // file's lines each hold the same commas, where the commas inside a tab
 // file's values vary with the values.
+//
+// Where semicolons fit too, they win over commas however many commas there
+// are. A file delimited by semicolons is one written where a comma is the
+// decimal point, and with no header, "1,5;2,5" holds two commas a line to
+// one semicolon -- read as commas, it was three columns of fragments. A
+// comma file whose every line holds the same semicolons is much the rarer.
 func sniffDelimiter(data []byte) rune {
 	var lines []string
 	for line := range strings.SplitSeq(string(data), "\n") {
@@ -41,6 +48,7 @@ func sniffDelimiter(data []byte) rune {
 		}
 	}
 	best, bestN := ',', 0
+	semicolons := false
 	for _, d := range delimiters {
 		n := -1
 		for _, l := range lines {
@@ -54,6 +62,12 @@ func sniffDelimiter(data []byte) rune {
 		if n > bestN {
 			best, bestN = d, n
 		}
+		if d == ';' && n > 0 {
+			semicolons = true
+		}
+	}
+	if best == ',' && semicolons {
+		return ';'
 	}
 	return best
 }
@@ -106,7 +120,9 @@ const (
 //
 // The reader forgives what spreadsheets and hand-written files do: rows of
 // different lengths, a quote inside an unquoted value, spaces after a
-// delimiter, and the byte-order mark Excel begins a UTF-8 file with.
+// delimiter, and the byte-order mark Excel begins a UTF-8 file with. In a
+// file not delimited by commas, a number written with a decimal comma --
+// "1,5", "1.234,5" -- is read as one, as decimalPoint has it.
 func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder) (*table, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -120,7 +136,12 @@ func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder) (*ta
 	cr.Comma = delim
 	cr.FieldsPerRecord = -1
 	cr.LazyQuotes = true
-	cr.TrimLeadingSpace = true
+	// Not where the delimiter is itself a space: encoding/csv trims the
+	// leading space even then, so a tab file's empty cell -- two tabs in a
+	// row -- vanished and every value after it moved a column left, to be
+	// plotted as the column before it. Each cell is trimmed below anyway;
+	// this is for a quoted value after ", ".
+	cr.TrimLeadingSpace = !unicode.IsSpace(delim)
 	records, err := cr.ReadAll()
 	if err != nil {
 		var pe *csv.ParseError
@@ -139,6 +160,9 @@ func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder) (*ta
 	for i, rec := range records {
 		for j := range rec {
 			rec[j] = strings.TrimSpace(rec[j])
+			if delim != ',' {
+				rec[j] = decimalPoint(rec[j])
+			}
 		}
 		for len(rec) < width {
 			rec = append(rec, "")

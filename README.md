@@ -404,7 +404,10 @@ plot --list prices.csv                   # what each column holds
 
 It reads values delimited by commas, tabs, semicolons or bars — it tells which
 by looking, or `--delimiter` says — quoted where they hold the delimiter, with
-or without a first row of names. A column is plotted by name or by number.
+or without a first row of names. Where the delimiter is not a comma, a number
+may be written with a decimal comma, `1,5` or `1.234,5`, as a spreadsheet
+writes one where a comma is the decimal point. A column is plotted by name or
+by number.
 Without `--x` the first column is the axis where it holds dates, or numbers in
 order; otherwise the row is. Dates are read in ISO 8601's forms, with month
 names, and in numbers alone — `03/04/2024` — whose day and month are told

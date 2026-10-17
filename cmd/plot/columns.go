@@ -21,8 +21,29 @@ func missing(cell string) bool {
 
 // grouped is a number written with commas between its thousands,
 // "1,234,567.89", as a spreadsheet exports a formatted cell -- quoted, in a
-// comma-delimited file.
+// comma-delimited file. In a file delimited otherwise, a comma is a decimal
+// comma, and decimalPoint has rewritten it before a cell is read.
 var grouped = regexp.MustCompile(`^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$`)
+
+// decimalComma is a number written with a decimal comma, "1,5" or
+// "-1.234,56": its thousands, if marked at all, marked by points.
+var decimalComma = regexp.MustCompile(`^[+-]?(\d+|\d{1,3}(\.\d{3})+),\d+$`)
+
+// decimalPoint is cell with a decimal comma written as a point, and its
+// points between thousands taken out -- "1.234,5" is "1234.5" -- or cell
+// as it was, where it is no number written so.
+//
+// It is for files not delimited by commas, which are where a decimal comma
+// is written: a comma-delimited file can hold one only quoted, and a
+// spreadsheet quotes "1,234" there for its thousands. In a file delimited
+// by semicolons, "1,250" is one and a quarter, not twelve hundred and
+// fifty, which grouped would have made it: a thousand times too large.
+func decimalPoint(cell string) string {
+	if !decimalComma.MatchString(cell) {
+		return cell
+	}
+	return strings.Replace(strings.ReplaceAll(cell, ".", ""), ",", ".", 1)
+}
 
 // parseNumber is cell as a number: as Go reads a float -- "12", "-0.5",
 // "1e6" -- or with commas between its thousands. Infinity and NaN are no
