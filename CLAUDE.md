@@ -79,8 +79,11 @@ from reality is a test failure.
   SVG by `cmd/diagram`'s `TestExamples`, so one that stops reading fails the
   build rather than the reader.
 - `internal/cli/` — what the commands share in reading their command line:
-  `Parse` takes flags before or after the file, and `PrintDefaults` lists
-  them as `--out string`, as fitdash does. The standard `flag` package reads
+  `Parse` takes flags before or after the file and returns a mistake as a
+  `UsageError` without printing, `Exit` reports it and exits 2 (0 for
+  help, which the command prints on standard output, 1 for anything
+  else), and `PrintDefaults` lists the flags as `--out string`, as fitdash
+  does. The standard `flag` package reads
   `-out` and `--out` alike; pflag would list them the same but read `-out`
   as `-o -u -t`, breaking command lines already written.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
@@ -93,7 +96,8 @@ from reality is a test failure.
   `Node`, `Edge`), `Palette`; `layout.go` — `Layout`, grids and layers;
   `route.go` — the search for edges' paths along rows and columns; `straight.go` — which edges a
   picture draws straight, and their labels; `labels.go` — where labels go;
-  `scale.go` — cells to a picture's units; `text.go` — the text drawing.
+  `scale.go` — cells to a picture's units; `text.go` — the text drawing;
+  `width.go` — `Width`, the one measure of a label in cells.
 - `diagram/dot/` — the DOT lexer, parser and colours.
 - `diagram/picture/`, `diagram/svg/` — the PNG and the SVG of a layout.
 - `cmd/diagram/` — the `diagram` command.
