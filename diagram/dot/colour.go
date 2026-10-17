@@ -33,7 +33,7 @@ func parseColour(v string) (color.Color, error) {
 		}
 		return color.NRGBA{uint8(n >> 24), uint8(n >> 16), uint8(n >> 8), uint8(n)}, nil
 	}
-	name := strings.ToLower(strings.TrimPrefix(v, "/x11/"))
+	name := strings.TrimPrefix(strings.ToLower(v), "/x11/")
 	if name == "transparent" || name == "none" {
 		return color.NRGBA{}, nil
 	}
@@ -60,5 +60,5 @@ var colourNames = map[string]uint32{
 	"coral": 0xFF7F50, "turquoise": 0x40E0D0, "aquamarine": 0x7FFFD4, "olivedrab": 0x6B8E23,
 	"palegreen": 0x98FB98, "honeydew": 0xF0FFF0, "mintcream": 0xF5FFFA, "aliceblue": 0xF0F8FF,
 	"whitesmoke": 0xF5F5F5, "gainsboro": 0xDCDCDC, "silver": 0xC0C0C0, "maroon": 0xB03060,
-	"olive": 0x808000, "indigo": 0x4B0082, "transparent": 0xFFFFFF,
+	"olive": 0x808000, "indigo": 0x4B0082,
 }

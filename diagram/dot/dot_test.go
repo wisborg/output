@@ -208,7 +208,15 @@ func TestErrors(t *testing.T) {
 		{"graph {\n a -> b\n}", 2, "a graph's edges are --"},
 		{"digraph {\n a [label=\"open\n}", 2, "never closed"},
 		{"digraph {\n a [color=chartreuse4x]\n}", 2, `no colour "chartreuse4x"`},
-		{"digraph {\n subgraph cluster_a {\n columns=0 }\n}", 2, "columns"},
+		// The line the attribute is on, not where its cluster or node
+		// begins, nor the line of the token after it.
+		{"digraph {\n subgraph cluster_a {\n columns=0 }\n}", 3, "columns"},
+		{"digraph{\na -> b [color=nope]\n\n\nc\n}", 2, `edge a to b: color="nope"`},
+		{"digraph{\nnode [color=nope]\na\n\n\n}", 2, `node "a": color="nope"`},
+		{"digraph{\na [color=nope]\n\n\na [label=x]\n}", 2, `node "a": color="nope"`},
+		{"digraph{\ncolumns=x\n}", 2, "columns"},
+		{"digraph {\n a [label=<b\n\n\n\n}", 2, "HTML string is never closed"},
+		{"digraph { a } } garbage", 1, "after the graph's closing }"},
 		{"digraph {\n a ->\n}", 3, "expected a node"},
 		{"flowchart {}", 1, "begins with graph or digraph"},
 		{"digraph {\n a\n", 3, "a } is missing"},
@@ -315,5 +323,71 @@ func TestLimits(t *testing.T) {
 	}
 	if _, err := Parse("digraph{" + strings.Repeat("{", 100) + "a" + strings.Repeat("}", 100) + "}"); err != nil {
 		t.Errorf("nested 100 deep: %v", err)
+	}
+}
+
+// DOT is read as Graphviz reads it, in the places it was not.
+func TestReadsAsGraphviz(t *testing.T) {
+	// "\\" is a backslash, and the quote after it closes the string; a
+	// backslash before CRLF continues the line, as before LF.
+	d := parse(t, "digraph { a [label=\"C:\\\\\"]; b [label=\"one \\\r\ntwo\"] }")
+	if got := d.Root.Items[0].Node.Label; got != `C:\` {
+		t.Errorf(`label="C:\\" read as %q`, got)
+	}
+	if got := d.Root.Items[1].Node.Label; got != "one two" {
+		t.Errorf("a continued line read as %q", got)
+	}
+
+	// A cluster written twice is one cluster, with the nodes of both and
+	// the attributes of both, the second's over the first's.
+	d = parse(t, "digraph { subgraph cluster_a { label=A; color=red; x } subgraph cluster_a { label=B; y } }")
+	if len(d.Root.Items) != 1 || d.Root.Items[0].Group == nil {
+		t.Fatalf("items %v, want the one cluster", items(&d.Root))
+	}
+	if g := d.Root.Items[0].Group; !reflect.DeepEqual(items(g), []string{"x", "y"}) || g.Label != "B" || g.Colour == nil {
+		t.Errorf("cluster_a holds %v, labelled %q, colour %v", items(g), g.Label, g.Colour)
+	}
+
+	// A node mentioned in a cluster and then in a cluster inside it moves
+	// in, as one mentioned outside every cluster does.
+	d = parse(t, "digraph { subgraph cluster_o { label=O; x; subgraph cluster_i { label=I; x } } }")
+	outer := d.Root.Items[0].Group
+	if got := items(outer); !reflect.DeepEqual(got, []string{"cluster_i[x]"}) {
+		t.Errorf("O holds %v, want only I, holding x", got)
+	}
+
+	// label="" is no words, where no label is the node's name; \G is the
+	// graph's name and \N the node's.
+	d = parse(t, `digraph G { a [label=""]; b [label="\N in \G"]; c }`)
+	if got := d.Root.Items[0].Node.Label; strings.TrimSpace(got) != "" || got == "" {
+		t.Errorf(`label="" read as %q`, got)
+	}
+	if got := d.Root.Items[1].Node.Label; got != "b in G" {
+		t.Errorf(`\N in \G read as %q`, got)
+	}
+
+	// An HTML label's character references by number are read, and an
+	// X11 colour's prefix in any case.
+	d = parse(t, `digraph { a [label=<x &#60; y &#x3E; z>, color="/X11/Red"] }`)
+	if n := d.Root.Items[0].Node; n.Label != "x < y > z" || n.Colour == nil {
+		t.Errorf("label %q, colour %v", n.Label, n.Colour)
+	}
+
+	// A strict graph's edge written twice is one edge with the attributes
+	// of both.
+	d = parse(t, `strict digraph { a -> b [color=red]; a -> b [label=x] }`)
+	if len(d.Edges) != 1 || d.Edges[0].Label != "x" || d.Edges[0].Colour == nil {
+		t.Errorf("edges %+v, want one, labelled x and red", d.Edges)
+	}
+
+	// A legend entry without a label is named by its node's name.
+	d = parse(t, `digraph { subgraph cluster_k { style=legend; label=Key; ok [style=filled, fillcolor=green] } a }`)
+	if d.Legend == nil || len(d.Legend.Entries) != 1 || d.Legend.Entries[0].Label != "ok" {
+		t.Errorf("legend %+v", d.Legend)
+	}
+
+	// After the first graph, another or nothing.
+	if _, err := Parse("digraph { a } digraph { b }"); err != nil {
+		t.Errorf("a second graph: %v", err)
 	}
 }

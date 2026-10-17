@@ -44,8 +44,10 @@
 package dot
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -55,12 +57,18 @@ import (
 // Parse reads a diagram from DOT source. Only the first graph of a file is
 // read.
 func Parse(src string) (*diagram.Diagram, error) {
-	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}}
+	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}, clusters: map[string]*clusterInfo{}}
 	if err := p.advance(); err != nil {
 		return nil, err
 	}
 	if err := p.graph(); err != nil {
 		return nil, err
+	}
+	// Only the first graph is read, but what follows it must be another,
+	// or nothing: a stray brace, or a statement pasted after the graph's
+	// end, is a mistake to be told of rather than dropped unread.
+	if p.tok.kind != tEOF && !p.keyword("strict") && !p.keyword("graph") && !p.keyword("digraph") {
+		return nil, p.errorf("unexpected %s after the graph's closing }", p.describe())
 	}
 	return p.d, nil
 }
@@ -73,7 +81,8 @@ type nodeInfo struct {
 	n     *diagram.Node
 	group *diagram.Group
 	attrs map[string]string
-	line  int // the last line that set an attribute
+	lines map[string]int // the line that set each attribute
+	line  int            // the line the node was made on
 }
 
 // scope is a graph's or a subgraph's: the defaults its statements start
@@ -81,20 +90,34 @@ type nodeInfo struct {
 type scope struct {
 	nodeAttrs, edgeAttrs map[string]string
 	graphAttrs           map[string]string
-	group                *diagram.Group // the group its nodes are in: the innermost cluster
-	nodes                []string       // the nodes it holds, in order: an edge's end, rank=same
+	// The line that set each, for an error about it to name.
+	nodeLines, edgeLines, graphLines map[string]int
+	group                            *diagram.Group // the group its nodes are in: the innermost cluster
+	nodes                            []string       // the nodes it holds, in order: an edge's end, rank=same
 }
 
 func (s *scope) child() *scope {
-	return &scope{nodeAttrs: clone(s.nodeAttrs), edgeAttrs: clone(s.edgeAttrs), graphAttrs: map[string]string{}, group: s.group}
+	return &scope{
+		nodeAttrs: clone(s.nodeAttrs), edgeAttrs: clone(s.edgeAttrs), graphAttrs: map[string]string{},
+		nodeLines: clone(s.nodeLines), edgeLines: clone(s.edgeLines), graphLines: map[string]int{},
+		group: s.group,
+	}
 }
 
-func clone(m map[string]string) map[string]string {
-	c := make(map[string]string, len(m))
+func clone[V any](m map[string]V) map[string]V {
+	c := make(map[string]V, len(m))
 	for k, v := range m {
 		c[k] = v
 	}
 	return c
+}
+
+// merge sets each of from's attributes in to, and the line that set it.
+func merge(to map[string]string, toLines map[string]int, from map[string]string, fromLines map[string]int) {
+	for k, v := range from {
+		to[k] = v
+		toLines[k] = fromLines[k]
+	}
 }
 
 type parser struct {
@@ -104,12 +127,28 @@ type parser struct {
 	directed bool
 	strict   bool
 	nodes    map[string]*nodeInfo
-	order    []string           // the nodes in the order made
-	seen     map[[2]string]bool // a strict graph's edges
+	order    []string          // the nodes in the order made
+	seen     map[[2]string]int // a strict graph's edges, each its index in d.Edges
+	// edgeAttrs are each edge's attributes, by its index in d.Edges: a
+	// strict graph's second statement of an edge sets them over the first's.
+	edgeAttrs []map[string]string
+	name      string // the graph's, for \G
+	// clusters are the clusters read so far, by name, with the group each
+	// is in and its attributes: a cluster written twice is one cluster.
+	clusters map[string]*clusterInfo
 	// legend is the cluster with style=legend, and the line it begins on.
 	legend     *diagram.Group
 	legendLine int
 	depth      int // how many subgraphs the one being read is inside
+}
+
+// clusterInfo is a cluster as read so far.
+type clusterInfo struct {
+	g      *diagram.Group
+	parent *diagram.Group
+	attrs  map[string]string
+	lines  map[string]int
+	line   int
 }
 
 // The most a file may ask for. A DOT file is often someone else's, and
@@ -162,7 +201,7 @@ func (p *parser) describe() string {
 func (p *parser) graph() error {
 	if p.keyword("strict") {
 		p.strict = true
-		p.seen = map[[2]string]bool{}
+		p.seen = map[[2]string]int{}
 		if err := p.advance(); err != nil {
 			return err
 		}
@@ -177,16 +216,19 @@ func (p *parser) graph() error {
 	if err := p.advance(); err != nil {
 		return err
 	}
-	name := ""
 	if p.tok.kind == tID {
-		name = p.tok.text
+		p.name = p.tok.text
 		if err := p.advance(); err != nil {
 			return err
 		}
 	}
 	p.d = &diagram.Diagram{}
 	p.d.Root.Style = diagram.Hidden
-	root := &scope{nodeAttrs: map[string]string{}, edgeAttrs: map[string]string{}, graphAttrs: map[string]string{}, group: &p.d.Root}
+	root := &scope{
+		nodeAttrs: map[string]string{}, edgeAttrs: map[string]string{}, graphAttrs: map[string]string{},
+		nodeLines: map[string]int{}, edgeLines: map[string]int{}, graphLines: map[string]int{},
+		group: &p.d.Root,
+	}
 	if err := p.expect("{"); err != nil {
 		return err
 	}
@@ -197,14 +239,14 @@ func (p *parser) graph() error {
 		return err
 	}
 	for _, id := range p.order {
-		if err := applyNode(p.nodes[id]); err != nil {
+		if err := p.applyNode(p.nodes[id]); err != nil {
 			return err
 		}
 	}
 	if err := p.makeLegend(); err != nil {
 		return err
 	}
-	return p.applyGraph(root.graphAttrs, name)
+	return p.applyGraph(root.graphAttrs, root.graphLines)
 }
 
 // makeLegend turns the legend's cluster into the diagram's Legend: each
@@ -225,7 +267,12 @@ func (p *parser) makeLegend() error {
 		}
 		n := it.Node
 		in[n.ID] = true
+		// An entry without a label is named by its node's name, as a node
+		// is: one left blank had a swatch and nothing beside it.
 		e := diagram.LegendEntry{Label: n.Label, Fill: n.Fill, Colour: n.Colour, Line: n.Line}
+		if e.Label == "" {
+			e.Label = n.ID
+		}
 		if n.Shape == diagram.Plain {
 			e.Sample, e.Fill = diagram.Stroke, nil
 		}
@@ -270,13 +317,17 @@ func (p *parser) stmt(s *scope) error {
 		if err := p.advance(); err != nil {
 			return err
 		}
-		attrs, err := p.attrLists()
+		attrs, lines, err := p.attrLists()
 		if err != nil {
 			return err
 		}
-		target := map[string]map[string]string{"graph": s.graphAttrs, "node": s.nodeAttrs, "edge": s.edgeAttrs}[kind]
-		for k, v := range attrs {
-			target[k] = v
+		switch kind {
+		case "graph":
+			merge(s.graphAttrs, s.graphLines, attrs, lines)
+		case "node":
+			merge(s.nodeAttrs, s.nodeLines, attrs, lines)
+		default:
+			merge(s.edgeAttrs, s.edgeLines, attrs, lines)
 		}
 		return nil
 	case p.keyword("subgraph") || p.punct("{"):
@@ -299,7 +350,7 @@ func (p *parser) stmt(s *scope) error {
 		if p.tok.kind != tID {
 			return p.errorf("expected a value for %s, found %s", id, p.describe())
 		}
-		s.graphAttrs[id] = p.tok.text
+		s.graphAttrs[id], s.graphLines[id] = p.tok.text, p.tok.line
 		return p.advance()
 	}
 	if err := p.port(); err != nil {
@@ -308,18 +359,12 @@ func (p *parser) stmt(s *scope) error {
 	if p.tok.kind == tEdge {
 		return p.edgeRest(s, []string{p.node(s, id)})
 	}
-	line := p.tok.line
-	attrs, err := p.attrLists()
+	attrs, lines, err := p.attrLists()
 	if err != nil {
 		return err
 	}
 	info := p.nodes[p.node(s, id)]
-	for k, v := range attrs {
-		info.attrs[k] = v
-	}
-	if len(attrs) > 0 {
-		info.line = line
-	}
+	merge(info.attrs, info.lines, attrs, lines)
 	return nil
 }
 
@@ -378,14 +423,12 @@ func (p *parser) edgeRest(s *scope, from []string) error {
 			return p.errorf("expected a node after the edge, found %s", p.describe())
 		}
 	}
-	attrs, err := p.attrLists()
+	attrs, lines, err := p.attrLists()
 	if err != nil {
 		return err
 	}
-	merged := clone(s.edgeAttrs)
-	for k, v := range attrs {
-		merged[k] = v
-	}
+	merged, mergedLines := clone(s.edgeAttrs), clone(s.edgeLines)
+	merge(merged, mergedLines, attrs, lines)
 	for i := 1; i < len(ends); i++ {
 		for _, a := range ends[i-1] {
 			for _, b := range ends[i] {
@@ -394,19 +437,30 @@ func (p *parser) edgeRest(s *scope, from []string) error {
 					if !p.directed && b < a {
 						key = [2]string{b, a}
 					}
-					if p.seen[key] {
+					if k, ok := p.seen[key]; ok {
+						// One edge, as Graphviz has it, with the second
+						// statement's attributes set over the first's
+						// rather than dropped.
+						both := clone(p.edgeAttrs[k])
+						maps.Copy(both, merged)
+						e := diagram.Edge{From: p.d.Edges[k].From, To: p.d.Edges[k].To, Head: p.directed}
+						if err := p.applyEdge(&e, both, mergedLines); err != nil {
+							return err
+						}
+						p.d.Edges[k], p.edgeAttrs[k] = e, both
 						continue
 					}
-					p.seen[key] = true
+					p.seen[key] = len(p.d.Edges)
 				}
 				if len(p.d.Edges) >= maxEdges {
 					return p.errorf("more than %d edges", maxEdges)
 				}
 				e := diagram.Edge{From: a, To: b, Head: p.directed}
-				if err := p.applyEdge(&e, merged); err != nil {
+				if err := p.applyEdge(&e, merged, mergedLines); err != nil {
 					return err
 				}
 				p.d.Edges = append(p.d.Edges, e)
+				p.edgeAttrs = append(p.edgeAttrs, merged)
 			}
 		}
 	}
@@ -438,9 +492,16 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 	}
 	sub := s.child()
 	var g *diagram.Group
+	var cl *clusterInfo
 	if strings.HasPrefix(name, "cluster") {
-		g = &diagram.Group{ID: name}
-		s.group.Items = append(s.group.Items, diagram.Item{Group: g})
+		// A cluster written twice is one cluster, as Graphviz draws it:
+		// its second statement adds to the first's nodes and attributes.
+		if cl = p.clusters[name]; cl == nil {
+			cl = &clusterInfo{g: &diagram.Group{ID: name}, parent: s.group, attrs: map[string]string{}, lines: map[string]int{}, line: line}
+			p.clusters[name] = cl
+			s.group.Items = append(s.group.Items, diagram.Item{Group: cl.g})
+		}
+		g = cl.g
 		sub.group = g
 	}
 	if err := p.stmts(sub); err != nil {
@@ -450,17 +511,18 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 		return nil, err
 	}
 	if g != nil {
-		if err := p.applyGroup(g, sub.graphAttrs, line); err != nil {
+		merge(cl.attrs, cl.lines, sub.graphAttrs, sub.graphLines)
+		if err := p.applyGroup(g, cl.attrs, cl.lines, line); err != nil {
 			return nil, err
 		}
-		if styleSet(sub.graphAttrs["style"])["legend"] {
+		if styleSet(cl.attrs["style"])["legend"] && p.legend != g {
 			if p.legend != nil {
 				return nil, &Error{Line: line, Msg: fmt.Sprintf("cluster %q: a diagram has one legend, and %q is already it", g.ID, p.legend.ID)}
 			}
 			// Not a part of the diagram: out of the group it was in.
-			for i, it := range s.group.Items {
+			for i, it := range cl.parent.Items {
 				if it.Group == g {
-					s.group.Items = append(s.group.Items[:i], s.group.Items[i+1:]...)
+					cl.parent.Items = append(cl.parent.Items[:i], cl.parent.Items[i+1:]...)
 					break
 				}
 			}
@@ -475,46 +537,47 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 	return sub.nodes, nil
 }
 
-// attrLists reads any number of [ a_list ].
-func (p *parser) attrLists() (map[string]string, error) {
-	attrs := map[string]string{}
+// attrLists reads any number of [ a_list ]: the attributes, and the line
+// each is on.
+func (p *parser) attrLists() (map[string]string, map[string]int, error) {
+	attrs, lines := map[string]string{}, map[string]int{}
 	for p.punct("[") {
 		if err := p.advance(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for !p.punct("]") {
 			if p.tok.kind != tID {
-				return nil, p.errorf("expected an attribute, found %s", p.describe())
+				return nil, nil, p.errorf("expected an attribute, found %s", p.describe())
 			}
-			k := p.tok.text
+			k, line := p.tok.text, p.tok.line
 			if err := p.advance(); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			v := "true"
 			if p.punct("=") {
 				if err := p.advance(); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if p.tok.kind != tID {
-					return nil, p.errorf("expected a value for %s, found %s", k, p.describe())
+					return nil, nil, p.errorf("expected a value for %s, found %s", k, p.describe())
 				}
 				v = p.tok.text
 				if err := p.advance(); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
-			attrs[k] = v
+			attrs[k], lines[k] = v, line
 			if p.punct(",") || p.punct(";") {
 				if err := p.advance(); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
 		}
 		if err := p.advance(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return attrs, nil
+	return attrs, lines, nil
 }
 
 // node is the node id, made with s's defaults where this is its first
@@ -523,7 +586,8 @@ func (p *parser) attrLists() (map[string]string, error) {
 // A node is in the group of the innermost cluster it is first mentioned in:
 // one mentioned outside every cluster -- at the end of an edge written
 // before the clusters, say -- and then inside one moves into it, as
-// Graphviz draws it there. A node is in one group only; mentioned in a
+// Graphviz draws it there; and so does one mentioned in a cluster and then
+// in a cluster inside that. A node is in one group only; mentioned in a
 // second cluster that is not inside the first, it stays in the first.
 func (p *parser) node(s *scope, id string) string {
 	info, ok := p.nodes[id]
@@ -531,17 +595,32 @@ func (p *parser) node(s *scope, id string) string {
 		n := &diagram.Node{ID: id}
 		// Defaults apply where a node is made, as in Graphviz: a node
 		// statement later in the file does not change one made before it.
-		info = &nodeInfo{n: n, group: s.group, attrs: clone(s.nodeAttrs), line: p.tok.line}
+		info = &nodeInfo{n: n, group: s.group, attrs: clone(s.nodeAttrs), lines: clone(s.nodeLines), line: p.tok.line}
 		p.nodes[id] = info
 		p.order = append(p.order, id)
 		s.group.Items = append(s.group.Items, diagram.Item{Node: n})
-	} else if info.group == &p.d.Root && s.group != &p.d.Root {
-		removeNode(&p.d.Root, info.n)
+	} else if s.group != info.group && p.inside(s.group, info.group) {
+		removeNode(info.group, info.n)
 		s.group.Items = append(s.group.Items, diagram.Item{Node: info.n})
 		info.group = s.group
 	}
 	s.nodes = append(s.nodes, id)
 	return id
+}
+
+// inside says g is a cluster within outer, at any depth.
+func (p *parser) inside(g, outer *diagram.Group) bool {
+	for g != nil && g != &p.d.Root {
+		cl := p.clusters[g.ID]
+		if cl == nil {
+			return false
+		}
+		if cl.parent == outer {
+			return true
+		}
+		g = cl.parent
+	}
+	return outer == &p.d.Root && g == &p.d.Root
 }
 
 func removeNode(g *diagram.Group, n *diagram.Node) {
@@ -554,9 +633,9 @@ func removeNode(g *diagram.Group, n *diagram.Node) {
 }
 
 // applyGraph reads the top graph's attributes.
-func (p *parser) applyGraph(attrs map[string]string, name string) error {
+func (p *parser) applyGraph(attrs map[string]string, lines map[string]int) error {
 	d := p.d
-	d.Title = label(attrs["label"], name, "")
+	d.Title = label(attrs["label"], "", p.name, "")
 	switch strings.ToLower(attrs["splines"]) {
 	case "line", "polyline", "false", "true", "spline", "curved":
 		d.Straight = true
@@ -571,15 +650,18 @@ func (p *parser) applyGraph(attrs map[string]string, name string) error {
 	}
 	var err error
 	if d.Root.Rows, err = count(attrs, "rows"); err != nil {
-		return err
+		return &Error{Line: lines["rows"], Msg: err.Error()}
 	}
-	d.Root.Columns, err = count(attrs, "columns")
-	return err
+	if d.Root.Columns, err = count(attrs, "columns"); err != nil {
+		return &Error{Line: lines["columns"], Msg: err.Error()}
+	}
+	return nil
 }
 
-// applyGroup reads a cluster's attributes.
-func (p *parser) applyGroup(g *diagram.Group, attrs map[string]string, line int) error {
-	g.Label = label(attrs["label"], g.ID, "")
+// applyGroup reads a cluster's attributes; line is where it is written, for
+// an error about an attribute lines does not place.
+func (p *parser) applyGroup(g *diagram.Group, attrs map[string]string, lines map[string]int, line int) error {
+	g.Label = label(attrs["label"], g.ID, p.name, "")
 	styles := styleSet(attrs["style"])
 	switch {
 	case styles["lane"]:
@@ -588,7 +670,9 @@ func (p *parser) applyGroup(g *diagram.Group, attrs map[string]string, line int)
 		g.Style = diagram.Hidden
 	}
 	var err error
-	wrap := func(err error) error { return &Error{Line: line, Msg: fmt.Sprintf("cluster %q: %v", g.ID, err)} }
+	wrap := func(err error) error {
+		return &Error{Line: lineOf(err, lines, line), Msg: fmt.Sprintf("cluster %q: %v", g.ID, err)}
+	}
 	if g.Colour, err = colourAttr(attrs, "pencolor", "color"); err != nil {
 		return wrap(err)
 	}
@@ -609,13 +693,21 @@ func (p *parser) applyGroup(g *diagram.Group, attrs map[string]string, line int)
 	return nil
 }
 
-// applyNode reads a node's attributes into it.
-func applyNode(info *nodeInfo) error {
+// applyNode reads a node's attributes into it. An error names the line
+// that set the attribute at fault: the node's statement, or the node
+// statement whose defaults it was made with.
+func (p *parser) applyNode(info *nodeInfo) error {
 	n, attrs := info.n, info.attrs
 	wrap := func(err error) error {
-		return &Error{Line: info.line, Msg: fmt.Sprintf("node %q: %v", n.ID, err)}
+		return &Error{Line: lineOf(err, info.lines, info.line), Msg: fmt.Sprintf("node %q: %v", n.ID, err)}
 	}
-	n.Label = label(attrs["label"], n.ID, "")
+	n.Label = label(attrs["label"], n.ID, p.name, "")
+	if v, ok := attrs["label"]; ok && v == "" {
+		// label="" is a node with no words, where a node with no label
+		// is named by its name; a Node's empty Label is the second, so
+		// the first is a blank.
+		n.Label = " "
+	}
 	n.Shape = shape(attrs["shape"])
 	st := styleSet(attrs["style"])
 	n.Line, n.Invisible = line(st), st["invis"]
@@ -650,9 +742,10 @@ func applyNode(info *nodeInfo) error {
 	return nil
 }
 
-// applyEdge reads an edge's attributes into e.
-func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string) error {
-	e.Label = label(attrs["label"], "", "")
+// applyEdge reads an edge's attributes into e; lines are where each was
+// set.
+func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string, lines map[string]int) error {
+	e.Label = label(attrs["label"], "", p.name, "")
 	st := styleSet(attrs["style"])
 	e.Line, e.Invisible = line(st), st["invis"]
 	switch strings.ToLower(attrs["dir"]) {
@@ -673,7 +766,7 @@ func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string) error {
 	}
 	c, err := colourAttr(attrs, "color")
 	if err != nil {
-		return &Error{Line: p.tok.line, Msg: fmt.Sprintf("edge %s to %s: %v", e.From, e.To, err)}
+		return &Error{Line: lineOf(err, lines, p.tok.line), Msg: fmt.Sprintf("edge %s to %s: %v", e.From, e.To, err)}
 	}
 	e.Colour = c
 	return nil
@@ -683,7 +776,7 @@ func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string) error {
 // end a line -- Graphviz centres, left-aligns or right-aligns it; here every
 // line is centred -- \N is the node's name and \G the graph's. An absent
 // label is def.
-func label(v, name, def string) string {
+func label(v, name, graph, def string) string {
 	if v == "" {
 		return def
 	}
@@ -699,8 +792,10 @@ func label(v, name, def string) string {
 			if i+1 < len(v) || v[i] == 'n' {
 				b.WriteByte('\n')
 			}
-		case 'N', 'G':
+		case 'N':
 			b.WriteString(name)
+		case 'G':
+			b.WriteString(graph)
 		case '\\':
 			b.WriteByte('\\')
 		default:
@@ -749,6 +844,26 @@ func line(st map[string]bool) diagram.Line {
 	return diagram.Solid
 }
 
+// attrError is an attribute's value read wrongly, naming the attribute,
+// so the error can say the line that set it.
+type attrError struct {
+	name string
+	msg  string
+}
+
+func (e *attrError) Error() string { return e.msg }
+
+// lineOf is the line that set the attribute err is about, or def.
+func lineOf(err error, lines map[string]int, def int) int {
+	var ae *attrError
+	if errors.As(err, &ae) {
+		if l, ok := lines[ae.name]; ok && l > 0 {
+			return l
+		}
+	}
+	return def
+}
+
 // count is a whole-number attribute from 1 to diagram.MaxGrid, or 0 where
 // absent.
 func count(attrs map[string]string, name string) (int, error) {
@@ -758,7 +873,7 @@ func count(attrs map[string]string, name string) (int, error) {
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(v))
 	if err != nil || n < 1 || n > diagram.MaxGrid {
-		return 0, fmt.Errorf("%s=%q: a whole number from 1 to %d", name, v, diagram.MaxGrid)
+		return 0, &attrError{name, fmt.Sprintf("%s=%q: a whole number from 1 to %d", name, v, diagram.MaxGrid)}
 	}
 	return n, nil
 }
@@ -769,7 +884,7 @@ func colourAttr(attrs map[string]string, names ...string) (color.Color, error) {
 		if v, ok := attrs[n]; ok && v != "" {
 			c, err := parseColour(v)
 			if err != nil {
-				return nil, fmt.Errorf("%s=%q: %v", n, v, err)
+				return nil, &attrError{n, fmt.Sprintf("%s=%q: %v", n, v, err)}
 			}
 			return c, nil
 		}

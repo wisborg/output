@@ -2,6 +2,8 @@ package dot
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -170,9 +172,13 @@ func (l *lexer) number() string {
 }
 
 // quoted reads a double-quoted string, and any joined to it with +, as DOT
-// joins them. Only \" is an escape here; the rest -- \n, \l, \N -- are left
-// for the attribute that reads them, since what they mean depends on it.
-// A backslash before a line break continues the line.
+// joins them. Only \" is an escape here; the rest -- \n, \l, \N, \\ -- are
+// left for the attribute that reads them, since what they mean depends on
+// it, but are read as pairs, as Graphviz reads them: in "C:\\" the second
+// backslash is the first's, and the quote after them closes the string.
+// Taken alone, that backslash escaped the quote, and the string ran on into
+// the statements after it. A backslash before a line break -- "\n" or
+// "\r\n" -- continues the line.
 func (l *lexer) quoted() (string, error) {
 	var b strings.Builder
 	start := l.line
@@ -190,7 +196,14 @@ func (l *lexer) quoted() (string, error) {
 				b.WriteByte('"')
 				l.advance(2)
 				continue
-			case c == '\\' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '\n':
+			case c == '\\' && strings.HasPrefix(l.src[l.pos+1:], "\n"):
+				l.advance(2)
+				continue
+			case c == '\\' && strings.HasPrefix(l.src[l.pos+1:], "\r\n"):
+				l.advance(3)
+				continue
+			case c == '\\' && l.pos+1 < len(l.src):
+				b.WriteString(l.src[l.pos : l.pos+2])
 				l.advance(2)
 				continue
 			default:
@@ -220,7 +233,7 @@ func (l *lexer) quoted() (string, error) {
 // the words in it are a better label than the tags.
 func (l *lexer) html() (string, error) {
 	depth := 0
-	start := l.pos
+	start, line := l.pos, l.line
 	for l.pos < len(l.src) {
 		switch l.src[l.pos] {
 		case '<':
@@ -233,7 +246,44 @@ func (l *lexer) html() (string, error) {
 			return htmlText(l.src[start+1 : l.pos-1]), nil
 		}
 	}
-	return "", l.errorf("an HTML string is never closed")
+	// Where it opens, as an unclosed quoted string is reported: the end of
+	// the file is no help in finding it.
+	return "", &Error{Line: line, Msg: "an HTML string is never closed"}
+}
+
+// entity is an HTML character reference: a name, or a number in decimal
+// or hexadecimal.
+var entity = regexp.MustCompile(`&(lt|gt|quot|amp|apos|nbsp|#[0-9]+|#[xX][0-9a-fA-F]+);`)
+
+// entities is s with its character references read: the named few, and
+// any by number -- "&#60;", "&#x3C;" -- which were drawn as written.
+func entities(s string) string {
+	return entity.ReplaceAllStringFunc(s, func(m string) string {
+		name := m[1 : len(m)-1]
+		switch name {
+		case "lt":
+			return "<"
+		case "gt":
+			return ">"
+		case "quot":
+			return `"`
+		case "amp":
+			return "&"
+		case "apos":
+			return "'"
+		case "nbsp":
+			return " "
+		}
+		base, digits := 10, name[1:]
+		if digits[0] == 'x' || digits[0] == 'X' {
+			base, digits = 16, digits[1:]
+		}
+		n, err := strconv.ParseUint(digits, base, 32)
+		if err != nil || !utf8.ValidRune(rune(n)) {
+			return m
+		}
+		return string(rune(n))
+	})
 }
 
 // htmlText is the words of HTML markup: tags dropped, <br/> a line break,
@@ -257,7 +307,7 @@ func htmlText(s string) string {
 		}
 		s = s[i+j+1:]
 	}
-	out := strings.NewReplacer("&lt;", "<", "&gt;", ">", "&quot;", `"`, "&amp;", "&", "&nbsp;", " ").Replace(b.String())
+	out := entities(b.String())
 	lines := strings.Split(out, "\n")
 	var kept []string
 	for _, line := range lines {
