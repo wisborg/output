@@ -140,9 +140,13 @@ func (sc *screen) text() []string {
 
 // widest is the display width of the longest line on screen, which is what
 // the "never exceed the terminal" invariant is asserted against.
+//
+// It measures the lines as written, trailing spaces and all: a space in the
+// last column wraps a terminal as surely as a letter does, and text, which
+// trims them, would have hidden a line pushed too wide by blanks.
 func (sc *screen) widest() (int, string) {
 	w, worst := 0, ""
-	for _, l := range sc.text() {
+	for _, l := range sc.lines {
 		if n := runewidth.StringWidth(l); n > w {
 			w, worst = n, l
 		}

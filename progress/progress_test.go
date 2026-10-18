@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -787,5 +788,60 @@ func TestDisplay_LabelControlCharactersAreNotWritten(t *testing.T) {
 				t.Errorf("one bar on %d rows: %q", len(lines), lines)
 			}
 		}
+	}
+}
+
+// TestDisplay_ThrottleRecheckedUnderTheLock: goroutines that pass the
+// throttle's lock-free check together draw once between them, not once
+// each. Here they are held at the lock while every one of them passes.
+func TestDisplay_ThrottleRecheckedUnderTheLock(t *testing.T) {
+	c := newClock()
+	d, buf := liveDisplay(80, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 100})
+	c.add(time.Second)
+	before := strings.Count(buf.String(), "\x1b[K")
+	d.mu.Lock()
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() { defer wg.Done(); bar.Add(1) }()
+	}
+	time.Sleep(50 * time.Millisecond) // all eight past the check, at the lock
+	d.mu.Unlock()
+	wg.Wait()
+	if n := strings.Count(buf.String(), "\x1b[K") - before; n != 1 {
+		t.Errorf("eight Adds at once drew %d times, want 1", n)
+	}
+}
+
+// TestDisplay_UnsizedBarKeepsItsCountBesideASizedOne: where the width
+// leaves one field, each bar keeps the first it has -- a sized bar its
+// percentage, an unsized one its count -- not the first slot, which an
+// unsized bar never fills.
+func TestDisplay_UnsizedBarKeepsItsCountBesideASizedOne(t *testing.T) {
+	for cols := 14; cols <= 24; cols++ {
+		c := newClock()
+		d, buf := liveDisplay(cols, c)
+		sized := d.Bar(BarSpec{Label: "a", Total: 100})
+		unsized := d.Bar(BarSpec{Label: "b"})
+		sized.Set(50)
+		unsized.Set(7)
+		c.add(time.Second)
+		sized.Add(0) // one redraw, of both
+		lines := replay(buf.String()).text()
+		if len(lines) == 2 && strings.Contains(lines[0], "%") && !strings.Contains(lines[0], "/") && !strings.Contains(lines[1], "7") {
+			t.Errorf("cols=%d: the unsized bar lost its count: %q", cols, lines)
+		}
+	}
+}
+
+// TestDisplay_BarAfterStopIsNotAdded: a stopped display takes no bar, not
+// merely draws none.
+func TestDisplay_BarAfterStopIsNotAdded(t *testing.T) {
+	d, _ := liveDisplay(80, newClock())
+	d.Stop()
+	d.Bar(BarSpec{Label: "late"})
+	if n := len(d.bars); n != 0 {
+		t.Errorf("a stopped display holds %d bars", n)
 	}
 }
