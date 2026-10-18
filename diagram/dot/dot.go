@@ -50,6 +50,7 @@ import (
 	"maps"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/wisborg/output/diagram"
 )
@@ -87,8 +88,25 @@ const DefaultMaxEdges = 300
 // refused with, wrapped in an *Error naming the line.
 var ErrTooManyEdges = errors.New("too many edges")
 
-// ParseWith reads a diagram from DOT source, held to o.
+// ParseWith reads a diagram from DOT source, held to o. Source that is not
+// UTF-8 is refused, with the line of its first byte that is not.
 func ParseWith(src string, o Options) (*diagram.Diagram, error) {
+	// Refused rather than read: a byte that is not UTF-8 went on into the
+	// names and labels and out to the terminal raw -- 0x9b, the 8-bit CSI
+	// some terminals still read as one -- and a reader made lenient now
+	// could not be made strict again once files relied on it.
+	if !utf8.ValidString(src) {
+		at := 0
+		for i, r := range src {
+			if r == utf8.RuneError {
+				if _, size := utf8.DecodeRuneInString(src[i:]); size == 1 {
+					at = i
+					break
+				}
+			}
+		}
+		return nil, &Error{Line: 1 + strings.Count(src[:at], "\n"), Msg: "the file is not UTF-8"}
+	}
 	if o.MaxEdges <= 0 {
 		o.MaxEdges = DefaultMaxEdges
 	}
@@ -221,6 +239,18 @@ func (p *parser) errorf(format string, args ...any) error {
 // keyword says the token is the keyword kw, which DOT reads in any case.
 func (p *parser) keyword(kw string) bool {
 	return p.tok.kind == tID && !p.tok.quoted && strings.EqualFold(p.tok.text, kw)
+}
+
+// reserved says the token is one of DOT's keywords, unquoted, which names
+// no node: "a -> node" is a mistake to Graphviz, and was a node called
+// node here. Quoted, "node" is a name like any other.
+func (p *parser) reserved() bool {
+	for _, kw := range []string{"node", "edge", "graph", "digraph", "subgraph", "strict"} {
+		if p.keyword(kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *parser) punct(s string) bool { return p.tok.kind == tPunct && p.tok.text == s }
@@ -383,6 +413,8 @@ func (p *parser) stmt(s *scope) error {
 		return p.edgeRest(s, ends)
 	case p.tok.kind != tID:
 		return p.errorf("expected a statement, found %s", p.describe())
+	case p.reserved():
+		return p.errorf("expected a statement, found the keyword %s; quote it to name a node so", p.tok.text)
 	}
 	id := p.tok.text
 	if err := p.advance(); err != nil {
@@ -455,6 +487,8 @@ func (p *parser) edgeRest(s *scope, from []string) error {
 				return err
 			}
 			ends = append(ends, nodes)
+		case p.reserved():
+			return p.errorf("expected a node after the edge, found the keyword %s; quote it to name a node so", p.tok.text)
 		case p.tok.kind == tID:
 			id := p.tok.text
 			if err := p.advance(); err != nil {
@@ -575,6 +609,12 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 				}
 			}
 			p.legend, p.legendLine = g, line
+		} else if !styleSet(cl.attrs["style"])["legend"] && p.legend == g {
+			// Reopened with a style that is not legend, which as the last
+			// value written wins: a part of the diagram again, back in
+			// the group it was taken out of.
+			cl.parent.Items = append(cl.parent.Items, diagram.Item{Group: g})
+			p.legend = nil
 		}
 	}
 	if strings.EqualFold(sub.graphAttrs["rank"], "same") {
@@ -752,10 +792,11 @@ func (p *parser) applyNode(info *nodeInfo) error {
 		return &Error{Line: lineOf(err, info.lines, info.line), Msg: fmt.Sprintf("node %q: %v", n.ID, err)}
 	}
 	n.Label = label(attrs["label"], n.ID, p.name, "")
-	if v, ok := attrs["label"]; ok && v == "" {
+	if _, ok := attrs["label"]; ok && n.Label == "" {
 		// label="" is a node with no words, where a node with no label
 		// is named by its name; a Node's empty Label is the second, so
-		// the first is a blank.
+		// the first is a blank. So is a label of line breaks alone,
+		// "\l", which reads as nothing once they are taken off its end.
 		n.Label = " "
 	}
 	n.Shape = shape(attrs["shape"])

@@ -291,9 +291,15 @@ func entities(s string) string {
 	})
 }
 
+// htmlComment is an HTML comment, <!-- ... -->, over lines as well.
+var htmlComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+
 // htmlText is the words of HTML markup: tags dropped, <br/> a line break,
 // a few entities read.
 func htmlText(s string) string {
+	// Comments first: one may hold a ">", which the tag scan below takes
+	// for the comment's end, and its words are no part of the label.
+	s = htmlComment.ReplaceAllString(s, "")
 	var b strings.Builder
 	for len(s) > 0 {
 		i := strings.IndexByte(s, '<')

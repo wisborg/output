@@ -470,3 +470,38 @@ func TestStrictEdgeKeepsItsOwnAttributes(t *testing.T) {
 		t.Errorf("the second statement's own style was dropped: %+v", e)
 	}
 }
+
+// The text edges of a DOT file: source that is not UTF-8 is refused with
+// its line; a keyword is no node's name unless quoted; a label of line
+// breaks alone is blank, as label="" is; an HTML comment is no part of a
+// label; and a cluster reopened with a style that is not legend is a part
+// of the diagram again.
+func TestTextEdges(t *testing.T) {
+	_, err := Parse("digraph {\n a\n b [label=\"\xf0\x9b[2J\"]\n}")
+	var pe *Error
+	if !errors.As(err, &pe) || pe.Line != 3 || !strings.Contains(pe.Msg, "UTF-8") {
+		t.Errorf("invalid UTF-8 on line 3: %v", err)
+	}
+	for _, src := range []string{"digraph { a -> node }", "digraph { a -> strict }", "digraph { digraph }"} {
+		if _, err := Parse(src); err == nil || !strings.Contains(err.Error(), "keyword") {
+			t.Errorf("%s: %v, want an error naming the keyword", src, err)
+		}
+	}
+	if d := parse(t, `digraph { a -> "node" }`); len(d.Edges) != 1 {
+		t.Error(`a quoted "node" is a node`)
+	}
+	d := parse(t, `digraph { a [label="\l"]; b [label="\n\n"] }`)
+	for _, it := range d.Root.Items {
+		if l := it.Node.Label; strings.TrimSpace(l) != "" || l == "" {
+			t.Errorf("%s: a label of line breaks read as %q", it.Node.ID, l)
+		}
+	}
+	d = parse(t, `digraph { a [label=<x<!-- hidden <b> -->y>] }`)
+	if l := d.Root.Items[0].Node.Label; l != "xy" {
+		t.Errorf("an HTML comment in a label read as %q", l)
+	}
+	d = parse(t, `digraph { subgraph cluster_l { style=legend; label=K; a } subgraph cluster_l { style=filled } b }`)
+	if d.Legend != nil || len(d.Root.Items) != 2 {
+		t.Errorf("legend %v and items %v, want no legend and the cluster back", d.Legend, items(&d.Root))
+	}
+}
