@@ -247,8 +247,16 @@ func (b *Bar) Done() {
 	// leaving the old one on screen until the next redraw would show a
 	// finished bar sitting under a live one.
 	d.erase()
+	live := d.live
 	d.mu.Unlock()
-	d.redraw(true)
+	// Live, the region just lost a line and is drawn again at once. Plain,
+	// there is nothing to redraw: the other bars' lines come at their own
+	// interval, and drawing them now wrote a line for every bar still
+	// running each time one finished -- "0%" lines in the first second
+	// included, which a plain display never writes.
+	if live {
+		d.redraw(true)
+	}
 }
 
 // glyphs for the bar's filled portion, at eighth-of-a-cell resolution.

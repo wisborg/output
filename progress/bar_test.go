@@ -395,3 +395,20 @@ func TestBar_StalledOnlyBarIsRedrawn(t *testing.T) {
 		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
 	}
 }
+
+// On a plain display a bar finishing writes its own closing line and no
+// other bar's: the others keep to their interval. Done once wrote a line
+// for every bar still running, a "0%" in the first second among them.
+func TestPlain_DoneWritesOnlyItsOwnLine(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Plain, Now: c.now, Interval: time.Second})
+	a := d.Bar(BarSpec{Label: "a", Total: 10})
+	d.Bar(BarSpec{Label: "b", Total: 10})
+	c.add(100 * time.Millisecond)
+	a.Set(10)
+	a.Done()
+	if strings.Contains(buf.String(), "b ") {
+		t.Errorf("a finishing wrote b's line: %q", buf.String())
+	}
+}
