@@ -20,34 +20,127 @@ func missing(cell string) bool {
 }
 
 // grouped is a number written with commas between its thousands,
-// "1,234,567.89", as a spreadsheet exports a formatted cell -- quoted, in a
-// comma-delimited file. In a file delimited otherwise, a comma is a decimal
-// comma, and decimalPoint has rewritten it before a cell is read.
-var grouped = regexp.MustCompile(`^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$`)
+// "1,234,567.89", as a spreadsheet exports a formatted cell where the
+// decimal mark is a point. Its first group is not 0: "0,250" is no
+// thousands.
+var grouped = regexp.MustCompile(`^[+-]?[1-9]\d{0,2}(,\d{3})+(\.\d+)?$`)
 
-// decimalComma is a number written with a decimal comma, "1,5" or
-// "-1.234,56": its thousands, if marked at all, marked by points.
-var decimalComma = regexp.MustCompile(`^[+-]?(\d+|\d{1,3}(\.\d{3})+),\d+$`)
+// commaNumber is a number written with a decimal comma, "1,5", "0,25" or
+// "-1.234.567,89": its thousands, if marked at all, marked by points.
+var commaNumber = regexp.MustCompile(`^[+-]?(\d+|[1-9]\d{0,2}(\.\d{3})+)(,\d+)?$`)
 
-// decimalPoint is cell with a decimal comma written as a point, and its
-// points between thousands taken out -- "1.234,5" is "1234.5" -- or cell
-// as it was, where it is no number written so.
-//
-// It is for files not delimited by commas, which are where a decimal comma
-// is written: a comma-delimited file can hold one only quoted, and a
-// spreadsheet quotes "1,234" there for its thousands. In a file delimited
-// by semicolons, "1,250" is one and a quarter, not twelve hundred and
-// fifty, which grouped would have made it: a thousand times too large.
-func decimalPoint(cell string) string {
-	if !decimalComma.MatchString(cell) {
+// decimalMark is --decimal: how a file writes the fraction of a number,
+// which a cell alone often cannot say. "1,234" is twelve hundred and
+// thirty-four where a point marks the fraction and commas the thousands, as
+// in English, and one point two three four where a comma marks it and
+// points the thousands, as in most of Europe; "1.234" the other way round.
+type decimalMark string
+
+const (
+	decimalAuto  decimalMark = "auto"
+	decimalPoint decimalMark = "point"
+	decimalComma decimalMark = "comma"
+)
+
+// asPoint is cell read as a number written with a decimal point: "1.5",
+// "1,234,567.8".
+func asPoint(cell string) (float64, bool) { return parseNumber(cell) }
+
+// asComma is cell read as a number written with a decimal comma: "1,5",
+// "1.234,5"; or one that has neither mark, "12" or "1e6".
+func asComma(cell string) (float64, bool) {
+	switch {
+	case commaNumber.MatchString(cell):
+		cell = strings.Replace(strings.ReplaceAll(cell, ".", ""), ",", ".", 1)
+	case strings.ContainsAny(cell, ".,"):
+		return 0, false
+	}
+	return parseNumber(cell)
+}
+
+// commaToPoint is cell, a number written with a decimal comma, written with
+// a point -- "1.234,5" is "1234.5" -- or cell as it was, where it is no
+// number written so.
+func commaToPoint(cell string) string {
+	if !commaNumber.MatchString(cell) {
 		return cell
 	}
 	return strings.Replace(strings.ReplaceAll(cell, ".", ""), ",", ".", 1)
 }
 
+// sighting is a cell that says something of the file's decimal mark, and
+// the row it is on, counting from 1, to name it by.
+type sighting struct {
+	cell string
+	row  int
+}
+
+// decideDecimal is the decimal mark the file of records is written with:
+// mark where the caller gave one; else the mark its cells show; else a
+// comma where the file is delimited by semicolons -- the delimiter of the
+// places that write one -- and a point otherwise.
+//
+// It is decided for the file, not for each column or each cell. One program
+// in one place wrote it, and read cell by cell, "1,234,567" was thousands
+// while "1,234" beside it was one point two three four. A cell shows the
+// mark where it reads as a number only one way: "1,5", "0,25", "1.234,5",
+// "1.234.567" only with a comma; "1.5", "1,234,567", "1,234.5" only with a
+// point. Cells that show both marks are a file at odds with itself, which
+// is refused rather than read half and half. Where nothing showed it and a
+// cell read as two different numbers -- "1,234" -- the guess is said in
+// note, with the flag that reads it the other way.
+func decideDecimal(records [][]string, delim rune, mark decimalMark) (decided decimalMark, note string, err error) {
+	if mark != decimalAuto {
+		return mark, "", nil
+	}
+	var point, comma, either *sighting
+	for i, rec := range records {
+		for _, cell := range rec {
+			if missing(cell) {
+				continue
+			}
+			p, pok := asPoint(cell)
+			c, cok := asComma(cell)
+			seen := &sighting{cell, i + 1}
+			switch {
+			case pok && !cok && point == nil:
+				point = seen
+			case cok && !pok && comma == nil:
+				comma = seen
+			case pok && cok && p != c && either == nil:
+				either = seen
+			}
+		}
+	}
+	switch {
+	case point != nil && comma != nil:
+		return "", "", fmt.Errorf("the numbers are written both ways: %q on row %d with a decimal point, %q on row %d with a decimal comma; say --decimal point or --decimal comma",
+			point.cell, point.row, comma.cell, comma.row)
+	case point != nil:
+		return decimalPoint, "", nil
+	case comma != nil:
+		return decimalComma, "", nil
+	}
+	decided, other := decimalPoint, decimalComma
+	if delim == ';' {
+		decided, other = decimalComma, decimalPoint
+	}
+	if either != nil {
+		v, _ := asPoint(either.cell)
+		if decided == decimalComma {
+			v, _ = asComma(either.cell)
+		}
+		note = fmt.Sprintf("%q read as %s, with a decimal %s; --decimal %s reads it the other way",
+			either.cell, strconv.FormatFloat(v, 'f', -1, 64), decided, other)
+	}
+	return decided, note, nil
+}
+
 // parseNumber is cell as a number: as Go reads a float -- "12", "-0.5",
 // "1e6" -- or with commas between its thousands. Infinity and NaN are no
-// number to draw, and a cell of either is not one.
+// number to draw, and a cell of either is not one. A file written with a
+// decimal comma has been rewritten with points, by commaToPoint, before
+// its cells are read.
 func parseNumber(cell string) (float64, bool) {
 	if grouped.MatchString(cell) {
 		cell = strings.ReplaceAll(cell, ",", "")

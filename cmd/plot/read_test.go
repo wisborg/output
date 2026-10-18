@@ -32,7 +32,7 @@ func TestSniffDelimiter(t *testing.T) {
 // A first row of names over numbers is a header; a first row of numbers is
 // data, and the columns are numbered.
 func TestReadTableFindsTheHeader(t *testing.T) {
-	tb, err := readTable(strings.NewReader("\xef\xbb\xbfdate, close\n2024-01-02,10\n2024-01-03,11\n"), 0, headerAuto, datesAuto)
+	tb, err := readTable(strings.NewReader("\xef\xbb\xbfdate, close\n2024-01-02,10\n2024-01-03,11\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestReadTableFindsTheHeader(t *testing.T) {
 		t.Errorf("%d rows, want 2", len(tb.rows))
 	}
 
-	tb, err = readTable(strings.NewReader("1,2\n3,4\n"), 0, headerAuto, datesAuto)
+	tb, err = readTable(strings.NewReader("1,2\n3,4\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestReadTableFindsTheHeader(t *testing.T) {
 		t.Errorf("names %q and %d rows, want %q and 2: a row of numbers is data", tb.names, len(tb.rows), want)
 	}
 
-	tb, err = readTable(strings.NewReader("1,2\n3,4\n"), 0, headerYes, datesAuto)
+	tb, err = readTable(strings.NewReader("1,2\n3,4\n"), 0, headerYes, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestReadTableFindsTheHeader(t *testing.T) {
 // Rows of different lengths are padded with empty cells, which are gaps,
 // and a quoted value holds the delimiter.
 func TestReadTableForgivesRaggedRows(t *testing.T) {
-	tb, err := readTable(strings.NewReader("a,b,c\n1,\"2,000\"\n4,5,6,7\n"), 0, headerAuto, datesAuto)
+	tb, err := readTable(strings.NewReader("a,b,c\n1,\"2,000\"\n4,5,6,7\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestParseDelimiter(t *testing.T) {
 // In a tab file an empty cell is two tabs in a row, and the values after it
 // stay in their own columns rather than each moving one left.
 func TestReadTableKeepsATabFilesEmptyCells(t *testing.T) {
-	tb, err := readTable(strings.NewReader("a\tb\tc\n1\t\t3\n\t5\t6\n"), 0, headerAuto, datesAuto)
+	tb, err := readTable(strings.NewReader("a\tb\tc\n1\t\t3\n\t5\t6\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,31 +102,59 @@ func TestReadTableKeepsATabFilesEmptyCells(t *testing.T) {
 	}
 }
 
-// A file delimited by semicolons, or tabs, writes its numbers with decimal
-// commas: "1,250" there is one and a quarter, and a headerless file of them
-// is told from a comma file though each line holds as many commas as
-// semicolons. In a comma file a quoted "1,250" is still twelve hundred and
-// fifty.
-func TestReadTableReadsDecimalCommas(t *testing.T) {
+// The decimal mark is the file's, decided once from its own numbers: a
+// comma where a cell reads as a number only with one -- "0,5", "1.234,5" --
+// and a point where one reads only with a point -- "1.5", "1,234,567".
+// Where none says, a semicolon file writes a decimal comma and any other a
+// point, and a cell that read as two numbers is noted. Decided cell by cell
+// as it once was, a tab file from an English spreadsheet read "1,234" as
+// one point two three four while "1,234,567" beside it was thousands.
+func TestReadTableDecidesTheDecimalMarkForTheFile(t *testing.T) {
 	for _, c := range []struct {
 		name, data string
+		mark       decimalMark
 		want       [][]string
+		note       string
 	}{
-		{"semicolons", "t;v\n1;1,250\n2;-1.234,5\n3;2,5\n", [][]string{{"1", "1.250"}, {"2", "-1234.5"}, {"3", "2.5"}}},
-		{"no header", "1,5;2,5\n2,5;3,5\n", [][]string{{"1.5", "2.5"}, {"2.5", "3.5"}}},
-		{"tabs", "t\tv\n1\t0,5\n", [][]string{{"1", "0.5"}}},
-		{"commas", "t,v\n1,\"1,250\"\n", [][]string{{"1", "1,250"}}},
-		{"text", "t;v\n1;a,b\n", [][]string{{"1", "a,b"}}},
+		{"semicolons", "t;v\n1;1,250\n2;-1.234,5\n3;2,5\n", decimalAuto, [][]string{{"1", "1.250"}, {"2", "-1234.5"}, {"3", "2.5"}}, ""},
+		{"no header", "1,5;2,5\n2,5;3,5\n", decimalAuto, [][]string{{"1.5", "2.5"}, {"2.5", "3.5"}}, ""},
+		{"tabs with a decimal comma", "t\tv\n1\t0,5\n", decimalAuto, [][]string{{"1", "0.5"}}, ""},
+		{"tabs with thousands", "t\tv\n1\t999\n2\t1,234\n3\t1,234,567\n", decimalAuto, [][]string{{"1", "999"}, {"2", "1,234"}, {"3", "1,234,567"}}, ""},
+		{"evidence in another column", "a\tb\n1,234\t0,5\n", decimalAuto, [][]string{{"1.234", "0.5"}}, ""},
+		{"points as thousands", "t;v\n1;1.234\n2;0,5\n", decimalAuto, [][]string{{"1", "1234"}, {"2", "0.5"}}, ""},
+		{"commas", "t,v\n1,\"1,250\"\n", decimalAuto, [][]string{{"1", "1,250"}}, `"1,250" read as 1250, with a decimal point; --decimal comma reads it the other way`},
+		{"ambiguous semicolons", "t;v\n1;1,234\n", decimalAuto, [][]string{{"1", "1.234"}}, `"1,234" read as 1.234, with a decimal comma; --decimal point reads it the other way`},
+		{"told", "t;v\n1;1,234\n", decimalPoint, [][]string{{"1", "1,234"}}, ""},
+		{"text", "t;v\n1;a,b\n", decimalAuto, [][]string{{"1", "a,b"}}, ""},
+		{"dates and versions", "d;v\n03.04.2024;1\n10.0.0.1;2\n", decimalAuto, [][]string{{"03.04.2024", "1"}, {"10.0.0.1", "2"}}, ""},
 	} {
-		tb, err := readTable(strings.NewReader(c.data), 0, headerAuto, datesAuto)
+		tb, err := readTable(strings.NewReader(c.data), 0, headerAuto, datesAuto, c.mark)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
 		if !reflect.DeepEqual(tb.rows, c.want) {
 			t.Errorf("%s: rows %q, want %q", c.name, tb.rows, c.want)
 		}
+		if note := strings.Join(tb.notes, "; "); note != c.note {
+			t.Errorf("%s: note %q, want %q", c.name, note, c.note)
+		}
 	}
 	if v, ok := parseNumber("1,250"); !ok || v != 1250 {
 		t.Errorf("a grouped number reads %v, %v", v, ok)
+	}
+}
+
+// A file whose numbers are written both ways is at odds with itself, and is
+// refused with a cell of each kind and the flag that settles it, rather
+// than read half one way and half the other.
+func TestReadTableRefusesTwoDecimalMarks(t *testing.T) {
+	for _, data := range []string{
+		"v;w\n1,234,567;x\n1,234;x\n5,5;x\n",
+		"v;w\n1.234;x\n2.5;x\n0,5;x\n",
+	} {
+		_, err := readTable(strings.NewReader(data), 0, headerAuto, datesAuto, decimalAuto)
+		if err == nil || !strings.Contains(err.Error(), "both ways") || !strings.Contains(err.Error(), "--decimal") {
+			t.Errorf("%q: %v, want an error saying the numbers are written both ways", data, err)
+		}
 	}
 }

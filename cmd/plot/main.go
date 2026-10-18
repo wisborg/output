@@ -9,8 +9,9 @@
 //
 // It reads CSV: values delimited by commas, tabs, semicolons or bars -- it
 // tells which by looking -- quoted where they hold the delimiter, with or
-// without a first row naming the columns, and with decimal commas where the
-// delimiter is not a comma. Other formats may come; the
+// without a first row naming the columns, and with its numbers' fractions
+// marked by a point or a comma, which it tells for the whole file from the
+// numbers in it. Other formats may come; the
 // reading is one file of this command, and the chart does not care where
 // its numbers came from.
 //
@@ -56,6 +57,7 @@ type options struct {
 	delimiter     string
 	header        string
 	dates         string
+	decimal       string
 	out           string
 	width, height int
 	terminal      string
@@ -80,6 +82,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.delimiter, "delimiter", "auto", "what separates values: auto, tab, or a character such as , ; or |")
 	fs.StringVar(&o.header, "header", string(headerAuto), "whether the first row names the columns: auto, yes or no")
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
+	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise")
 	fs.StringVar(&o.out, "out", "", "write the chart to this PNG rather than drawing it in the terminal")
 	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default: the terminal's, or 100); in pixels in a PNG (default: "+strconv.Itoa(imageWidth)+")")
 	fs.IntVar(&o.height, "height", 0, "the chart's height: in lines in the terminal (default: 24, and 10 more for each further column, held to the terminal's); in pixels in a PNG (default: "+strconv.Itoa(imageHeight)+", and 300 more for each further column)")
@@ -138,7 +141,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if order != datesAuto && order != datesDMY && order != datesMDY {
 		return cli.Usagef("--dates %q: use auto, dmy or mdy", o.dates)
 	}
-	t, err := readTable(in, delim, header, order)
+	mark := decimalMark(o.decimal)
+	if mark != decimalAuto && mark != decimalPoint && mark != decimalComma {
+		return cli.Usagef("--decimal %q: use auto, point or comma", o.decimal)
+	}
+	t, err := readTable(in, delim, header, order, mark)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -167,7 +174,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if err != nil {
 		return err
 	}
-	var notes []string
+	notes := t.notes
 	if x >= 0 && cols[x].ambiguous {
 		return fmt.Errorf("the dates in %q read as well with the day first as the month: say --dates dmy or --dates mdy", t.names[x])
 	}
@@ -214,7 +221,9 @@ FILE is read as CSV -- delimited by commas, tabs, semicolons or bars --
 with or without a first row of names; without FILE, or with -, standard
 input is. Each column plotted is a strip of its own, on its own scale,
 sharing the x axis. An empty cell, NA or null is a gap in the line, never
-a zero.
+a zero. A number may be written with a decimal point, 1,234.5, or a decimal
+comma, 1.234,5: which, is told for the whole file from its numbers, or
+said with --decimal.
 
 Flags:
 `

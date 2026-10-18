@@ -295,3 +295,20 @@ func TestPlotHeaderOnly(t *testing.T) {
 		t.Errorf("%v, want an error saying there are no rows", err)
 	}
 }
+
+// A number that could have been read the other way is noted, with the flag
+// that reads it so; --decimal takes only its three values.
+func TestPlotDecimal(t *testing.T) {
+	_, errOut, err := plot(t, "t\tv\n1\t1,234\n2\t2,000\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "--decimal comma") {
+		t.Errorf("stderr %q does not say how to read 1,234 the other way", errOut)
+	}
+	_, _, err = plot(t, "t,v\n1,2\n", "--decimal", "dot")
+	var ue *cli.UsageError
+	if !errors.As(err, &ue) {
+		t.Errorf("--decimal dot: %v, want a UsageError", err)
+	}
+}

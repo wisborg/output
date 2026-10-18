@@ -18,6 +18,7 @@ import (
 type table struct {
 	names []string
 	rows  [][]string
+	notes []string // what reading it guessed, for plot to say
 }
 
 // delimiters are the delimiters sniffDelimiter tells apart, in the order it
@@ -122,10 +123,11 @@ const (
 //
 // The reader forgives what spreadsheets and hand-written files do: rows of
 // different lengths, a quote inside an unquoted value, spaces after a
-// delimiter, and the byte-order mark Excel begins a UTF-8 file with. In a
-// file not delimited by commas, a number written with a decimal comma --
-// "1,5", "1.234,5" -- is read as one, as decimalPoint has it.
-func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder) (*table, error) {
+// delimiter, and the byte-order mark Excel begins a UTF-8 file with. A file
+// written with a decimal comma -- "1,5", "1.234,5" -- is read as one, as
+// decideDecimal decides from mark and the file's own cells, and its numbers
+// are rewritten with points.
+func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder, mark decimalMark) (*table, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
@@ -162,16 +164,27 @@ func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder) (*ta
 	for i, rec := range records {
 		for j := range rec {
 			rec[j] = strings.TrimSpace(rec[j])
-			if delim != ',' {
-				rec[j] = decimalPoint(rec[j])
-			}
 		}
 		for len(rec) < width {
 			rec = append(rec, "")
 		}
 		records[i] = rec
 	}
+	decided, note, err := decideDecimal(records, delim, mark)
+	if err != nil {
+		return nil, err
+	}
+	if decided == decimalComma {
+		for _, rec := range records {
+			for j := range rec {
+				rec[j] = commaToPoint(rec[j])
+			}
+		}
+	}
 	t := &table{rows: records}
+	if note != "" {
+		t.notes = append(t.notes, note)
+	}
 	if header == headerYes || header == headerAuto && hasHeader(records, dates) {
 		t.names, t.rows = records[0], records[1:]
 	}
