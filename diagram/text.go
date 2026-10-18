@@ -128,6 +128,14 @@ func (c *textCanvas) rect(r Rect, dashed bool, col color.Color) {
 // what is behind its cells to bg.
 func (c *textCanvas) clear(r Rect, bg color.Color) {
 	for y := r.Y; y < r.Y+r.H; y++ {
+		// A wide character cut by either side of r goes with it, as set
+		// clears one cut in half.
+		if c.in(r.X, y) && c.text[y][r.X] == wideTail {
+			c.unset(r.X-1, y)
+		}
+		if c.in(r.X+r.W, y) && c.text[y][r.X+r.W] == wideTail {
+			c.unset(r.X+r.W, y)
+		}
 		for x := r.X; x < r.X+r.W; x++ {
 			if c.in(x, y) {
 				c.lines[y][x], c.text[y][x], c.fg[y][x], c.bg[y][x] = 0, 0, nil, bg
@@ -181,12 +189,33 @@ func (c *textCanvas) write(x, y int, s string, col color.Color) {
 // an escape in it written to a terminal is a command to the terminal -- to
 // clear it, retitle the window, or write the clipboard -- where a tab or a
 // carriage return breaks the box it is in.
+//
+// Over half of a wide character -- its first cell or the one it covers --
+// the other half is cleared: a wide character left without the cell it
+// covers drew two columns where one was left, and one whose first cell was
+// overwritten left a cell that writes nothing, so the rest of the row
+// moved a column one way or the other, out of line with the rows above.
 func (c *textCanvas) set(x, y int, r rune, col color.Color) {
 	if r != wideTail && unicode.IsControl(r) {
 		r = '\uFFFD'
 	}
+	if !c.in(x, y) {
+		return
+	}
+	if c.text[y][x] == wideTail && r != wideTail {
+		c.unset(x-1, y) // the wide character this cell was the cover of
+	}
+	if c.in(x+1, y) && c.text[y][x+1] == wideTail {
+		c.unset(x+1, y) // the cover of the wide character this cell began
+	}
+	c.text[y][x], c.fg[y][x] = r, col
+	delete(c.clusters, Point{x, y})
+}
+
+// unset clears the text of cell (x, y), leaving its lines.
+func (c *textCanvas) unset(x, y int) {
 	if c.in(x, y) {
-		c.text[y][x], c.fg[y][x] = r, col
+		c.text[y][x] = 0
 		delete(c.clusters, Point{x, y})
 	}
 }

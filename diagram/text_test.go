@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"fmt"
 	"image/color"
 	"regexp"
 	"strings"
@@ -353,6 +354,60 @@ func TestBrailleStraightHeads(t *testing.T) {
 		}
 		if !(tl < h && a < tl && h < b) {
 			t.Errorf("%s: a at %d, %c at %d, %c at %d, b at %d:\n%s", c.name, a, c.tail, tl, c.head, h, b, text)
+		}
+	}
+}
+
+// Over half of a wide character the other half is cleared, so the row keeps
+// its width: a narrow character on the cell a wide one covers once left the
+// wide one drawing two columns, and one on its first cell left a cell that
+// writes nothing, and either moved the rest of the row out of line. Random
+// grids of CJK labels, the crowded ones with fallback placements, found
+// rows a column or two wider than their layout.
+func TestTextKeepsWideCharactersWhole(t *testing.T) {
+	c := newTextCanvas(8, 1)
+	c.write(0, 0, "日本語", nil)
+	c.set(1, 0, 'x', nil)
+	c.set(2, 0, 'y', nil)
+	if row := c.rows(false)[0]; Width(row) > 8 || !strings.Contains(row, "xy") || strings.Contains(row, "日") || strings.Contains(row, "本") {
+		t.Errorf("row %q", row)
+	}
+	c = newTextCanvas(6, 1)
+	c.write(0, 0, "日本語", nil)
+	c.clear(Rect{1, 0, 2, 1}, nil)
+	if row := c.rows(false)[0]; Width(row) > 6 || strings.ContainsAny(row, "日本") || !strings.Contains(row, "語") {
+		t.Errorf("cleared through the middle: %q", row)
+	}
+
+	words := []string{"東京", "大阪府", "é", "x", "名古屋市", "a東b", "長い長い長いラベル"}
+	for seed := uint64(1); seed <= 300; seed++ {
+		x := seed
+		next := func(n int) int {
+			x ^= x << 13
+			x ^= x >> 7
+			x ^= x << 17
+			return int(x % uint64(n))
+		}
+		d := &Diagram{Straight: seed%2 == 0}
+		g := 2 + next(4)
+		d.Root.Columns = g
+		n := g * (1 + next(4))
+		for i := range n {
+			d.Root.Items = append(d.Root.Items, Item{Node: &Node{ID: fmt.Sprintf("n%d", i), Label: words[next(len(words))]}})
+		}
+		for range n * 2 {
+			d.Edges = append(d.Edges, Edge{From: fmt.Sprintf("n%d", next(n)), To: fmt.Sprintf("n%d", next(n)), Head: true, Label: words[next(len(words))]})
+		}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range []Braille{BrailleOff, BrailleThin} {
+			for y, row := range lay.Text(TextOptions{Braille: b}) {
+				if w := Width(row); w > lay.Width {
+					t.Errorf("seed %d, braille %d: row %d is %d columns, the layout %d: %q", seed, b, y, w, lay.Width, row)
+				}
+			}
 		}
 	}
 }
