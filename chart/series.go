@@ -24,7 +24,10 @@
 // charts in text links nothing else.
 package chart
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Point is one sample of a series: where it lies on the x axis, when it was
 // taken, and its reading -- or that it has none.
@@ -111,11 +114,29 @@ func Smooth(segments [][]Point, window time.Duration) [][]Point {
 				sum += seg[hi].Y
 				hi++
 			}
+			stale := false
 			for seg[lo].T < p.T-half {
 				sum -= seg[lo].Y
+				// A reading far larger than what is left cancels it to
+				// noise: 1e17 out of a sum of ones left -0.5 behind.
+				stale = stale || math.Abs(seg[lo].Y) > 1024*math.Abs(sum)
 				lo++
 			}
+			if stale || math.IsInf(sum, 0) {
+				sum = 0
+				for _, q := range seg[lo:hi] {
+					sum += q.Y
+				}
+			}
 			p.Y = sum / float64(hi-lo)
+			if math.IsInf(sum, 0) {
+				// Readings near the largest float64 overflow a sum of
+				// them: their mean, a share of each, does not.
+				p.Y = 0
+				for _, q := range seg[lo:hi] {
+					p.Y += q.Y / float64(hi-lo)
+				}
+			}
 			smoothed[j] = p
 		}
 		out[i] = smoothed

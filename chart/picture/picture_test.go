@@ -287,3 +287,14 @@ func TestImageInvertedX(t *testing.T) {
 		t.Errorf("the line's top at %d on the left and %d on the right; it should be higher on the left", l, r)
 	}
 }
+
+// A band kind with a mark for braille and no colour is drawn in a faint
+// wash of the chrome, not a nil dereference.
+func TestBandKindWithoutAColour(t *testing.T) {
+	c := ramp(1000, 1000)
+	c.BandKinds = []chart.BandKind{{Name: "k", Mark: '━'}}
+	c.Bands = []chart.Band{{From: 10, To: 20}}
+	if _, err := Draw(c, 400, 300, Options{}); err != nil {
+		t.Fatal(err)
+	}
+}

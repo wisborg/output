@@ -157,7 +157,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 			from, to := band.Span()
 			x0, x1 := math.Max(math.Min(xAt(from), xAt(to)), b.x), math.Min(math.Max(xAt(from), xAt(to)), b.x+b.w)
 			if x1 > x0 {
-				cv.Rect(x0, b.y, math.Max(x1-x0, 1), b.h, c.BandKinds[band.Kind].Colour)
+				cv.Rect(x0, b.y, math.Max(x1-x0, 1), b.h, bandColour(c.BandKinds[band.Kind], pal))
 			}
 		}
 		for _, v := range c.X.Ticks() {
@@ -273,12 +273,22 @@ func legend(cv *canvas.Canvas, c chart.Chart, left, right, baseline, px, thin fl
 	for _, k := range kinds {
 		kind := c.BandKinds[k]
 		sx, sy, side := x, baseline-px*0.75, px*0.75
-		cv.Rect(sx, sy, side, side, kind.Colour)
+		cv.Rect(sx, sy, side, side, bandColour(kind, pal))
 		cv.Polyline([]float64{sx, sx + side, sx + side, sx, sx}, []float64{sy, sy, sy + side, sy + side, sy}, thin, pal.Dim)
 		_ = cv.Text(kind.Name, x+px*1.2, baseline, 0, 0, px, pal.Dim)
 		tw, _, _ := cv.Measure(kind.Name, px)
 		x += px*1.2 + tw + gap
 	}
+}
+
+// bandColour is the colour kind is drawn in: its own, or for a kind given a
+// mark for braille and no colour, a faint wash of the chrome -- rather than
+// a nil dereference.
+func bandColour(kind chart.BandKind, pal Palette) color.Color {
+	if kind.Colour == nil {
+		return faded(pal.Dim, 0.15)
+	}
+	return kind.Colour
 }
 
 // faded is col at alpha a, to draw over what is already there: col's own

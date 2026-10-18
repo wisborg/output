@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -297,5 +298,25 @@ func TestBrailleInvertedX(t *testing.T) {
 	}
 	if band := lines[len(lines)-2]; strings.IndexRune(band, '━') < len([]rune(band))/2 {
 		t.Errorf("the band of the first 20 s is not at the right: %q", band)
+	}
+}
+
+// Check says what is wrong with a scale, not that it is unset when it was
+// set backwards or to no numbers; and a chart of no strips is refused.
+func TestCheckSaysWhatIsWrong(t *testing.T) {
+	for _, c := range []struct {
+		edit func(*Chart)
+		want string
+	}{
+		{func(c *Chart) { c.X = Scale{} }, "is not set"},
+		{func(c *Chart) { c.X = Scale{Min: 5, Max: 1, Step: 1} }, "Max must be above Min"},
+		{func(c *Chart) { c.Strips[0].Y.Min = math.NaN() }, "not both numbers"},
+		{func(c *Chart) { c.Strips = nil }, "no strips"},
+	} {
+		ch := ramp(1000, 1000)
+		c.edit(&ch)
+		if err := ch.Check(); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v, want an error saying %q", err, c.want)
+		}
 	}
 }

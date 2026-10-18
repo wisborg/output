@@ -119,19 +119,36 @@ func (c Chart) Braille(width, height int) []string {
 // Braille draws such a chart as nothing, as it draws one too small, and the
 // picture package refuses it with this error.
 func (c Chart) Check() error {
-	if c.X.unset() {
-		return errors.New("chart: the X scale is not set")
+	if len(c.Strips) == 0 {
+		return errors.New("chart: no strips to draw")
+	}
+	if err := c.X.fault(); err != nil {
+		return fmt.Errorf("chart: the X scale %w", err)
 	}
 	for i, s := range c.Strips {
-		if s.Y.unset() {
-			return fmt.Errorf("chart: strip %d (%q) has no Y scale", i+1, s.Title)
+		if err := s.Y.fault(); err != nil {
+			return fmt.Errorf("chart: strip %d (%q): its Y scale %w", i+1, s.Title, err)
 		}
 	}
 	return nil
 }
 
-// unset says s is the zero Scale, or one spanning nothing: no scale at all.
-func (s Scale) unset() bool { return !(s.Max > s.Min) }
+// fault is what is wrong with s as a scale to draw on, or nil: not set,
+// not numbers, or running from Min to a Max no greater -- an inverted
+// scale is Inverted, with Min below Max still. Each was "not set" once,
+// which sent a caller who had set the scale backwards looking for where
+// they had forgotten to.
+func (s Scale) fault() error {
+	switch {
+	case s == (Scale{}):
+		return errors.New("is not set")
+	case !finite(s.Min) || !finite(s.Max):
+		return fmt.Errorf("runs from %v to %v, which are not both numbers", s.Min, s.Max)
+	case !(s.Max > s.Min):
+		return fmt.Errorf("runs from %v to %v: Max must be above Min (Inverted turns a scale round)", s.Min, s.Max)
+	}
+	return nil
+}
 
 // cut is s made printable and cut to at most n runes, the measure the
 // drawing's gutter is counted in.

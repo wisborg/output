@@ -84,8 +84,10 @@ type Scale struct {
 // scale of readings that are none of them negative below zero: a heart
 // rate's axis marked -20 is a claim about something that cannot be. A span
 // of nothing -- a reading that never changed -- is opened to a twentieth
-// of the reading either side, or one, so the line is drawn level in the
-// middle rather than on a scale of zero height.
+// of the reading either side, or one, so the line is drawn level rather
+// than on a scale of zero height: in the middle where the scale opens both
+// ways, and nearer the bottom where it cannot go below zero -- a reading of
+// nought all the way, zero power on a walk, on the axis itself.
 //
 // lo and hi are held within a quarter of the largest float64 either side of
 // zero, and a NaN is taken for zero, so the

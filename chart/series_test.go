@@ -305,3 +305,24 @@ func TestNonFiniteReadingIsNoReading(t *testing.T) {
 		t.Errorf("NaN at %v (clipped %v)", f, clipped)
 	}
 }
+
+// Smoothing keeps its sum honest: a reading far larger than the rest
+// leaving the window once cancelled the rest to noise, a negative mean of
+// readings all 1, and two near the largest float64 overflowed it to +Inf
+// for the rest of the segment.
+func TestSmoothAfterHugeReadings(t *testing.T) {
+	for _, ys := range [][]float64{
+		{1e17, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1e308, 1e308, 1, 1, 1, 1, 1, 1, 1},
+	} {
+		sm := Smooth(Segments(series(ys...), time.Second), 3*time.Second)[0]
+		for k, p := range sm {
+			if !finite(p.Y) || p.Y < 1 {
+				t.Errorf("%v: reading %d smoothed to %v", ys[:2], k, p.Y)
+			}
+		}
+		if last := sm[len(sm)-1].Y; last != 1 {
+			t.Errorf("%v: the last reading, its window all ones, smoothed to %v", ys[:2], last)
+		}
+	}
+}
