@@ -71,7 +71,10 @@ type Document struct {
 	// Only a nil interface counts as absent. Data holding a TYPED nil
 	// pointer -- a (*Result)(nil) -- is a value, and marshals as null in
 	// both formats, because at that point the program has said what it has
-	// and null is the accurate answer.
+	// and null is the accurate answer. Deeper in the value, a nil pointer
+	// held in an interface -- a map[string]any with a (*time.Time)(nil) in
+	// it -- is null to JSON and an error to YAML, whose encoder cannot
+	// write it; set such an interface to nil itself.
 	Data any
 
 	// Table is the table written by Text and CSV. nil means "not

@@ -48,7 +48,7 @@ type YAMLStyle struct {
 // is no typed error to hand back, and an exported sentinel would promise a
 // stability this shim cannot keep if the upstream message changes. Where
 // the panic's value is an error, the returned error wraps that too.
-var errUnsupportedYAMLType = errors.New("output: unsupported type for YAML")
+var errUnsupportedYAMLType = errors.New("output: writing YAML: a value YAML cannot encode")
 
 // ErrYAMLIndent is returned for a YAMLStyle.Indent the emitter would not
 // honour. See YAMLStyle.Indent for the accepted range.
@@ -79,6 +79,44 @@ var yamlCallerPanics = []string{
 	"multiple ,inline maps",
 	"option ,inline ",
 	"cannot have key ",
+	unexportedEmbedPanic,
+	nilValueMethodPanic,
+	nilTimePanic,
+}
+
+// The panics of a value an ordinary program writes, which encoding/json
+// writes without complaint, and the YAML encoder cannot:
+//
+//   - a struct that embeds a type that is not exported, without
+//     `yaml:",inline"`: the encoder reads the embedded value through
+//     reflect.Value.Interface, which refuses an unexported field;
+//   - a nil pointer held in an interface -- a map[string]any with a
+//     (*time.Time)(nil) in it, or an any field holding a nil pointer to a
+//     type with a value-receiver MarshalText: the encoder checks the
+//     interface for nil, not the pointer in it, and then calls the method
+//     on it, or asserts it to time.Time.
+//
+// Each is matched by its text, as the encoder's own panics are, and turned
+// into an error saying what to change; anything else from reflect or the
+// runtime is still a bug of the encoder's and re-panicked.
+const (
+	unexportedEmbedPanic = "reflect.Value.Interface: cannot return value obtained from unexported field or method"
+	nilValueMethodPanic  = "value method "
+	nilTimePanic         = "interface conversion: interface {} is *time.Time, not time.Time"
+)
+
+// yamlHint is what to change for the panic msg is, where msg is one of
+// those a value of the caller's raises that an ordinary program writes;
+// "" otherwise.
+func yamlHint(msg string) string {
+	switch {
+	case strings.HasPrefix(msg, unexportedEmbedPanic):
+		return "a struct embeds a type that is not exported: tag the field `yaml:\",inline\"`, or export the type"
+	case strings.HasPrefix(msg, nilValueMethodPanic) && strings.Contains(msg, " called using nil "),
+		strings.HasPrefix(msg, nilTimePanic):
+		return "an interface holds a nil pointer: set the interface itself to nil, which YAML writes as null"
+	}
+	return ""
 }
 
 // WriteYAML writes v as YAML, indented per style, followed by exactly one
@@ -180,12 +218,15 @@ func encodeYAML(buf *bytes.Buffer, v any, indent int) (err error) {
 				return
 			}
 			if callerPanic(v) {
-				err = fmt.Errorf("%w: %s", errUnsupportedYAMLType, v)
+				err = fmt.Errorf("%w: %s", errUnsupportedYAMLType, withHint(v))
 				return
 			}
 		case error:
 			if callerPanic(v.Error()) {
 				err = fmt.Errorf("%w: %w", errUnsupportedYAMLType, v)
+				if h := yamlHint(v.Error()); h != "" {
+					err = fmt.Errorf("%w: %s (%w)", errUnsupportedYAMLType, h, v)
+				}
 				return
 			}
 		}
@@ -212,11 +253,21 @@ func encodeYAML(buf *bytes.Buffer, v any, indent int) (err error) {
 	return nil
 }
 
+// withHint is msg, or what to change for it where yamlHint knows.
+func withHint(msg string) string {
+	if h := yamlHint(msg); h != "" {
+		return h
+	}
+	return msg
+}
+
 // callerPanic says msg is one of yamlCallerPanics.
 func callerPanic(msg string) bool {
 	for _, p := range yamlCallerPanics {
 		if strings.HasPrefix(msg, p) {
-			return true
+			// A value method's panic is one only where it was called on
+			// a nil pointer: another "value method" panic is not ours.
+			return p != nilValueMethodPanic || strings.Contains(msg, " called using nil ")
 		}
 	}
 	return false

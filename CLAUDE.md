@@ -219,7 +219,11 @@ recognised by their text (`yamlCallerPanics`), become errors; anything else
 is re-panicked because it is an encoder bug. The shim once converted the
 first alone, on the belief that every other panic was the encoder's fault,
 and `--format yaml` crashed on a struct with a duplicated tag that JSON wrote
-without complaint. The shim wraps the encode alone, not the write, so a panic
+without complaint. Two more were found after: a struct embedding an
+unexported type, and a nil pointer held in an interface, both of which JSON
+writes and the encoder panics on from reflect or the runtime. They are matched
+by their exact text too, and say what to change; a reflect or runtime panic of
+any other text is still re-panicked. The shim wraps the encode alone, not the write, so a panic
 from the caller's `io.Writer` is not caught by it.
 `TestWriteYAML_UpstreamStillPanics` and
 `TestWriteYAML_UpstreamStillPanicsOnStructTags` are tripwires on those panic

@@ -3,8 +3,10 @@ package output
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -160,6 +162,62 @@ func TestWriteYAML_CallersStructTagsAreAnErrorNotAPanic(t *testing.T) {
 				t.Errorf("wrote %q on failing", b.String())
 			}
 		})
+	}
+}
+
+type unexportedInner struct{ A int }
+
+// TestWriteYAML_OrdinaryValuesTheEncoderCannotWrite: a struct embedding an
+// unexported type, and a nil pointer held in an interface, are values an
+// ordinary program writes and encoding/json writes without complaint. The
+// YAML encoder panics on both; WriteYAML says so, and what to change.
+func TestWriteYAML_OrdinaryValuesTheEncoderCannotWrite(t *testing.T) {
+	type outer struct{ unexportedInner }
+	type holder struct{ V any }
+	for _, c := range []struct {
+		name string
+		v    any
+		want string
+	}{
+		{"embedded unexported", outer{unexportedInner{1}}, "inline"},
+		{"embedded unexported by pointer", &outer{unexportedInner{1}}, "inline"},
+		{"nil Format in an interface", holder{V: (*Format)(nil)}, "set the interface itself to nil"},
+		{"nil time in a map", map[string]any{"t": (*time.Time)(nil)}, "set the interface itself to nil"},
+	} {
+		var b strings.Builder
+		err := WriteYAML(&b, c.v, YAMLStyle{})
+		if !errors.Is(err, errUnsupportedYAMLType) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want an error saying %q", c.name, err, c.want)
+		}
+		if b.Len() != 0 {
+			t.Errorf("%s: wrote %q", c.name, b.String())
+		}
+	}
+	// A nil pointer in a field of pointer type, and at the top, are fine.
+	var tp *time.Time
+	for _, v := range []any{struct{ T *time.Time }{tp}, (*Format)(nil)} {
+		if err := WriteYAML(io.Discard, v, YAMLStyle{}); err != nil {
+			t.Errorf("%#v: %v", v, err)
+		}
+	}
+}
+
+// TestWriteYAML_UpstreamStillPanicsOnOrdinaryValues trips if the encoder's
+// panics on those values change: their text is all the shim has to know
+// them by.
+func TestWriteYAML_UpstreamStillPanicsOnOrdinaryValues(t *testing.T) {
+	type outer struct{ unexportedInner }
+	for _, v := range []any{outer{unexportedInner{1}}, struct{ V any }{(*Format)(nil)}, map[string]any{"t": (*time.Time)(nil)}} {
+		func() {
+			defer func() {
+				r := recover()
+				msg := fmt.Sprint(r)
+				if r == nil || !callerPanic(msg) || yamlHint(msg) == "" {
+					t.Errorf("go.yaml.in/yaml/v3 on %#v: %#v, which WriteYAML's shim no longer knows", v, r)
+				}
+			}()
+			_, _ = yaml.Marshal(v)
+		}()
 	}
 }
 
