@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"unicode"
 
 	"github.com/wisborg/output/internal/cli"
 )
@@ -140,12 +139,14 @@ func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder, mark
 	cr.Comma = delim
 	cr.FieldsPerRecord = -1
 	cr.LazyQuotes = true
-	// Not where the delimiter is itself a space: encoding/csv trims the
-	// leading space even then, so a tab file's empty cell -- two tabs in a
-	// row -- vanished and every value after it moved a column left, to be
-	// plotted as the column before it. Each cell is trimmed below anyway;
-	// this is for a quoted value after ", ".
-	cr.TrimLeadingSpace = !unicode.IsSpace(delim)
+	// Not for a tab: encoding/csv trims a leading tab even where the tab is
+	// the delimiter, so a tab file's empty cell -- two tabs in a row --
+	// vanished and every value after it moved a column left, to be plotted
+	// as the column before it. For a space it is wanted: a file aligned with
+	// runs of spaces has one delimiter between its columns, not one a space
+	// and empty cells between. Each cell is trimmed below anyway; this is
+	// for a quoted value after ", ", and for those runs.
+	cr.TrimLeadingSpace = delim != '\t'
 	records, err := cr.ReadAll()
 	if err != nil {
 		var pe *csv.ParseError

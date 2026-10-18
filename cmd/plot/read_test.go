@@ -158,3 +158,18 @@ func TestReadTableRefusesTwoDecimalMarks(t *testing.T) {
 		}
 	}
 }
+
+// A file aligned with runs of spaces, read with --delimiter ' ', has one
+// delimiter between its columns however many spaces there are: not a
+// phantom column of empty cells for the extra ones, which once pushed one
+// row's reading under it.
+func TestReadTableMergesRunsOfSpaces(t *testing.T) {
+	tb, err := readTable(strings.NewReader("a  b\n1  10\n10 20\n2  30\n"), ' ', headerAuto, datesAuto, decimalAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"1", "10"}, {"10", "20"}, {"2", "30"}}
+	if !reflect.DeepEqual(tb.names, []string{"a", "b"}) || !reflect.DeepEqual(tb.rows, want) {
+		t.Errorf("names %q, rows %q; want [a b] and %q", tb.names, tb.rows, want)
+	}
+}
