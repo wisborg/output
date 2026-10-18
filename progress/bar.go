@@ -74,6 +74,13 @@ type Bar struct {
 	// stallAfter shows no rate, rather than the last one it had.
 	lastMoved time.Time
 
+	// shown is done and total as slots read them for the draw under way:
+	// the layout and the trough are drawn from the same reading as the
+	// fields beside them. Read again, a SetTotal(0) between the two made a
+	// trough of a bar with no total, 0/0, and on amd64 int(NaN) asked
+	// make for a slice of a negative length.
+	shownDone, shownTotal int64
+
 	// reserve is the column width held for each slot, whether or not that
 	// slot has anything to show yet. It is what keeps the trough from
 	// resizing: without it the bar is re-fitted around whatever the fields
@@ -287,6 +294,7 @@ const (
 // everything to their left at that moment.
 func (b *Bar) slots(now time.Time) (label string, out [numSlots]string) {
 	done, total := b.done.Load(), b.total.Load()
+	b.shownDone, b.shownTotal = done, total
 	b.observe(now, done)
 	measure := b.d.widthFunc()
 
@@ -318,7 +326,9 @@ func (b *Bar) slots(now time.Time) (label string, out [numSlots]string) {
 // like a bar that is stuck rather than like a measurement nobody has. The
 // count and the rate are the honest report of an unsized job, and they are
 // moving, which is the same thing a viewer reads a bar for.
-func (b *Bar) hasBar() bool { return b != nil && b.total.Load() > 0 }
+//
+// It reads the total slots last read, so that one draw is of one reading.
+func (b *Bar) hasBar() bool { return b != nil && b.shownTotal > 0 }
 
 // layout is the shared geometry one redraw gives every bar on the display.
 type layout struct {
@@ -399,7 +409,7 @@ func (b *Bar) composeLine(label string, fields [numSlots]string, l layout, measu
 		// A bar with no trough still takes the room, so a sized bar beside
 		// an unsized one does not slide sideways as the pair redraw.
 		if b.hasBar() {
-			sb.WriteString(b.glyphBar(b.done.Load(), b.total.Load(), l.barWidth, l.ascii))
+			sb.WriteString(b.glyphBar(b.shownDone, b.shownTotal, l.barWidth, l.ascii))
 		} else {
 			sb.WriteString(strings.Repeat(" ", l.barWidth+2))
 		}
@@ -500,6 +510,9 @@ func (b *Bar) observe(now time.Time, done int64) {
 	b.lastTime, b.lastDone = now, done
 }
 
+// maxETA is the longest estimate given: a year.
+const maxETA = 365 * 24 * time.Hour
+
 // formatETA renders a remaining time. It is a function rather than an inline
 // format so reserveSlots can measure exactly what eta will later produce.
 func formatETA(left time.Duration) string {
@@ -546,7 +559,14 @@ func (b *Bar) eta(now time.Time, done, total int64) string {
 	if elapsed < time.Second {
 		return ""
 	}
-	left := time.Duration(float64(elapsed) / float64(done) * float64(total-done))
+	leftF := float64(elapsed) / float64(done) * float64(total-done)
+	if leftF > float64(maxETA) {
+		// Past what anyone waits for, and past what a Duration holds,
+		// where the conversion saturated on one machine and went negative
+		// on another.
+		return ""
+	}
+	left := time.Duration(leftF)
 	if left < time.Second {
 		// "~0s left" is noise: at this point the thing is finishing, and a
 		// figure that rounds away to nothing tells a reader less than the
@@ -685,6 +705,10 @@ func formatRate(perSecond float64) string {
 	switch {
 	case perSecond <= 0:
 		return ""
+	case perSecond < 0.05:
+		// Moving, but slower than "0.0/s" says: that reads as stopped,
+		// beside a rule that takes a stopped bar's rate away.
+		return "<0.1/s"
 	case perSecond < 9.95:
 		return fmt.Sprintf("%.1f/s", perSecond)
 	case perSecond < 9_999.5:
@@ -743,6 +767,11 @@ func formatByteRate(perSecond float64) string {
 		return ""
 	}
 	name, size := bytePrefix(perSecond)
+	if size == 1 && math.Round(perSecond) >= 1024 {
+		// Whole bytes round up into the next prefix sooner than a tenth
+		// of one does: 1023.5 B/s is "1.0 KiB/s", not "1024 B/s".
+		name, size = byteUnits[1], 1024
+	}
 	if size == 1 {
 		return fmt.Sprintf("%.0f B/s", perSecond)
 	}
@@ -788,7 +817,10 @@ func truncate(s string, cols int, measure func(string) int) string {
 	}
 	const ellipsis = "…"
 	budget := cols - measure(ellipsis)
-	if budget <= 0 {
+	if budget < 0 {
+		return "" // not even the ellipsis fits: two columns where it is wide
+	}
+	if budget == 0 {
 		return ellipsis
 	}
 	var sb strings.Builder

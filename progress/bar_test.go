@@ -412,3 +412,37 @@ func TestPlain_DoneWritesOnlyItsOwnLine(t *testing.T) {
 		t.Errorf("a finishing wrote b's line: %q", buf.String())
 	}
 }
+
+// The smaller formatting edges: whole bytes round into kibibytes as tenths
+// do; a rate too slow for a tenth is "<0.1/s", not a "0.0/s" that reads as
+// stopped; an estimate past a year is none; and an ellipsis wider than the
+// line is left out.
+func TestFormattingEdges(t *testing.T) {
+	if got := formatByteRate(1023.6); got != "1.0 KiB/s" {
+		t.Errorf("formatByteRate(1023.6) = %q", got)
+	}
+	if got := formatRate(1.0 / 30); got != "<0.1/s" {
+		t.Errorf("formatRate(1/30) = %q", got)
+	}
+	b := &Bar{start: time.Unix(0, 0), lastMoved: time.Unix(10, 0)}
+	if got := b.eta(time.Unix(10, 0), 1, 1<<62); got != "" {
+		t.Errorf("an estimate of centuries: %q", got)
+	}
+	wide := func(s string) int { return 2 * len([]rune(s)) }
+	if got := truncate("abc", 1, wide); got != "" {
+		t.Errorf("a two-column ellipsis in one column: %q", got)
+	}
+}
+
+// With no room for a trough the fields keep all the room: a bar with room
+// for its count beside its percentage shows both.
+func TestLayout_FieldsRefitWithoutATrough(t *testing.T) {
+	c := newClock()
+	d, buf := liveDisplay(17, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 100})
+	c.add(time.Second)
+	bar.Set(50)
+	if line := replay(buf.String()).text()[0]; !strings.Contains(line, "50/100") {
+		t.Errorf("at 17 columns: %q, want the count too", line)
+	}
+}

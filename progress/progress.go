@@ -598,10 +598,14 @@ func (d *Display) resolveLayout(labels []string) layout {
 			return l
 		}
 		if l.slots <= 1 {
-			// No trough at all: the text keeps the room, and composeLine
-			// truncates whatever still does not fit.
+			// No trough at all: the text keeps the room -- all of it, so
+			// the fields are fitted again from the first, as for a display
+			// without troughs. Left at one, a bar that had room for its
+			// count beside its percentage showed the percentage alone.
 			l.barWidth = 0
-			return l
+			troughs = false
+			l.slots = numSlots
+			continue
 		}
 		l.slots--
 	}
