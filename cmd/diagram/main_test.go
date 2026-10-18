@@ -554,3 +554,26 @@ func TestDiagramLimits(t *testing.T) {
 		t.Errorf("a 300-letter label with --max-cells 1000: %v", err)
 	}
 }
+
+// A straight edge drawn in braille whose box has no free cell beside it for
+// a stub ends in an arrowhead on its own line, never on another's: in the
+// services example worker to db's head took the last cell of the dashed db
+// to cache line, which then stopped a cell short of db.
+func TestBrailleHeadKeepsOffOtherLines(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "examples", "services.dot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := draw(t, string(src), "--terminal", "text", "--braille", "thin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "cache │◀") && !strings.Contains(l, "◀╌╌╌╌╌╌╌") {
+			t.Errorf("the dashed db to cache line is cut short: %q", l)
+		}
+		if strings.Contains(l, "╌↗") || strings.Contains(l, "╌↘") {
+			t.Errorf("an arrowhead on the dashed line: %q", l)
+		}
+	}
+}

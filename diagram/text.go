@@ -756,8 +756,19 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 			switch {
 			case !s.ok && s.head:
 				// No free cell by the side: the arrow at an angle, where
-				// the line ends.
-				c.set(s.end.X, s.end.Y, pointing(s.dx*cellAspect, s.dy), e.Edge.Colour)
+				// the line ends -- or the last cell before that no other
+				// line or word takes. Set on the end regardless, it once
+				// took the last cell of another edge's line, which then
+				// stopped short of its box and seemed to end at this one.
+				at := s.end
+				for k := len(cells) - 1; k >= 0; k-- {
+					if p := cells[k]; c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 {
+						at = p
+						break
+					}
+				}
+				c.dots[at.Y][at.X] = 0
+				c.set(at.X, at.Y, pointing(s.dx*cellAspect, s.dy), e.Edge.Colour)
 			case !s.ok:
 			case s.head:
 				c.set(s.at.X, s.at.Y, s.arrow, e.Edge.Colour)
