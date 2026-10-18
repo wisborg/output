@@ -38,6 +38,19 @@ import "sort"
 // nothing -- a page too big to search -- is the edge drawn along the plain
 // path between its boxes, whatever is in the way.
 func (l *layouter) route() {
+	// Nothing to route, nothing to search: the router's record of the page
+	// is a cell's worth of memory a cell, and a page of boxes alone needs
+	// none of it.
+	visible := false
+	for _, e := range l.d.Edges {
+		visible = visible || !e.Invisible
+	}
+	if !visible {
+		for i := range l.d.Edges {
+			l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i]})
+		}
+		return
+	}
 	order := make([]int, len(l.d.Edges))
 	for i := range order {
 		order[i] = i

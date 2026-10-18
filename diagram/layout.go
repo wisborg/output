@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -184,9 +185,37 @@ type layouter struct {
 	rect map[string]Rect
 }
 
-// Layout lays the diagram out. An edge naming a node the diagram does not
-// hold, a node held twice, and two items pinned to one cell are errors.
-func (d *Diagram) Layout() (*Layout, error) {
+// Layout lays the diagram out, held to the default LayoutOptions. An edge
+// naming a node the diagram does not hold, a node held twice, two items
+// pinned to one cell, a grid or a pin past MaxGrid, an item that is
+// neither a node nor a group, and a page larger than MaxCells are errors.
+func (d *Diagram) Layout() (*Layout, error) { return d.LayoutWith(LayoutOptions{}) }
+
+// LayoutOptions are the limits a layout is made within.
+type LayoutOptions struct {
+	// MaxCells is the most cells the page may have, its margins included;
+	// zero is DefaultMaxCells. The router keeps a record of every cell and
+	// searches them for each edge, so a page's cells are its memory and
+	// its time: one node labelled with four thousand lines of four
+	// thousand letters -- sixteen kilobytes of DOT -- was a page of sixteen
+	// million cells, and 1.4 gigabytes, for one box.
+	MaxCells int
+}
+
+// DefaultMaxCells is LayoutOptions.MaxCells where it is not set: a page a
+// thousand cells square, which no terminal or picture of a diagram anyone
+// reads comes near.
+const DefaultMaxCells = 1000 * 1000
+
+// ErrTooLarge is what a diagram whose page would pass
+// LayoutOptions.MaxCells is refused with.
+var ErrTooLarge = errors.New("diagram: too large to lay out")
+
+// LayoutWith lays the diagram out, held to o.
+func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
+	if o.MaxCells <= 0 {
+		o.MaxCells = DefaultMaxCells
+	}
 	l := &layouter{d: d, path: map[string][]*Group{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, rect: map[string]Rect{}}
 	if err := l.index(&d.Root, nil); err != nil {
 		return nil, err
@@ -212,6 +241,9 @@ func (d *Diagram) Layout() (*Layout, error) {
 	// top row, with a third between them, had no way round but through the
 	// third. What no line takes of the margin is given back after routing,
 	// so a drawing that does not need it does not change.
+	if w, h := p.w+2*colGap, top+p.h+2*rowGap; w*h > o.MaxCells || w < 0 || h < 0 {
+		return nil, fmt.Errorf("%w: a page of %d by %d cells, more than the %d it may have -- its labels or its grid are that large", ErrTooLarge, w, h, o.MaxCells)
+	}
 	l.place(p, colGap, top+rowGap, p.w, p.h)
 	l.route()
 	l.trim(top, colGap+p.w, top+rowGap+p.h)

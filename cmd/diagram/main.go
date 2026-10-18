@@ -80,6 +80,8 @@ type options struct {
 	width    int
 	height   int
 	textPx   float64
+	maxEdges int
+	maxCells int
 	fonts    []string
 }
 
@@ -110,6 +112,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a file; the terminal's own in a terminal), light or dark")
 	fs.IntVar(&o.width, "width", 0, "the picture's width: in characters for a picture in the terminal (default: the terminal's, or 100); in pixels in a PNG or an SVG (default: "+strconv.Itoa(imageWidth)+"); its height follows from its proportions. The text drawing is as wide as the diagram, which no flag narrows")
 	fs.IntVar(&o.height, "height", 0, "the most the diagram's height may be, narrower where it would be taller: in lines in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none)")
+	fs.IntVar(&o.maxEdges, "max-edges", dot.DefaultMaxEdges, "the most edges a file may make: a guard against a few bytes of DOT asking for hours of layout; raise it for a genuine diagram past it")
+	fs.IntVar(&o.maxCells, "max-cells", diagram.DefaultMaxCells, "the most cells the laid-out page may have: a guard against labels or grids asking for gigabytes; raise it for a genuine diagram past it")
 	fs.Float64Var(&o.textPx, "text-size", 0, "size a PNG or an SVG by its text instead, in pixels, everything else in proportion -- so several diagrams share a text size; not with --width or --height")
 	fs.Func("font", "a TrueType or OpenType font for the letters the built-in font lacks, in a PNG; repeat for several", func(s string) error {
 		o.fonts = append(o.fonts, s)
@@ -187,7 +191,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if err != nil {
 		return err
 	}
-	d, err := dot.Parse(string(src))
+	if o.maxEdges <= 0 || o.maxCells <= 0 {
+		return cli.Usagef("--max-edges %d, --max-cells %d: each a number from 1", o.maxEdges, o.maxCells)
+	}
+	d, err := dot.ParseWith(string(src), dot.Options{MaxEdges: o.maxEdges})
+	if errors.Is(err, dot.ErrTooManyEdges) {
+		return fmt.Errorf("%s: %w (--max-edges raises the limit)", name, err)
+	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -197,7 +207,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	case "orthogonal":
 		d.Straight = false
 	}
-	lay, err := d.Layout()
+	lay, err := d.LayoutWith(diagram.LayoutOptions{MaxCells: o.maxCells})
+	if errors.Is(err, diagram.ErrTooLarge) {
+		return fmt.Errorf("%s: %w (--max-cells raises the limit)", name, err)
+	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}

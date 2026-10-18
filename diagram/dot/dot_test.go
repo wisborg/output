@@ -317,7 +317,7 @@ func TestLimits(t *testing.T) {
 	sets.WriteString(" } }")
 	for _, c := range []struct{ name, src, want string }{
 		{"nesting", deep, "nested more than 100 deep"},
-		{"edges", sets.String(), "more than 10000 edges"},
+		{"edges", sets.String(), "more than 300 edges"},
 		{"a pin", "digraph{columns=2\na [row=3000]}", "line 2: node \"a\": row=\"3000\": a whole number from 1 to 100"},
 		{"columns", "digraph{columns=101}", "a whole number from 1 to 100"},
 	} {
@@ -394,5 +394,56 @@ func TestReadsAsGraphviz(t *testing.T) {
 	// After the first graph, another or nothing.
 	if _, err := Parse("digraph { a } digraph { b }"); err != nil {
 		t.Errorf("a second graph: %v", err)
+	}
+}
+
+// edgeSets is a graph of one statement joining n nodes to n others: n*n
+// edges.
+func edgeSets(strict string, n int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%sdigraph{ {", strict)
+	for i := range n {
+		fmt.Fprintf(&b, " a%d", i)
+	}
+	b.WriteString(" } -> {")
+	for i := range n {
+		fmt.Fprintf(&b, " b%d", i)
+	}
+	b.WriteString(" } }")
+	return b.String()
+}
+
+// The edge limit is DefaultMaxEdges unless raised: exactly at it a file
+// is read, one past it is refused with ErrTooManyEdges, and ParseWith reads
+// past it with a higher limit. A strict graph's repeated statements count,
+// since each is work; and a subgraph's nodes are a set, as Graphviz reads
+// them, so a node written twice in one is no second edge.
+func TestEdgeLimit(t *testing.T) {
+	var at strings.Builder
+	at.WriteString("digraph{")
+	for i := range DefaultMaxEdges {
+		fmt.Fprintf(&at, " n%d -> m%d;", i, i)
+	}
+	if _, err := Parse(at.String() + "}"); err != nil {
+		t.Errorf("%d edges: %v", DefaultMaxEdges, err)
+	}
+	_, err := Parse(at.String() + " x -> y }")
+	if !errors.Is(err, ErrTooManyEdges) {
+		t.Errorf("%d edges: %v, want ErrTooManyEdges", DefaultMaxEdges+1, err)
+	}
+	if d, err := ParseWith(edgeSets("", 40), Options{MaxEdges: 1600}); err != nil || len(d.Edges) != 1600 {
+		t.Errorf("1600 edges with MaxEdges 1600: %v", err)
+	}
+	var strict strings.Builder
+	strict.WriteString("strict digraph{")
+	for range DefaultMaxEdges + 1 {
+		strict.WriteString(" a -> b;")
+	}
+	if _, err := Parse(strict.String() + "}"); !errors.Is(err, ErrTooManyEdges) {
+		t.Errorf("a strict edge stated %d times: %v, want ErrTooManyEdges", DefaultMaxEdges+1, err)
+	}
+	d, err := Parse("digraph { {a a a} -> b }")
+	if err != nil || len(d.Edges) != 1 {
+		t.Errorf("{a a a} -> b: %v, %d edges, want 1", err, len(d.Edges))
 	}
 }

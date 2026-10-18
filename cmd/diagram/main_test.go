@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"flag"
+	"fmt"
 	"image/png"
 	"io"
 	"os"
@@ -529,5 +530,27 @@ func TestDiagramHelpAndTextWidth(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "wider than --width 20") {
 		t.Errorf("stderr %q says nothing of --width", errOut)
+	}
+}
+
+// The limits on a file's edges and a layout's page are guards, raised by a
+// flag for a genuine diagram past them, and the refusal names the flag.
+func TestDiagramLimits(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("digraph{")
+	for i := range 30 {
+		fmt.Fprintf(&b, " n%d -> m%d;", i, i)
+	}
+	b.WriteString("}")
+	_, _, err := draw(t, b.String(), "--terminal", "text", "--max-edges", "20")
+	if err == nil || !strings.Contains(err.Error(), "--max-edges raises the limit") {
+		t.Errorf("30 edges with --max-edges 20: %v", err)
+	}
+	if _, _, err := draw(t, b.String(), "--terminal", "text", "--max-edges", "30"); err != nil {
+		t.Errorf("30 edges with --max-edges 30: %v", err)
+	}
+	_, _, err = draw(t, `digraph{ a [label="`+strings.Repeat("x", 300)+`"] }`, "--terminal", "text", "--max-cells", "1000")
+	if err == nil || !strings.Contains(err.Error(), "--max-cells raises the limit") {
+		t.Errorf("a 300-letter label with --max-cells 1000: %v", err)
 	}
 }

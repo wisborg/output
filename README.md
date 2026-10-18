@@ -550,6 +550,13 @@ read as their words, ports are read and not drawn; an edge ending at a
 cluster itself (Graphviz's `lhead` and `ltail`), record shapes and
 Graphviz's other layout engines are not supported.
 
+A DOT file is often someone else's, and a few bytes of it can ask for hours
+of layout: one statement joining two sets of nodes makes an edge for every
+pair. So a file may make at most 300 edges, and a laid-out page have at most
+a million cells; `--max-edges` and `--max-cells` (`dot.Options` and
+`diagram.LayoutOptions` in the library) raise them for a genuine diagram past
+them.
+
 ## Licence
 
 Apache License 2.0 — see [LICENSE](LICENSE).

@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"errors"
 	"image/color"
 	"math"
 	"strings"
@@ -625,5 +626,23 @@ func TestLayoutLimits(t *testing.T) {
 		if _, err := c.d.Layout(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want an error saying %q", c.name, err, c.want)
 		}
+	}
+}
+
+// A page larger than LayoutOptions.MaxCells is refused before anything is
+// routed: one node labelled with lines enough to need gigabytes of the
+// router's memory, within a few kilobytes of DOT, by default; and a smaller
+// limit refuses a smaller page.
+func TestLayoutMaxCells(t *testing.T) {
+	big := &Diagram{Root: Group{Items: []Item{{Node: &Node{ID: "a", Label: strings.Repeat(strings.Repeat("x", 1200)+"\n", 1200)}}}}}
+	if _, err := big.Layout(); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("a 1200 by 1200 label: %v, want ErrTooLarge", err)
+	}
+	small := &Diagram{Root: Group{Items: []Item{node("a"), node("b")}}, Edges: []Edge{{From: "a", To: "b"}}}
+	if _, err := small.LayoutWith(LayoutOptions{MaxCells: 50}); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("MaxCells 50: %v, want ErrTooLarge", err)
+	}
+	if _, err := small.Layout(); err != nil {
+		t.Error(err)
 	}
 }

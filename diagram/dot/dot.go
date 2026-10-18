@@ -54,10 +54,45 @@ import (
 	"github.com/wisborg/output/diagram"
 )
 
-// Parse reads a diagram from DOT source. Only the first graph of a file is
-// read.
-func Parse(src string) (*diagram.Diagram, error) {
-	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}, clusters: map[string]*clusterInfo{}}
+// Parse reads a diagram from DOT source, held to the default Options. Only
+// the first graph of a file is read.
+func Parse(src string) (*diagram.Diagram, error) { return ParseWith(src, Options{}) }
+
+// Options are the limits a file is read within. A DOT file is often
+// someone else's, and a few bytes of one can ask for more work than any
+// diagram is worth: these bound it, at limits no diagram anyone reads comes
+// near, and a caller with a genuine diagram past them raises them.
+type Options struct {
+	// MaxEdges is the most edges the file may make -- and, in a strict
+	// graph, the most it may state, since each statement of an edge it
+	// already has is work too. Zero is DefaultMaxEdges.
+	//
+	// It is the layout that the count bounds. The router searches the page
+	// for every edge, round the lines already drawn, and the time that takes
+	// grows faster than the square of the edges: a random flow of 300 lays
+	// out in a couple of seconds, of 500 in a quarter of a minute, of 1,000
+	// in a minute and a half, and 10,000 -- "{a0 ... a99} -> {b0 ...
+	// b99}", under a kilobyte -- did not finish in seven minutes.
+	MaxEdges int
+}
+
+// DefaultMaxEdges is Options.MaxEdges where it is not set: a diagram of 300
+// edges lays out in a few seconds at worst, and is already more lines than
+// a page or a terminal shows legibly. Set low on purpose: a caller with a
+// genuine diagram past it raises it, and one too high leaves a file able
+// to ask for minutes.
+const DefaultMaxEdges = 300
+
+// ErrTooManyEdges is what a file that makes more than Options.MaxEdges is
+// refused with, wrapped in an *Error naming the line.
+var ErrTooManyEdges = errors.New("too many edges")
+
+// ParseWith reads a diagram from DOT source, held to o.
+func ParseWith(src string, o Options) (*diagram.Diagram, error) {
+	if o.MaxEdges <= 0 {
+		o.MaxEdges = DefaultMaxEdges
+	}
+	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}, clusters: map[string]*clusterInfo{}, maxEdges: o.MaxEdges}
 	if err := p.advance(); err != nil {
 		return nil, err
 	}
@@ -93,7 +128,21 @@ type scope struct {
 	// The line that set each, for an error about it to name.
 	nodeLines, edgeLines, graphLines map[string]int
 	group                            *diagram.Group // the group its nodes are in: the innermost cluster
-	nodes                            []string       // the nodes it holds, in order: an edge's end, rank=same
+	nodes                            []string       // the nodes it holds, in order and once each: an edge's end, rank=same
+	holds                            map[string]bool
+}
+
+// add records id as one of s's nodes, once however often it is mentioned:
+// a subgraph's nodes are a set, as Graphviz reads them, so "{a a} -> b" is
+// one edge, and "{a a a ...}" no multiplier of the edges it ends.
+func (s *scope) add(id string) {
+	if s.holds == nil {
+		s.holds = map[string]bool{}
+	}
+	if !s.holds[id] {
+		s.holds[id] = true
+		s.nodes = append(s.nodes, id)
+	}
 }
 
 func (s *scope) child() *scope {
@@ -140,6 +189,8 @@ type parser struct {
 	legend     *diagram.Group
 	legendLine int
 	depth      int // how many subgraphs the one being read is inside
+	maxEdges   int // Options.MaxEdges
+	stated     int // the edges stated, a strict graph's repeats included
 }
 
 // clusterInfo is a cluster as read so far.
@@ -151,17 +202,11 @@ type clusterInfo struct {
 	line   int
 }
 
-// The most a file may ask for. A DOT file is often someone else's, and
-// each of these was a way for a few bytes of it to take the reader down:
-// subgraphs nested millions deep overflowed the stack, which is fatal in
-// Go and cannot be recovered from; "{a0 ... a999} -> {b0 ... b999}", ten
-// kilobytes, is a million edges, which the layout then never finished; and
-// a node pinned to row 3000 sized a grid of millions of cells. No diagram
-// anyone reads comes near any of them.
-const (
-	maxDepth = 100
-	maxEdges = 10000
-)
+// maxDepth is the deepest subgraphs may nest. Nested millions deep they
+// overflowed the parser's stack, which is fatal in Go and cannot be
+// recovered from. No diagram anyone reads comes near it; the edges, which
+// one does, are Options.MaxEdges.
+const maxDepth = 100
 
 func (p *parser) advance() error {
 	t, err := p.lex.next()
@@ -432,6 +477,9 @@ func (p *parser) edgeRest(s *scope, from []string) error {
 	for i := 1; i < len(ends); i++ {
 		for _, a := range ends[i-1] {
 			for _, b := range ends[i] {
+				if p.stated++; p.stated > p.maxEdges {
+					return &Error{Line: p.tok.line, Msg: fmt.Sprintf("more than %d edges", p.maxEdges), Err: ErrTooManyEdges}
+				}
 				if p.strict {
 					key := [2]string{a, b}
 					if !p.directed && b < a {
@@ -451,9 +499,6 @@ func (p *parser) edgeRest(s *scope, from []string) error {
 						continue
 					}
 					p.seen[key] = len(p.d.Edges)
-				}
-				if len(p.d.Edges) >= maxEdges {
-					return p.errorf("more than %d edges", maxEdges)
 				}
 				e := diagram.Edge{From: a, To: b, Head: p.directed}
 				if err := p.applyEdge(&e, merged, mergedLines); err != nil {
@@ -533,7 +578,9 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 		p.d.SameLayer = append(p.d.SameLayer, sub.nodes)
 	}
 	// The subgraph's nodes are the enclosing graph's too.
-	s.nodes = append(s.nodes, sub.nodes...)
+	for _, id := range sub.nodes {
+		s.add(id)
+	}
 	return sub.nodes, nil
 }
 
@@ -604,7 +651,7 @@ func (p *parser) node(s *scope, id string) string {
 		s.group.Items = append(s.group.Items, diagram.Item{Node: info.n})
 		info.group = s.group
 	}
-	s.nodes = append(s.nodes, id)
+	s.add(id)
 	return id
 }
 

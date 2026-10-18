@@ -35,13 +35,18 @@ type lexer struct {
 	line int
 }
 
-// Error is a mistake in a DOT file, and the line it is on.
+// Error is a mistake in a DOT file, and the line it is on. Err, where it is
+// not nil, is a sentinel the mistake is one of, such as ErrTooManyEdges.
 type Error struct {
 	Line int
 	Msg  string
+	Err  error
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("line %d: %s", e.Line, e.Msg) }
+
+// Unwrap is Err, so errors.Is reaches it.
+func (e *Error) Unwrap() error { return e.Err }
 
 func (l *lexer) errorf(format string, args ...any) error {
 	return &Error{Line: l.line, Msg: fmt.Sprintf(format, args...)}
