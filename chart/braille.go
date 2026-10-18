@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -132,9 +133,25 @@ func (c Chart) Check() error {
 // unset says s is the zero Scale, or one spanning nothing: no scale at all.
 func (s Scale) unset() bool { return !(s.Max > s.Min) }
 
-// cut is s cut to at most n runes, the measure the drawing's gutter is
-// counted in.
+// cut is s made printable and cut to at most n runes, the measure the
+// drawing's gutter is counted in.
+//
+// Printable: a control character, or a byte that is not UTF-8, is written
+// as U+FFFD. A title, a strip's name and a band kind's are text someone
+// else may have written -- plot names its strips after a CSV's column
+// headings -- and an escape in one written to a terminal is a command to it:
+// a heading holding "\x1b]0;...\x07" retitled the window when the file was
+// plotted.
 func cut(s string, n int) string {
+	s = strings.ToValidUTF8(s, "\uFFFD")
+	if strings.ContainsFunc(s, unicode.IsControl) {
+		s = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return '\uFFFD'
+			}
+			return r
+		}, s)
+	}
 	if utf8.RuneCountInString(s) <= n {
 		return s
 	}

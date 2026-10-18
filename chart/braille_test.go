@@ -240,3 +240,29 @@ func TestBrailleBands(t *testing.T) {
 		t.Errorf("a chart without bands has a legend or the wrong height:\n%s", strings.Join(plain, "\n"))
 	}
 }
+
+// A title, a strip's name and a band kind's are text someone else may have
+// written, and in braille they go to a terminal: a control character or a
+// byte that is not UTF-8 is written as U+FFFD, so an escape in a CSV's
+// heading is not a command to the terminal plotting it.
+func TestBrailleWritesTitlesAsText(t *testing.T) {
+	c := stack(1000, 1000)
+	c.Title = "t\x1b]0;PWNED\x07\x1b[31m"
+	c.Strips[0].Title = "a\tb\xff"
+	c.BandKinds = []BandKind{{Name: "k\x1b[2J", Mark: '━'}}
+	c.Bands = []Band{{From: 10, To: 20}}
+	text := strings.Join(c.Braille(60, 24), "\n")
+	for _, r := range text {
+		if r != '\n' && (r < 0x20 || r == 0x7f || r >= 0x80 && r < 0xa0) {
+			t.Errorf("control character %U in:\n%q", r, text)
+		}
+	}
+	if !utf8.ValidString(text) {
+		t.Errorf("not UTF-8: %q", text)
+	}
+	for _, want := range []string{"t�]0;PWNED��[31m", "a�b�", "k�[2J"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("no %q in:\n%s", want, text)
+		}
+	}
+}
