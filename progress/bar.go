@@ -456,9 +456,10 @@ func (b *Bar) renderPlain(now time.Time) string {
 // work's speed actually moves.
 const minRateWindow = 500 * time.Millisecond
 
-// stallAfter is how long a bar may go without moving before its rate is
-// taken away. Not the rate window: work that arrives in bursts -- a frame
-// every second or two -- leaves windows with nothing in them that are not a
+// stallAfter is how long a bar may go without moving before its rate and
+// its estimate are taken away, and the display redraws to take them. Not
+// the rate window: work that arrives in bursts -- a frame every second or
+// two -- leaves windows with nothing in them that are not a
 // stall, and a rate that blinked out between bursts would read as broken.
 // But a job that has stopped must not go on showing the speed it last ran
 // at, with an estimate to match: that reads as a job running, which is the
@@ -525,6 +526,12 @@ func (b *Bar) counts(done, total int64) string {
 // estimate extrapolated from two frames is noise presented as information.
 func (b *Bar) eta(now time.Time, done, total int64) string {
 	if total <= 0 || done <= 0 || done >= total {
+		return ""
+	}
+	// Nor for a bar that has stopped: an estimate from the run's average
+	// says when a running job will finish, and a stalled one, with no rate
+	// shown beside it, has no such time.
+	if now.Sub(b.lastMoved) >= stallAfter {
 		return ""
 	}
 	elapsed := now.Sub(b.start)

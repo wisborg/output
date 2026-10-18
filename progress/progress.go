@@ -181,6 +181,13 @@ type Display struct {
 	// without a newline, so the next progress line must begin a line of its
 	// own rather than run on from it.
 	partial bool
+
+	// stall is the timer that redraws the display when a bar showing a
+	// rate has gone stallAfter without moving: nothing else redraws a
+	// display whose only bar has stopped, so its rate stood for ever.
+	// after makes it -- time.AfterFunc, or a test's own.
+	stall *time.Timer
+	after func(time.Duration, func()) *time.Timer
 }
 
 // New returns a Display writing to w.
@@ -411,6 +418,37 @@ func (d *Display) Stop() {
 	d.erase()
 	d.bars = nil
 	d.stopped = true
+	if d.stall != nil {
+		d.stall.Stop()
+	}
+}
+
+// watchStall sets the timer to redraw the display when the first bar now
+// showing a rate will have gone stallAfter without moving, or stops it
+// where none shows one. The caller holds the mutex.
+func (d *Display) watchStall(now time.Time) {
+	if d.stall != nil {
+		d.stall.Stop()
+		d.stall = nil
+	}
+	var due time.Time
+	for _, b := range d.bars {
+		if b.lastRate > 0 {
+			if at := b.lastMoved.Add(stallAfter); due.IsZero() || at.Before(due) {
+				due = at
+			}
+		}
+	}
+	if due.IsZero() {
+		return
+	}
+	after := d.after
+	if after == nil {
+		after = time.AfterFunc
+	}
+	// A moment past the deadline, so the redraw it makes finds the bar
+	// stalled rather than a hair short of it.
+	d.stall = after(max(due.Sub(now), 0)+time.Millisecond, func() { d.redraw(true) })
 }
 
 // redraw renders the live region, subject to the throttle unless force.
@@ -481,6 +519,7 @@ func (d *Display) draw() {
 		}
 		_, _ = d.w.Write(buf)
 		d.drawn = len(d.bars)
+		d.watchStall(now)
 		return
 	}
 	// Plain: one line per bar, appended rather than replaced. erase above is

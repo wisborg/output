@@ -363,3 +363,35 @@ func TestDisplay_BarAfterStopDrawsNothing(t *testing.T) {
 		t.Errorf("a stopped display wrote %q", buf.String()[before:])
 	}
 }
+
+// A display whose only bar has stopped is redrawn when the bar has gone
+// stallAfter without moving, and loses its rate and its estimate: nothing
+// else redraws it, so a hung job's last speed once stood on the screen for
+// ever. The redraw is the display's own timer, here a test's.
+func TestBar_StalledOnlyBarIsRedrawn(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Second})
+	var due time.Duration
+	var fire func()
+	d.after = func(dur time.Duration, f func()) *time.Timer {
+		due, fire = dur, f
+		return time.NewTimer(time.Hour)
+	}
+	defer d.Stop()
+	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
+	c.add(time.Second)
+	bar.Set(300)
+	if line := replay(buf.String()).text()[0]; !strings.Contains(line, "/s") || !strings.Contains(line, "left") {
+		t.Fatalf("a moving bar shows no rate or estimate: %q", line)
+	}
+	if fire == nil {
+		t.Fatal("no redraw was set for a bar showing a rate")
+	}
+	c.add(due)
+	fire()
+	line := replay(buf.String()).text()[0]
+	if strings.Contains(line, "/s") || strings.Contains(line, "left") {
+		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
+	}
+}

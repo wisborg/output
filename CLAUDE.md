@@ -337,8 +337,9 @@ times a second is what makes a bar look continuous, but a rate measured over
 80ms is dominated by whatever the scheduler was doing and swings by an order
 of magnitude between redraws. The previous figure is held until half a second
 has passed -- but not for ever: a bar that has not moved for five seconds
-shows no rate at all, since a hung job showing the speed it last ran at reads
-as a job running. Relatedly, the displayed rate is a *trailing* measurement while the
+shows no rate and no estimate, since a hung job showing the speed it last ran
+at reads as a job running. A timer redraws the display to say so: a display
+redraws on its bars' calls, and a hung job's only bar makes none. Relatedly, the displayed rate is a *trailing* measurement while the
 estimate is derived from the *cumulative* average: the two answer different
 questions, and an estimate that lurches by minutes on every hiccup is one
 nobody can use.
