@@ -112,3 +112,15 @@ func TestDrawRefuses(t *testing.T) {
 		t.Error("a nil layout drew")
 	}
 }
+
+// A text size so small the picture is no pixel wide is refused, not drawn
+// as a blank pixel.
+func TestDrawRefusesNoPicture(t *testing.T) {
+	lay, err := (&diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{{Node: &diagram.Node{ID: "a"}}}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img, err := Draw(lay, Options{TextPx: 1e-300}); err == nil {
+		t.Errorf("TextPx 1e-300 drew %v", img.Bounds())
+	}
+}

@@ -346,6 +346,12 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	}
 	if o.width > 0 {
 		cols = o.width
+		// No wider than the terminal says it is, where it says: the width
+		// goes into the picture's escape as its columns, and 999999999 of
+		// them is no request a terminal should get.
+		if ts.Cols > 0 {
+			cols = min(cols, ts.Cols)
+		}
 	}
 	if o.height > 0 {
 		rows = o.height

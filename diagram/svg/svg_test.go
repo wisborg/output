@@ -162,3 +162,18 @@ func TestWriteRefuses(t *testing.T) {
 		t.Errorf("wrote %d bytes on refusing", buf.Len())
 	}
 }
+
+// A text size that makes a document no viewer draws -- sides of three
+// hundred digits, or of nought -- is refused, not written.
+func TestWriteRefusesSizesNoViewerDraws(t *testing.T) {
+	lay, err := (&diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{{Node: &diagram.Node{ID: "a"}}}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, px := range []float64{1e300, 1e-300} {
+		var buf bytes.Buffer
+		if err := Write(&buf, lay, Options{TextPx: px}); err == nil || buf.Len() != 0 {
+			t.Errorf("TextPx %v: %v, wrote %d bytes", px, err, buf.Len())
+		}
+	}
+}

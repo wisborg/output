@@ -61,6 +61,11 @@ func Draw(lay *diagram.Layout, opts Options) (*image.RGBA, error) {
 	}
 	s := diagram.ScaleFor(px)
 	w, h := s.Size(lay)
+	if w < 1 || h < 1 {
+		// A text size so small the picture is no pixel wide: a blank
+		// one-pixel PNG, written with exit 0, once.
+		return nil, fmt.Errorf("picture: %.2g by %.2g pixels, at text %v pixels, is no picture", w, h, px)
+	}
 	if w*h > MaxPixels {
 		return nil, fmt.Errorf("picture: %.0f by %.0f pixels is more than %d million", math.Ceil(w), math.Ceil(h), MaxPixels/1000000)
 	}

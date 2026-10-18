@@ -33,6 +33,11 @@ type Options struct {
 // fonts is the font-family the text is set in.
 const fonts = `'Go Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace`
 
+// MaxSide is the largest width or height Write writes a document at, in
+// its pixels: far past any screen or page, and short of the sizes viewers
+// refuse.
+const MaxSide = 100000
+
 // Write writes lay to w as an SVG document. A TextPx that is not a number
 // is an error: written into the document it made width="NaN", which no
 // reader draws.
@@ -54,6 +59,12 @@ func Write(w io.Writer, lay *diagram.Layout, opts Options) error {
 	s := diagram.ScaleFor(px)
 	d := &doc{s: s, pal: pal, px: px, lay: lay, thin: math.Max(1, px/12)}
 	width, height := s.Size(lay)
+	// A document no viewer draws is a mistake to say, not to write: a
+	// text size of 1e300 wrote a width of three hundred digits, and one of
+	// 1e-300 a width and a height of 0 -- an invisible document, exit 0.
+	if width < 1 || height < 1 || width > MaxSide || height > MaxSide {
+		return fmt.Errorf("svg: a document %s by %s, at text %v pixels: draw it between 1 and %d a side", num(width), num(height), px, MaxSide)
+	}
 	fmt.Fprintf(&d.b, `<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s" font-family="%s" font-size="%s">`+"\n",
 		num(width), num(height), num(width), num(height), xmlText(fonts), num(px))
 	fmt.Fprintf(&d.b, `<rect width="100%%" height="100%%" %s/>`+"\n", fill(pal.Background))
