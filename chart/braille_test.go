@@ -266,3 +266,36 @@ func TestBrailleWritesTitlesAsText(t *testing.T) {
 		}
 	}
 }
+
+// An inverted x axis runs from its Max at the left to its Min at the right,
+// and everything on it is drawn so: the line, which once ran left to right
+// under ticks that ran right to left, the labels, all of which but one were
+// once left out as touching the one before, and the bands.
+func TestBrailleInvertedX(t *testing.T) {
+	c := ramp(1000, 1000) // a reading rising from 0 to 100 over 100 s
+	c.X.Inverted = true
+	c.BandKinds = []BandKind{{Name: "early", Mark: '━'}}
+	c.Bands = []Band{{From: 0, To: 20}}
+	lines := c.Braille(60, 14)
+	plot := lines[1 : len(lines)-4]
+	row := func(col int) int {
+		for y, l := range plot {
+			if r := []rune(l); col < len(r) && r[col] != brailleBlank && r[col] != ' ' {
+				return y
+			}
+		}
+		return -1
+	}
+	gutter := strings.IndexRune(plot[0], '┤')
+	left, right := row(gutter+2), row(len([]rune(plot[0]))-1)
+	if left < 0 || right < 0 || left >= right {
+		t.Errorf("the line is at row %d at the left and %d at the right; it should fall to the right:\n%s", left, right, strings.Join(lines, "\n"))
+	}
+	labels := strings.Fields(lines[len(lines)-3])
+	if len(labels) < 3 || labels[0] != "1:30" || labels[len(labels)-1] != "0:00" {
+		t.Errorf("x labels %q, want several, from 1:30 at the left to 0:00 at the right", labels)
+	}
+	if band := lines[len(lines)-2]; strings.IndexRune(band, '━') < len([]rune(band))/2 {
+		t.Errorf("the band of the first 20 s is not at the right: %q", band)
+	}
+}

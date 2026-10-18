@@ -267,3 +267,23 @@ func TestImageTooLarge(t *testing.T) {
 		t.Errorf("8000 by 8000: %v", err)
 	}
 }
+
+// An inverted x axis draws its line from the right: a rising reading is
+// high at the left of the picture.
+func TestImageInvertedX(t *testing.T) {
+	c := ramp(1000, 1000)
+	c.X.Inverted = true
+	img := chartImage(t, c, 800, 400)
+	b := img.Bounds()
+	top := func(x0, x1 int) int {
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			if accentWithin(img, x0, x1, y, y+1) > 0 {
+				return y
+			}
+		}
+		return b.Max.Y
+	}
+	if l, r := top(150, 250), top(650, 750); l >= r {
+		t.Errorf("the line's top at %d on the left and %d on the right; it should be higher on the left", l, r)
+	}
+}

@@ -87,11 +87,16 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 			}
 			// The characters whose middles the band covers, or the one
 			// its middle falls in where it is too short to cover any.
+			// Placed by the scale's own fractions, so an inverted axis's
+			// bands are mirrored as its line is.
 			lo, hi := b.Span()
-			from := int(math.Ceil((lo-c.X.Min)/span*float64(cols) - 0.5))
-			to := int(math.Floor((hi-c.X.Min)/span*float64(cols) - 0.5))
+			f0, _ := c.X.Frac(lo)
+			f1, _ := c.X.Frac(hi)
+			f0, f1 = min(f0, f1), max(f0, f1)
+			from := int(math.Ceil(f0*float64(cols) - 0.5))
+			to := int(math.Floor(f1*float64(cols) - 0.5))
 			if from > to {
-				from = int(((lo+hi)/2 - c.X.Min) / span * float64(cols))
+				from = int((f0 + f1) / 2 * float64(cols))
 				to = from
 			}
 			for x := max(from, 0); x <= min(to, cols-1); x++ {

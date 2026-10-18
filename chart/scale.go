@@ -3,6 +3,7 @@ package chart
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -227,6 +228,26 @@ func multiples(first, last, step float64) []float64 {
 	ticks := make([]float64, 0, int(n))
 	for k := range int(n) {
 		ticks = append(ticks, (first+float64(k))*step)
+	}
+	return ticks
+}
+
+// Ends are the values at the scale's two ends, the first at the bottom or
+// the left: Min and Max, or Max and Min where the scale is Inverted. Bin
+// takes them so, to bin an inverted x axis from its right.
+func (s Scale) Ends() (first, last float64) {
+	if s.Inverted {
+		return s.Max, s.Min
+	}
+	return s.Min, s.Max
+}
+
+// ticksLeftToRight are the ticks in the order they are drawn, from the
+// bottom or the left: reversed, on an inverted scale.
+func (s Scale) ticksLeftToRight() []float64 {
+	ticks := s.Ticks()
+	if s.Inverted {
+		slices.Reverse(ticks)
 	}
 	return ticks
 }

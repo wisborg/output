@@ -172,7 +172,8 @@ func (s Strip) braille(x Scale, gutter, cols, rows int) []string {
 		return int((1-f)*float64(h-1) + 0.5)
 	}
 	prev, prevRow := -1, 0
-	for x, col := range Bin(s.Segments, x.Min, x.Max, w) {
+	first, last := x.Ends()
+	for x, col := range Bin(s.Segments, first, last, w) {
 		if !col.Ok {
 			continue
 		}
@@ -229,7 +230,7 @@ func (c Chart) xAxis(cols int) (axis, labels string) {
 	marks := []rune(strings.Repeat("─", cols))
 	text := []rune(strings.Repeat(" ", cols))
 	end := -2 // the last character a label used: none yet
-	for _, v := range c.X.Ticks() {
+	for _, v := range c.X.ticksLeftToRight() {
 		f, _ := c.X.Frac(v)
 		at := min(int(f*float64(cols*2-1))/2, cols-1)
 		marks[at] = '┬'

@@ -21,6 +21,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"slices"
 
 	"golang.org/x/image/font/opentype"
 
@@ -154,7 +155,7 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 				continue
 			}
 			from, to := band.Span()
-			x0, x1 := math.Max(xAt(from), b.x), math.Min(xAt(to), b.x+b.w)
+			x0, x1 := math.Max(math.Min(xAt(from), xAt(to)), b.x), math.Min(math.Max(xAt(from), xAt(to)), b.x+b.w)
 			if x1 > x0 {
 				cv.Rect(x0, b.y, math.Max(x1-x0, 1), b.h, c.BandKinds[band.Kind].Colour)
 			}
@@ -168,7 +169,11 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 
 	bottom := all.y + all.h
 	right := -math.MaxFloat64 // where the last x label ended
-	for _, v := range c.X.Ticks() {
+	ticks := c.X.Ticks()
+	if c.X.Inverted {
+		slices.Reverse(ticks) // in the order they are drawn, left to right
+	}
+	for _, v := range ticks {
 		label := c.X.Label(v)
 		w, _, _ := cv.Measure(label, px)
 		// Centred on its tick, kept clear of the y labels -- the first
@@ -231,7 +236,8 @@ func drawStrip(cv *canvas.Canvas, s chart.Strip, b box, x chart.Scale, px, thin 
 		cv.Polyline(xs, ys, math.Max(1.5, px/8), pal.Line)
 		xs, ys = xs[:0], ys[:0]
 	}
-	for i, col := range chart.Bin(s.Segments, x.Min, x.Max, int(b.w)) {
+	first, last := x.Ends()
+	for i, col := range chart.Bin(s.Segments, first, last, int(b.w)) {
 		if !col.Ok {
 			continue
 		}
