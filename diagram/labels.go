@@ -77,6 +77,30 @@ func (lay *Layout) labelRoom() int {
 	return lay.Width + widest + 2
 }
 
+// labelRows is how many rows past the boxes, above and below, labels may
+// be placed in: four, or as many as the tallest label has lines. A fixed
+// four once left a label of more lines nowhere above or below to go, and
+// it was written over its own line.
+func (lay *Layout) labelRows() int {
+	rows := 4
+	for _, e := range lay.Edges {
+		rows = max(rows, strings.Count(e.Edge.Label, "\n")+1)
+	}
+	return rows
+}
+
+// groupLabelAt is where a group's label, with a space either side, begins:
+// a frame's LabelAt is that, the space before its words included; a lane's
+// is its words', so the space before them is a cell to the left. Taken
+// from a lane's LabelAt, the space was a cell past the words' end instead,
+// and an edge's label could be set flush against the lane's.
+func groupLabelAt(g PlacedGroup) Point {
+	if g.Group.Style == Lane {
+		return Point{g.LabelAt.X - 1, g.LabelAt.Y}
+	}
+	return g.LabelAt
+}
+
 // takeTitle takes the rows of the title and the blank row beneath it, the
 // whole width, from o: no label is written over the title, nor in the gap
 // that sets it off, where it reads as the title's second line. The router
@@ -154,12 +178,13 @@ func (o *occupancy) take(at Point, lines []string) {
 // layout then grows at the top to hold it, as placeStraightLabels lets a
 // picture's. Not above a title, which is first whatever else is.
 func (lay *Layout) placeLabels() {
-	top := 4
+	top := lay.labelRows()
 	if lay.Title != "" {
 		top = 0
 	}
-	// Room for labels past the boxes: a column of them to the right.
-	o := newOccupancy(lay.labelRoom(), lay.Height+4, top)
+	// Room for labels past the boxes: a column of them to the right, and
+	// rows of them above and below.
+	o := newOccupancy(lay.labelRoom(), lay.Height+lay.labelRows(), top)
 	crossings := map[Point]bool{} // cells where a line runs down a column
 	for _, e := range lay.Edges {
 		for i := 1; i < len(e.Points); i++ {
@@ -175,7 +200,7 @@ func (lay *Layout) placeLabels() {
 	// boxes is the boxes alone: where no free place is left for a label, it
 	// is written over a line rather than over a box, which hides what the
 	// box says.
-	boxes := newOccupancy(lay.labelRoom(), lay.Height+4, top)
+	boxes := newOccupancy(lay.labelRoom(), lay.Height+lay.labelRows(), top)
 	lay.takeTitle(o)
 	lay.takeTitle(boxes)
 	for _, n := range lay.Nodes {
@@ -207,7 +232,7 @@ func (lay *Layout) placeLabels() {
 			g.LabelAt = laneLabelAt(*g)
 		}
 		if label != "" && g.Group.Style != Hidden {
-			o.take(g.LabelAt, []string{" " + label + " "})
+			o.take(groupLabelAt(*g), []string{" " + label + " "})
 		}
 	}
 	shared := edgeCells(lay.Edges)

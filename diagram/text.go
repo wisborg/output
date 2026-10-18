@@ -290,24 +290,32 @@ func (lay *Layout) Text(o ...TextOptions) []string {
 // trimTop is c's rows, without those at the top the layout grew for labels
 // only a picture, or a drawing in braille, writes there, where they are
 // empty: the text drawing along rows and columns writes its labels by its
-// own lines, and would start with blank lines.
+// own lines, and would start with blank lines; and without blank rows at
+// the bottom, for the same reason.
 func (lay *Layout) trimTop(c *textCanvas, o TextOptions, colour bool) []string {
 	rows := c.rows(colour)
 	if o.Braille != BrailleOff {
 		return rows
 	}
-	k := 0
-	for k < lay.pictureTop && k < c.h {
-		blank := true
+	blank := func(y int) bool {
 		for x := range c.w {
-			blank = blank && c.text[k][x] == 0 && c.lines[k][x] == 0 && c.dots[k][x] == 0 && c.bg[k][x] == nil
+			if c.text[y][x] != 0 || c.lines[y][x] != 0 || c.dots[y][x] != 0 || c.bg[y][x] != nil {
+				return false
+			}
 		}
-		if !blank {
-			break
-		}
+		return true
+	}
+	k := 0
+	for k < lay.pictureTop && k < c.h && blank(k) {
 		k++
 	}
-	return rows[k:]
+	// And at the bottom: rows a picture's labels grew the layout by, below
+	// everything, are blank lines at the end of the text.
+	end := c.h
+	for end > k && blank(end-1) {
+		end--
+	}
+	return rows[k:end]
 }
 
 // TextOptions are how Text and ColourText draw what they may draw more

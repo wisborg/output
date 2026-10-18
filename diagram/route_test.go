@@ -369,3 +369,54 @@ func TestLabelsKeepOffTheTitle(t *testing.T) {
 		}
 	}
 }
+
+// A label is given room for all its lines: one centred on its straight line
+// near the bottom grows the page to hold it rather than running off it,
+// and one taller than four lines may go above or below the boxes rather
+// than over its own line. The text drawing ends with no blank rows a
+// picture's labels added, and an edge with no label has no place for one.
+func TestLabelRoom(t *testing.T) {
+	tall := "1\n2\n3\n4\n5\n6\n7\n8\n9"
+	for _, straight := range []bool{true, false} {
+		d := &Diagram{Straight: straight, Root: Group{Rows: 1, Items: nodes("a", "b")},
+			Edges: []Edge{{From: "a", To: "b", Head: true, Label: tall}, {From: "b", To: "a"}}}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := lay.Edges[0]
+		for _, at := range []Point{e.LabelAt, e.PictureLabelAt()} {
+			if at.Y < 0 || at.Y+9 > lay.Height {
+				t.Errorf("straight %v: the label at row %d, 9 rows, on a page of %d", straight, at.Y, lay.Height)
+			}
+		}
+		if !straight {
+			cells := cellsOf(e)
+			for k := range 9 {
+				if _, on := cells[Point{e.LabelAt.X, e.LabelAt.Y + k}]; on {
+					t.Errorf("the label's line %d is written over its own line:\n%s", k+1, strings.Join(lay.Text(), "\n"))
+				}
+			}
+		}
+		text := lay.Text()
+		if len(text) > 0 && strings.TrimSpace(text[len(text)-1]) == "" {
+			t.Errorf("straight %v: the text ends with a blank row:\n%q", straight, text)
+		}
+		if p := lay.Edges[1].LabelAt; p != (Point{}) {
+			t.Errorf("straight %v: an edge with no label has LabelAt %v", straight, p)
+		}
+	}
+}
+
+// A lane's label keeps a free cell either side of its words: an edge's
+// label set flush against it read as one word with it.
+func TestLaneLabelKeepsItsSpace(t *testing.T) {
+	lay, err := (&Diagram{Root: Group{Items: []Item{{Group: &Group{ID: "l", Style: Lane, Label: "east", Items: nodes("a")}}}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := lay.Groups[0]
+	if at := groupLabelAt(g); at.X != g.LabelAt.X-1 {
+		t.Errorf("the lane's label is reserved from %v, its words from %v", at, g.LabelAt)
+	}
+}

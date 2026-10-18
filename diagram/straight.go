@@ -172,11 +172,11 @@ func (lay *Layout) straightCells(e PlacedEdge) map[Point]bool {
 // layout then grows at the top to hold it. Not above a title, which is
 // first whatever else is.
 func (lay *Layout) placeStraightLabels() {
-	top := 4
+	top := lay.labelRows()
 	if lay.Title != "" {
 		top = 0
 	}
-	o := newOccupancy(lay.labelRoom(), lay.Height+4, top)
+	o := newOccupancy(lay.labelRoom(), lay.Height+lay.labelRows(), top)
 	lay.takeTitle(o)
 	for _, n := range lay.Nodes {
 		o.rect(n.Rect, true)
@@ -189,7 +189,7 @@ func (lay *Layout) placeStraightLabels() {
 			o.rect(g.Rect, false)
 		}
 		if g.Group.Label != "" && g.Group.Style != Hidden {
-			o.take(g.LabelAt, []string{" " + g.Group.Label + " "})
+			o.take(groupLabelAt(g), []string{" " + g.Group.Label + " "})
 		}
 	}
 	// What is there but the lines: the title, the boxes, the groups'
@@ -350,6 +350,7 @@ func (lay *Layout) placeStraightLabels() {
 				// half their width.
 				e.nudge = [2]float64{cx - float64(at.X), cy - float64(at.Y)}
 				lay.Width = max(lay.Width, at.X+w)
+				lay.Height = max(lay.Height, at.Y+len(lines))
 				break
 			}
 		}
@@ -488,7 +489,10 @@ func (lay *Layout) shift(k int) {
 		for j := range e.Points {
 			e.Points[j].Y += k
 		}
-		e.LabelAt.Y += k
-		e.pictureAt.Y += k
+		if e.Edge.Label != "" {
+			// One without a label has no place for it to move.
+			e.LabelAt.Y += k
+			e.pictureAt.Y += k
+		}
 	}
 }

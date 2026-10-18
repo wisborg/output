@@ -285,7 +285,10 @@ func (l *layouter) trim(top, right, bottom int) {
 	l.out.Height = max(bottom-minY, top)
 }
 
-// move moves everything placed dx cells across and dy rows down.
+// move moves everything placed dx cells across and dy rows down: the
+// boxes, the groups and the edges' paths. It is for trim, before any label
+// is placed; a label's place moved then was its zero value moved, and an
+// edge with no label kept a LabelAt of {-4 -1} for ever.
 func (lay *Layout) move(dx, dy int) {
 	if dx == 0 && dy == 0 {
 		return
@@ -299,7 +302,6 @@ func (lay *Layout) move(dx, dy int) {
 	for i := range lay.Groups {
 		g := &lay.Groups[i]
 		g.Rect.X, g.Rect.Y = g.Rect.X+dx, g.Rect.Y+dy
-		at(&g.LabelAt)
 		for j := range g.Dividers {
 			at(&g.Dividers[j][0])
 			at(&g.Dividers[j][1])
@@ -310,8 +312,6 @@ func (lay *Layout) move(dx, dy int) {
 		for j := range e.Points {
 			at(&e.Points[j])
 		}
-		at(&e.LabelAt)
-		at(&e.pictureAt)
 	}
 }
 
