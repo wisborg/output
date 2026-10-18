@@ -177,7 +177,7 @@ func (lay *Layout) placeStraightLabels() {
 		top = 0
 	}
 	o := newOccupancy(lay.labelRoom(), lay.Height+4, top)
-	o.take(Point{0, 0}, []string{lay.Title})
+	lay.takeTitle(o)
 	for _, n := range lay.Nodes {
 		o.rect(n.Rect, true)
 	}

@@ -339,3 +339,33 @@ func BenchmarkLayoutFlow(b *testing.B) {
 		}
 	}
 }
+
+// No edge label is written over the title, nor in the blank row beneath it,
+// in the text drawing or a picture's straight edges: a label there reads as
+// part of the title. Labels too wide for their gaps once went to row 0,
+// over the title's own letters.
+func TestLabelsKeepOffTheTitle(t *testing.T) {
+	for _, straight := range []bool{false, true} {
+		d := &Diagram{
+			Title:    "The title of this diagram",
+			Straight: straight,
+			Root:     Group{Rows: 1, Items: nodes("a", "b", "c", "d")},
+			Edges: []Edge{
+				{From: "a", To: "b", Head: true, Label: "first long label wider than gap"},
+				{From: "b", To: "c", Head: true, Label: "second long label wider than gap"},
+				{From: "c", To: "d", Head: true, Label: "third long label wider than gap"},
+			},
+		}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range lay.Edges {
+			for _, at := range []Point{e.LabelAt, e.PictureLabelAt()} {
+				if at.Y < 2 {
+					t.Errorf("straight %v: %q at row %d, in the title's rows:\n%s", straight, e.Edge.Label, at.Y, strings.Join(lay.Text(), "\n"))
+				}
+			}
+		}
+	}
+}

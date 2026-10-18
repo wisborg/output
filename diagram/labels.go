@@ -77,6 +77,21 @@ func (lay *Layout) labelRoom() int {
 	return lay.Width + widest + 2
 }
 
+// takeTitle takes the rows of the title and the blank row beneath it, the
+// whole width, from o: no label is written over the title, nor in the gap
+// that sets it off, where it reads as the title's second line. The router
+// keeps lines out of them too.
+func (lay *Layout) takeTitle(o *occupancy) {
+	if lay.Title == "" {
+		return
+	}
+	for y := range 2 {
+		for x := range o.w {
+			o.mark(x, y)
+		}
+	}
+}
+
 // laneLabelAt is where a lane's label begins: at the lane's far side, on
 // its middle row. The router keeps lines off it, and labels.go writes it
 // there.
@@ -161,6 +176,8 @@ func (lay *Layout) placeLabels() {
 	// is written over a line rather than over a box, which hides what the
 	// box says.
 	boxes := newOccupancy(lay.labelRoom(), lay.Height+4, top)
+	lay.takeTitle(o)
+	lay.takeTitle(boxes)
 	for _, n := range lay.Nodes {
 		o.rect(n.Rect, true)
 		boxes.rect(n.Rect, true)
