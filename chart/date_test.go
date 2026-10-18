@@ -2,6 +2,7 @@ package chart
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,5 +112,39 @@ func TestDateTicksStepsOfDays(t *testing.T) {
 		if k > 0 && v-ticks[k-1] != 2*86400 {
 			t.Errorf("two days: ticks %v apart", time.Duration(v-ticks[k-1])*time.Second)
 		}
+	}
+}
+
+// A Date scale reaching past the years a calendar writes -- seconds that
+// overflow an int64, or a span of ten thousand years -- has no ticks rather
+// than a calendar stepped towards it for ever, and a reading there is
+// written as the number it is. The span inside them still ticks.
+func TestDateTicksEnd(t *testing.T) {
+	for _, s := range []Scale{
+		ExactScale(0, 1e19, 10, Date),
+		ExactScale(-1e19, 0, 10, Date),
+		NewScale(0, 4e17, 6, Date),
+	} {
+		done := make(chan []float64)
+		go func() { done <- s.Ticks() }()
+		select {
+		case ticks := <-done:
+			if ticks != nil {
+				t.Errorf("%+v: %d ticks past the calendar", s, len(ticks))
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%+v: counting its ticks did not end", s)
+		}
+		past := s.Max
+		if s.Min < firstDate {
+			past = s.Min
+		}
+		if l := s.Label(past); !strings.Contains(l, "e+") {
+			t.Errorf("%+v: %v, past the calendar, labelled %q", s, past, l)
+		}
+	}
+	whole := ExactScale(float64(time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC).Unix()), float64(time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC).Unix()), 6, Date)
+	if n := len(whole.Ticks()); n < 2 || n > 20 {
+		t.Errorf("years 1 to 9999: %d ticks", n)
 	}
 }

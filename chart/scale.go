@@ -53,7 +53,8 @@ const (
 	// in UTC: ticked at the steps a calendar reads in, from seconds to
 	// days, the first of a month, of a quarter, of a year, and written as
 	// a calendar does: "15:30", "2 Mar", "Mar", "2024". See Scale.Ticks
-	// and Scale.Label.
+	// and Scale.Label. Only the years 1 to 9999 are written as dates; a
+	// scale reaching past them has no ticks.
 	Date
 )
 

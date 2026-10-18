@@ -2,6 +2,7 @@ package chart
 
 import (
 	"math"
+	"strconv"
 	"time"
 )
 
@@ -12,6 +13,14 @@ const (
 	day   = 86400.0
 	month = 365.2425 * day / 12
 	year  = 365.2425 * day
+)
+
+// firstDate and lastDate are the first and the last second of the years a
+// Date scale writes as dates, 1 to 9999: a calendar's, in seconds since
+// 1970 began.
+const (
+	firstDate = -62135596800
+	lastDate  = 253402300799
 )
 
 // dateSteps are the steps a Date scale ticks at, up to a year: a clock's,
@@ -38,17 +47,31 @@ func dateStep(raw float64) float64 {
 // long the month before it was; the first of every month, two, three or six of them, counted from
 // January; and the first of every year, or every two, five, ten or more,
 // counted from year nought -- 2000, 2010, 2020.
+//
+// A scale reaching outside the years 1 to 9999 has no calendar ticks: a
+// float64 of seconds there is past what time.Time and int64 can say, and
+// stepping a calendar towards it never arrived -- past int64 the time
+// wrapped negative, and the loop below ran for ever. Nor are more than
+// maxTicks given, as for any scale.
 func dateTicks(lo, hi, step float64) []float64 {
+	if lo < firstDate || hi > lastDate {
+		return nil
+	}
 	if step <= 2*day {
 		return multiples(math.Ceil(lo/step-1e-9), math.Floor((hi+1e-6)/step), step)
 	}
 	from := time.Unix(int64(math.Floor(lo)), 0).UTC()
 	var ticks []float64
 	add := func(t time.Time) {
-		if v := float64(t.Unix()); v >= lo && v <= hi {
+		if v := float64(t.Unix()); v >= lo && v <= hi && len(ticks) <= maxTicks {
 			ticks = append(ticks, v)
 		}
 	}
+	defer func() {
+		if len(ticks) > maxTicks {
+			ticks = nil
+		}
+	}()
 	switch {
 	case step < month*0.9:
 		days := []int{1, 11, 21}
@@ -86,6 +109,11 @@ func dateTicks(lo, hi, step float64) []float64 {
 // -- "Mar 2024", "2 Mar 2024", "2 Mar 15:30" -- so a reader does not have
 // to know from elsewhere which year, or day, the chart is of.
 func dateLabel(v, step float64, first bool) string {
+	if v < firstDate || v > lastDate {
+		// No date: written as the number it is, rather than as whatever
+		// an int64 overflowed into.
+		return strconv.FormatFloat(v, 'g', 6, 64)
+	}
 	t := time.Unix(int64(math.Round(v)), 0).UTC()
 	midnight := t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0
 	switch {
