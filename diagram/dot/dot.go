@@ -487,10 +487,13 @@ func (p *parser) edgeRest(s *scope, from []string) error {
 					}
 					if k, ok := p.seen[key]; ok {
 						// One edge, as Graphviz has it, with the second
-						// statement's attributes set over the first's
-						// rather than dropped.
+						// statement's own attributes set over the first's
+						// rather than dropped -- its own alone: defaults
+						// apply where an edge is made, so an "edge [...]"
+						// default in force at the second statement is no
+						// attribute of the edge it restates.
 						both := clone(p.edgeAttrs[k])
-						maps.Copy(both, merged)
+						maps.Copy(both, attrs)
 						e := diagram.Edge{From: p.d.Edges[k].From, To: p.d.Edges[k].To, Head: p.directed}
 						if err := p.applyEdge(&e, both, mergedLines); err != nil {
 							return err

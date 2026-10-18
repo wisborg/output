@@ -447,3 +447,26 @@ func TestEdgeLimit(t *testing.T) {
 		t.Errorf("{a a a} -> b: %v, %d edges, want 1", err, len(d.Edges))
 	}
 }
+
+// A strict graph's edge stated again takes that statement's own attributes
+// over its first statement's, and not the defaults in force where it is
+// stated again: those apply where an edge is made.
+func TestStrictEdgeKeepsItsOwnAttributes(t *testing.T) {
+	for _, src := range []string{
+		`strict digraph { a -> b [color=red]; subgraph { edge [color=blue]; a -> b } }`,
+		`strict digraph { a -> b [color=red]; edge [style=dashed]; a -> b }`,
+	} {
+		d := parse(t, src)
+		if len(d.Edges) != 1 {
+			t.Fatalf("%s: %d edges", src, len(d.Edges))
+		}
+		e := d.Edges[0]
+		if e.Colour != (color.RGBA{0xFF, 0, 0, 0xFF}) || e.Line != diagram.Solid {
+			t.Errorf("%s: colour %v, line %v; want red and solid", src, e.Colour, e.Line)
+		}
+	}
+	d := parse(t, `strict digraph { a -> b [color=red]; a -> b [style=dashed] }`)
+	if e := d.Edges[0]; e.Colour == nil || e.Line != diagram.Dashed {
+		t.Errorf("the second statement's own style was dropped: %+v", e)
+	}
+}
