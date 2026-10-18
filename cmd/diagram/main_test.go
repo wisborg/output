@@ -516,6 +516,152 @@ func TestExampleLabelsClearOfBoxes(t *testing.T) {
 	}
 }
 
+// In every example's text drawing, each edge's label stands apart: no
+// box's outline in the cell before or after it, where "get╭" read as part
+// of the box; no other label with two spaces or fewer between them, or on
+// the row above over the same columns, where "enqueue invalidate" read as
+// one phrase; no line in the cell before or after it, where "enqueue▼" ran
+// into its arrowhead; and within two cells of its own line, which
+// "invalidate", moved off the phrase, was once six rows from.
+// cellsOf is the cells e's line passes through.
+func cellsOf(e diagram.PlacedEdge) map[diagram.Point]bool {
+	cells := map[diagram.Point]bool{}
+	for k := 1; k < len(e.Points); k++ {
+		a, z := e.Points[k-1], e.Points[k]
+		for x := min(a.X, z.X); x <= max(a.X, z.X); x++ {
+			for y := min(a.Y, z.Y); y <= max(a.Y, z.Y); y++ {
+				cells[diagram.Point{X: x, Y: y}] = true
+			}
+		}
+	}
+	return cells
+}
+
+func TestExampleLabelsStandApart(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.dot"))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("examples: %v", err)
+	}
+	type block struct {
+		edge   int
+		x0, y0 int
+		widths []int
+	}
+	for _, path := range paths {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := dot.Parse(string(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(lay.Text(), "\n")
+		name := filepath.Base(path)
+		box := func(x, y int) bool {
+			for _, n := range lay.Nodes {
+				r := n.Rect
+				if x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H {
+					return true
+				}
+			}
+			return false
+		}
+		// line says an edge's line passes through (x, y).
+		line := func(x, y int) bool {
+			for _, e := range lay.Edges {
+				for k := 1; k < len(e.Points); k++ {
+					a, z := e.Points[k-1], e.Points[k]
+					if x >= min(a.X, z.X) && x <= max(a.X, z.X) && y >= min(a.Y, z.Y) && y <= max(a.Y, z.Y) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		// alone is the cells of each edge's line no other edge's passes
+		// through.
+		count := map[diagram.Point]int{}
+		for _, e := range lay.Edges {
+			for p := range cellsOf(e) {
+				count[p]++
+			}
+		}
+		alone := make([]map[diagram.Point]bool, len(lay.Edges))
+		for i, e := range lay.Edges {
+			alone[i] = map[diagram.Point]bool{}
+			for p := range cellsOf(e) {
+				if count[p] == 1 {
+					alone[i][p] = true
+				}
+			}
+		}
+		var blocks []block
+		for i, e := range lay.Edges {
+			if e.Edge.Label == "" {
+				continue
+			}
+			b := block{edge: i, x0: e.LabelAt.X, y0: e.LabelAt.Y}
+			for _, l := range strings.Split(e.Edge.Label, "\n") {
+				b.widths = append(b.widths, diagram.Width(l))
+			}
+			blocks = append(blocks, b)
+		}
+		for _, b := range blocks {
+			label := lay.Edges[b.edge].Edge.Label
+			// Within two cells of its own line, measured from its nearest
+			// letter: further, and it labels nothing. Its line alone, where
+			// any is: a label by a trunk it shares is as near the others.
+			mine := alone[b.edge]
+			if len(mine) == 0 {
+				mine = map[diagram.Point]bool{}
+				for p := range cellsOf(lay.Edges[b.edge]) {
+					mine[p] = true
+				}
+			}
+			near := false
+			for p := range mine {
+				for r, w := range b.widths {
+					if abs(p.Y-(b.y0+r)) <= 2 && p.X >= b.x0-2 && p.X <= b.x0+w-1+2 {
+						near = true
+					}
+				}
+			}
+			if !near {
+				t.Errorf("%s: %q is more than two cells from its line:\n%s", name, label, text)
+			}
+			for k, w := range b.widths {
+				y := b.y0 + k
+				if box(b.x0-1, y) || box(b.x0+w, y) {
+					t.Errorf("%s: %q touches a box:\n%s", name, label, text)
+				}
+				if line(b.x0-1, y) || line(b.x0+w, y) {
+					t.Errorf("%s: %q runs into a line:\n%s", name, label, text)
+				}
+			}
+			for _, o := range blocks {
+				if o.edge <= b.edge {
+					continue
+				}
+				for k, w := range b.widths {
+					for m, ow := range o.widths {
+						y, oy := b.y0+k, o.y0+m
+						beside := y == oy && (o.x0-(b.x0+w-1) <= 3 && o.x0 > b.x0+w-1 || b.x0-(o.x0+ow-1) <= 3 && b.x0 > o.x0+ow-1)
+						stacked := abs(y-oy) == 1 && b.x0 <= o.x0+ow && o.x0 <= b.x0+w
+						if beside || stacked {
+							t.Errorf("%s: %q and %q read as one:\n%s", name, label, lay.Edges[o.edge].Edge.Label, text)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // Help asked for is on standard output; --width given for the text
 // drawing, which it cannot narrow, says so rather than having no effect
 // and no word.

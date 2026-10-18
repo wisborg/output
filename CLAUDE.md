@@ -431,6 +431,15 @@ even a single cell -- the one before its arrowhead -- before any shared
 trunk; and a straight edge's label is written on its own line, centred on
 it in a picture by a fractional nudge, where only that line is there, and
 otherwise at the free place nearest its line and not as near another's.
+The orthogonal labels' places are chosen all together, in `placement.go`,
+not first-fit one at a time: each place has a cost -- over a box or a
+line, touching a box or running into a line, another edge's line as near
+as its own, far from its own -- and so does each pair of labels close
+enough to read as one phrase, and a local search moves labels, one or a
+few at a time, until no move costs less. First-fit let the first label
+take the place a later one needed, and every local rule added on top of it
+made some other label worse; `TestExampleLabelsStandApart` holds the
+examples to what the costs are for.
 
 **Two edges never meet unless they share an end.** `route.go` searches the
 page's cells for each path, shortest edges first, and a path may cross

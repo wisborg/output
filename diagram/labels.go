@@ -165,12 +165,12 @@ func (o *occupancy) take(at Point, lines []string) {
 // along where an edge crosses the edge there: the label must not hide where
 // a line goes in or out. A lane's is at its far side, on its middle row.
 //
-// An edge's label goes beside the stretch labelSegments chooses -- the
-// first the edge has to itself, where a branch leaves its decision -- a
-// space to the right of a segment down a column or over one along a row.
-// Where that place is taken, by an outline, a line or
-// another label, it is moved to the nearest free place beside the same
-// segment; where none is free, it stays, and is written over what is there
+// An edge's label goes beside a stretch labelSegments chooses -- first
+// those the edge has to itself, where a branch leaves its decision -- at
+// one of the places segmentTries lists, and placeEdgeLabels chooses which
+// for every label at once: the one that reads best as its own edge's,
+// clear of the boxes and the others, given where the others go. Where no
+// place is clear, it is written over a line, or at the last over a box,
 // rather than lost.
 //
 // A label may go above the first row -- over a line between two boxes of
@@ -182,14 +182,10 @@ func (lay *Layout) placeLabels() {
 	if lay.Title != "" {
 		top = 0
 	}
-	// Room for labels past the boxes: a column of them to the right, and
-	// rows of them above and below.
-	o := newOccupancy(lay.labelRoom(), lay.Height+lay.labelRows(), top)
 	crossings := map[Point]bool{} // cells where a line runs down a column
 	for _, e := range lay.Edges {
 		for i := 1; i < len(e.Points); i++ {
 			a, b := e.Points[i-1], e.Points[i]
-			o.line(a, b)
 			if a.X == b.X {
 				for y := min(a.Y, b.Y); y <= max(a.Y, b.Y); y++ {
 					crossings[Point{a.X, y}] = true
@@ -197,25 +193,11 @@ func (lay *Layout) placeLabels() {
 			}
 		}
 	}
-	// boxes is the boxes alone: where no free place is left for a label, it
-	// is written over a line rather than over a box, which hides what the
-	// box says.
-	boxes := newOccupancy(lay.labelRoom(), lay.Height+lay.labelRows(), top)
-	lay.takeTitle(o)
-	lay.takeTitle(boxes)
-	for _, n := range lay.Nodes {
-		o.rect(n.Rect, true)
-		boxes.rect(n.Rect, true)
-	}
 	for i := range lay.Groups {
 		g := &lay.Groups[i]
-		for _, d := range g.Dividers {
-			o.line(d[0], d[1])
-		}
 		r, label := g.Rect, g.Group.Label
 		switch g.Group.Style {
 		case Frame:
-			o.rect(r, false)
 			n := Width(label) + 2
 			g.LabelAt = Point{r.X + 2, r.Y}
 		search:
@@ -231,50 +213,8 @@ func (lay *Layout) placeLabels() {
 		case Lane:
 			g.LabelAt = laneLabelAt(*g)
 		}
-		if label != "" && g.Group.Style != Hidden {
-			o.take(groupLabelAt(*g), []string{" " + label + " "})
-		}
 	}
-	shared := edgeCells(lay.Edges)
-	for i := range lay.Edges {
-		e := &lay.Edges[i]
-		if e.Edge.Label == "" || len(e.Points) < 2 {
-			continue
-		}
-		lines := strings.Split(e.Edge.Label, "\n")
-		width := 0
-		for _, l := range lines {
-			width = max(width, Width(l))
-		}
-		tries := segmentTries(e.Points, shared, width, len(lines))
-		// A try past the left edge is moved in to it, rather than passed
-		// over: the tries to the left of a line at the edge were each
-		// refused, and a long label in the bottom row of a grid was
-		// written over the boxes though a free row was beside its line.
-		for k := range tries {
-			tries[k].X = max(tries[k].X, 0)
-		}
-		e.LabelAt = tries[0]
-		placed := false
-		for _, t := range tries {
-			if o.free(t, lines) {
-				e.LabelAt, placed = t, true
-				break
-			}
-		}
-		for _, t := range tries {
-			if placed {
-				break
-			}
-			if boxes.free(t, lines) {
-				e.LabelAt, placed = t, true
-			}
-		}
-		e.LabelAt.X, e.LabelAt.Y = max(e.LabelAt.X, 0), max(e.LabelAt.Y, -top)
-		o.take(e.LabelAt, lines)
-		lay.Width = max(lay.Width, e.LabelAt.X+width)
-		lay.Height = max(lay.Height, e.LabelAt.Y+len(lines))
-	}
+	lay.placeEdgeLabels(top)
 	least := 0
 	for _, e := range lay.Edges {
 		if e.Edge.Label != "" && len(e.Points) >= 2 {
@@ -309,6 +249,11 @@ func edgeCells(edges []PlacedEdge) map[Point]int {
 	return n
 }
 
+// maxSlide is how far, in rows, a label slides along a long stretch from
+// its middle: far enough to find a place clear of the boxes a long line
+// passes, few enough that the tries stay a handful a stretch.
+const maxSlide = 20
+
 // segmentTries are the places, in turn, a label width cells wide and n
 // lines tall is tried at beside the path pts: beside each stretch
 // labelSegments gives, a space to the right of one down a column, sliding
@@ -321,39 +266,70 @@ func segmentTries(pts []Point, shared map[Point]int, width, n int) []Point {
 		a, b := seg.a, seg.b
 		// Sliding along the stretch, but never past its ends: a label
 		// three rows beyond a stretch two cells long is beside nothing of
-		// its edge's, and as near another's line as its own.
+		// its edge's, and as near another's line as its own. Near its
+		// middle on the one side and then the other, then further along a
+		// long stretch, either side in turn.
 		if seg.down {
 			lo, hi := min(a.Y, b.Y), max(a.Y, b.Y)
 			mid := (a.Y + b.Y) / 2
-			for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
-				if y := mid + d; y >= lo && y <= hi {
-					tries = append(tries, Point{a.X + 2, y})
+			right, left := a.X+2, a.X-1-width
+			for _, x := range []int{right, left} {
+				for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
+					if y := mid + d; y >= lo && y <= hi {
+						tries = append(tries, Point{x, y})
+					}
 				}
 			}
-			tries = append(tries, Point{a.X - 1 - width, mid})
+			for d := 4; d <= maxSlide; d++ {
+				for _, y := range []int{mid + d, mid - d} {
+					if y >= lo && y <= hi {
+						tries = append(tries, Point{right, y}, Point{left, y})
+					}
+				}
+			}
 		} else {
 			lo, hi := min(a.X, b.X), max(a.X, b.X)
 			mid := (a.X+b.X)/2 - width/2
-			for _, d := range []int{0, 2, -2, 4, -4} {
-				if x := mid + d; x <= hi && x+width-1 >= lo {
-					tries = append(tries, Point{x, a.Y - n})
+			over, under := a.Y-n, a.Y+1
+			for _, y := range []int{over, under} {
+				for _, d := range []int{0, 1, -1, 2, -2, 3, -3, 4, -4} {
+					if x := mid + d; x <= hi && x+width-1 >= lo {
+						tries = append(tries, Point{x, y})
+					}
 				}
 			}
-			tries = append(tries, Point{mid, a.Y + 1})
+			for d := 6; d <= 2*maxSlide; d += 2 {
+				for _, x := range []int{mid + d, mid - d} {
+					if x <= hi && x+width-1 >= lo {
+						tries = append(tries, Point{x, over}, Point{x, under})
+					}
+				}
+			}
 		}
 	}
 	// A label wider than the gap it is beside, between two boxes close
 	// together, goes further out -- past the boxes' ends -- rather than
 	// over them: a grid's gaps are its boxes', and never widen for a label.
+	// Further out it slides too, as beside, and stays beside its stretch.
 	for k := 1; k <= 6; k++ {
 		for _, seg := range segs {
 			a, b := seg.a, seg.b
 			if seg.down {
+				lo, hi := min(a.Y, b.Y), max(a.Y, b.Y)
 				mid := (a.Y + b.Y) / 2
-				tries = append(tries, Point{a.X + 2 + k, mid}, Point{a.X - 1 - width - k, mid})
+				for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
+					if y := mid + d; y >= lo && y <= hi {
+						tries = append(tries, Point{a.X + 2 + k, y}, Point{a.X - 1 - width - k, y})
+					}
+				}
 			} else {
+				lo, hi := min(a.X, b.X), max(a.X, b.X)
 				mid := (a.X+b.X)/2 - width/2
-				tries = append(tries, Point{mid, a.Y - n - k}, Point{mid, a.Y + 1 + k})
+				for _, d := range []int{0, 2, -2, 4, -4, 6, -6} {
+					if x := mid + d; x <= hi && x+width-1 >= lo {
+						tries = append(tries, Point{x, a.Y - n - k}, Point{x, a.Y + 1 + k})
+					}
+				}
 			}
 		}
 	}

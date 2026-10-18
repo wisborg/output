@@ -221,3 +221,23 @@ func TestCrowdedLabelsKeepOffBoxes(t *testing.T) {
 		}
 	}
 }
+
+// A label goes on the side of its line away from another edge's line close
+// beside it: between the two, as near the one as the other, it reads as
+// either's.
+func TestLabelKeepsToItsOwnLine(t *testing.T) {
+	lay := &Layout{
+		Width: 20, Height: 12,
+		Nodes: []PlacedNode{{Node: &Node{ID: "a"}, Rect: Rect{3, 0, 9, 3}}, {Node: &Node{ID: "b"}, Rect: Rect{3, 12, 9, 3}}},
+		Edges: []PlacedEdge{
+			{Edge: &Edge{From: "a", To: "b", Label: "no"}, Points: []Point{{5, 2}, {5, 12}}},
+			{Edge: &Edge{From: "a", To: "b"}, Points: []Point{{10, 2}, {10, 12}}},
+		},
+		nodeAt: map[string]PlacedNode{},
+	}
+	lay.Height = 15
+	lay.placeLabels()
+	if at := lay.Edges[0].LabelAt; at.X >= 5 {
+		t.Errorf("the label at %v is between its line at column 5 and another's at 10:\n%s", at, strings.Join(lay.Text(), "\n"))
+	}
+}
