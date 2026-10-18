@@ -205,7 +205,23 @@ func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder, mark
 // file whose every column is text has no way to tell, and is taken to have
 // one too -- the names cost a row of text, which could not be plotted
 // anyway, where taking a header for data would plot it.
+//
+// A file of one row is a header with nothing beneath it where every cell
+// of the row is text -- "x,y" -- and data otherwise: names alone are no
+// readings, and taken for a row of them, plot said no column held numbers
+// rather than that the file had no rows.
 func hasHeader(records [][]string, dates dateOrder) bool {
+	if len(records) == 1 {
+		for _, cell := range records[0] {
+			if _, ok := parseNumber(cell); ok {
+				return false
+			}
+			if _, ok := parseDateAny(cell, dates); ok {
+				return false
+			}
+		}
+		return true
+	}
 	if len(records) < 2 {
 		return false
 	}

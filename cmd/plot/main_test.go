@@ -312,3 +312,22 @@ func TestPlotDecimal(t *testing.T) {
 		t.Errorf("--decimal dot: %v, want a UsageError", err)
 	}
 }
+
+// The command line's mistakes are UsageErrors, which exit 2, the same in
+// both commands: two files, an unknown --terminal, a --theme checked even
+// where the chart is drawn in braille. --width 0 is the default, here as in
+// diagram. And a file of a header alone says it has no rows.
+func TestPlotUsageConsistency(t *testing.T) {
+	var ue *cli.UsageError
+	for _, args := range [][]string{{"a.csv", "b.csv"}, {"--terminal", "sixel"}, {"--theme", "pink"}} {
+		if _, _, err := plot(t, "x,y\n1,2\n2,3\n", args...); !errors.As(err, &ue) {
+			t.Errorf("%q: %v, want a UsageError", args, err)
+		}
+	}
+	if _, _, err := plot(t, "x,y\n1,2\n2,3\n", "--width", "0"); err != nil {
+		t.Errorf("--width 0: %v", err)
+	}
+	if _, _, err := plot(t, "x,y\n"); err == nil || !strings.Contains(err.Error(), "no rows") {
+		t.Errorf("a header alone: %v, want an error saying there are no rows", err)
+	}
+}

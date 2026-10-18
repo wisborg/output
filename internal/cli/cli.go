@@ -27,7 +27,11 @@ func Usagef(format string, args ...any) error {
 // dashes spells a flag in the flag package's messages as the command's
 // help does, "--width" for "-width": the message once named a flag
 // spelled as nobody had typed it.
-var dashes = regexp.MustCompile(`(defined:|argument:|for flag) -([^-\s])`)
+//
+// A boolean's bad value is "invalid boolean value "maybe" for -robust",
+// with no "flag" before the name, so " for -" is matched as well as
+// " for flag -".
+var dashes = regexp.MustCompile(`(defined:|argument:|for flag|for) -([^-\s])`)
 
 // Parse parses args with fs, taking flags wherever they are, before the
 // file or after it, and returns the arguments that are not flags, in order.
@@ -63,13 +67,30 @@ func Parse(fs *flag.FlagSet, args []string) ([]string, error) {
 		// argument that is not a flag. The argument before left is a
 		// "--" it stopped at only if it is not the value of the flag
 		// before it.
-		used := args[:len(args)-len(left)]
-		if n := len(used); n > 0 && used[n-1] == "--" && !(n > 1 && takesValue(fs, used[n-2])) {
+		if endedAtDashes(fs, args[:len(args)-len(left)]) {
 			return append(rest, left...), nil
 		}
 		rest = append(rest, left[0])
 		args = left[1:]
 	}
+}
+
+// endedAtDashes says the flag package, reading used, stopped at a "--" that
+// ends the flags, rather than reading the last of used as a flag's value.
+// It reads used as the package does, from the first: a flag, then its value
+// where it takes one written apart. Judged by the argument before the "--"
+// alone, --title --width -- took "--width", the title, for a flag whose
+// value was the "--".
+func endedAtDashes(fs *flag.FlagSet, used []string) bool {
+	for i := 0; i < len(used); i++ {
+		if used[i] == "--" {
+			return i == len(used)-1
+		}
+		if takesValue(fs, used[i]) {
+			i++ // its value, whatever it looks like
+		}
+	}
+	return false
 }
 
 // takesValue says arg is a flag of fs's that takes the argument after it as

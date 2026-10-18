@@ -111,7 +111,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.braille, "braille", "off", "how the text drawing draws the edges --edges straight, or the file's splines, draws straight: off (along rows and columns), thin or thick (at their angle, in braille dots one or two deep, as the picture draws them)")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a file; the terminal's own in a terminal), light or dark")
 	fs.IntVar(&o.width, "width", 0, "the picture's width: in characters for a picture in the terminal (default: the terminal's, or 100); in pixels in a PNG or an SVG (default: "+strconv.Itoa(imageWidth)+"); its height follows from its proportions. The text drawing is as wide as the diagram, which no flag narrows")
-	fs.IntVar(&o.height, "height", 0, "the most the diagram's height may be, narrower where it would be taller: in lines in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none)")
+	fs.IntVar(&o.height, "height", 0, "the picture's greatest height: one that would be taller is drawn smaller to fit; in lines for a picture in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none). The text drawing is as tall as the diagram, which no flag shortens")
 	fs.IntVar(&o.maxEdges, "max-edges", dot.DefaultMaxEdges, "the most edges a file may make: a guard against a few bytes of DOT asking for hours of layout; raise it for a genuine diagram past it")
 	fs.IntVar(&o.maxCells, "max-cells", diagram.DefaultMaxCells, "the most cells the laid-out page may have: a guard against labels or grids asking for gigabytes; raise it for a genuine diagram past it")
 	fs.Float64Var(&o.textPx, "text-size", 0, "size a PNG or an SVG by its text instead, in pixels, everything else in proportion -- so several diagrams share a text size; not with --width or --height")
@@ -131,7 +131,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return err
 	}
 	if len(files) > 1 {
-		return fmt.Errorf("one file at a time: %s", strings.Join(files, " "))
+		return cli.Usagef("one file at a time: %s", strings.Join(files, " "))
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
@@ -139,8 +139,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		name string
 		v    float64
 	}{{"width", float64(o.width)}, {"height", float64(o.height)}, {"text-size", o.textPx}} {
-		if set[f.name] && !(f.v > 0 && f.v <= math.MaxFloat64) {
-			return cli.Usagef("--%s %v: a size above 0", f.name, f.v)
+		// 0 is the default, as it is for plot.
+		if set[f.name] && !(f.v >= 0 && f.v <= math.MaxFloat64) {
+			return cli.Usagef("--%s %v: a size from 0, which is the default", f.name, f.v)
 		}
 	}
 	if set["text-size"] && (set["width"] || set["height"]) {
@@ -215,7 +216,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	if o.out != "" {
-		if err := writeFile(o, lay, getenv); err != nil {
+		if err := writeFile(o, lay, stderr, getenv); err != nil {
 			return err
 		}
 		fmt.Fprintf(stderr, "diagram %s\n", o.out)
@@ -243,7 +244,7 @@ func palette(theme string, inTerminal bool, getenv func(string) string) (diagram
 }
 
 // writeFile writes the diagram to --out, in the format its name ends in.
-func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error {
+func writeFile(o options, lay *diagram.Layout, errOut io.Writer, getenv func(string) string) error {
 	ext := strings.ToLower(filepath.Ext(o.out))
 	if ext != ".png" && ext != ".svg" && ext != ".txt" {
 		return cli.Usagef("--out %q: name it .png, .svg or .txt", o.out)
@@ -280,6 +281,7 @@ func writeFile(o options, lay *diagram.Layout, getenv func(string) string) error
 		}
 	case ".txt":
 		// A file is read by more than terminals: in colour only when asked.
+		textSizeNote(errOut, o, lay)
 		lines := lay.Text(o.text)
 		if o.color == "always" {
 			lines = lay.ColourText(pal, o.text)
@@ -315,12 +317,7 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 		return err
 	}
 	if how == terminal.Braille {
-		if o.width > 0 && lay.Width > o.width {
-			// The text drawing is the layout's cells, one a character:
-			// it cannot be drawn narrower, and saying nothing left a
-			// --width that had no effect looking as though it had.
-			fmt.Fprintf(errOut, "the text drawing is %d characters wide, wider than --width %d: --width sizes a picture, and the text cannot be drawn narrower\n", lay.Width, o.width)
-		}
+		textSizeNote(errOut, o, lay)
 		lines := lay.Text(o.text)
 		if colour(o.color, tty, getenv) {
 			lines = lay.ColourText(pal, o.text)
@@ -370,6 +367,20 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	}
 	shown := min(cols, int(math.Ceil(float64(img.Bounds().Dx())/perCol)))
 	return terminal.Write(out, how, buf.Bytes(), shown)
+}
+
+// textSizeNote says on errOut where --width or --height asked for a text
+// drawing smaller than it is: the text drawing is the layout's cells, one a
+// character, and cannot be drawn smaller, and saying nothing left a flag
+// that had no effect looking as though it had -- into a terminal, and into
+// a .txt file alike.
+func textSizeNote(errOut io.Writer, o options, lay *diagram.Layout) {
+	if o.width > 0 && lay.Width > o.width {
+		fmt.Fprintf(errOut, "diagram: the text drawing is %d characters wide, wider than --width %d: --width sizes a picture, and the text cannot be drawn narrower\n", lay.Width, o.width)
+	}
+	if o.height > 0 && lay.Height > o.height {
+		fmt.Fprintf(errOut, "diagram: the text drawing is %d lines tall, taller than --height %d: --height sizes a picture, and the text cannot be drawn shorter\n", lay.Height, o.height)
+	}
 }
 
 // colour is whether the text drawing is in colour: as --color says, and

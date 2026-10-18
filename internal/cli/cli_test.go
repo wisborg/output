@@ -29,6 +29,12 @@ func TestParse(t *testing.T) {
 		{[]string{"-out", "--", "a.dot", "-out", "y.png"}, "y.png", []string{"a.dot"}},
 		{[]string{"-out", "--", "a.dot"}, "--", []string{"a.dot"}},
 		{[]string{"-v", "--", "-a.dot"}, "", []string{"-a.dot"}},
+		// A boolean before the "--" takes no value, so the "--" ends the
+		// flags and what follows the file is a file.
+		{[]string{"-v", "--", "a.dot", "-out", "y.png"}, "", []string{"a.dot", "-out", "y.png"}},
+		// A flag's value that looks like a flag is the value, and a
+		// "--" after it still ends the flags.
+		{[]string{"-out", "-v", "--", "-a.dot", "-out"}, "-v", []string{"-a.dot", "-out"}},
 	} {
 		fs := flag.NewFlagSet("t", flag.ContinueOnError)
 		out := fs.String("out", "", "")
@@ -87,12 +93,14 @@ func TestParseMistakes(t *testing.T) {
 		"--n=x":     `invalid value "x" for flag --n`,
 		"-bogus a":  "flag provided but not defined: --bogus",
 		"a --bogus": "flag provided but not defined: --bogus",
+		"--v=maybe": `invalid boolean value "maybe" for --v`,
 	} {
 		var b strings.Builder
 		fs := flag.NewFlagSet("t", flag.ContinueOnError)
 		fs.SetOutput(&b)
 		fs.String("out", "", "")
 		fs.Int("n", 0, "")
+		fs.Bool("v", false, "")
 		_, err := Parse(fs, strings.Fields(args))
 		var ue *UsageError
 		if !errors.As(err, &ue) || !strings.HasPrefix(err.Error(), want) {

@@ -91,7 +91,7 @@ func TestDiagramRefuses(t *testing.T) {
 		{regions, []string{"--out", "d.jpg"}, "name it .png, .svg or .txt"},
 		{regions, []string{"--terminal", "braille"}, "use auto, iterm, kitty or text"},
 		{regions, []string{"--theme", "pink"}, "--theme"},
-		{regions, []string{"--width", "0"}, "--width 0"},
+		{regions, []string{"--width", "-1"}, "--width -1"},
 		{regions, []string{"--color", "sometimes"}, "use auto, always or never"},
 		{regions, []string{"--edges", "curvy"}, "use auto, straight or orthogonal"},
 		{regions, []string{"--braille", "bold"}, "use off, thin or thick"},
@@ -575,5 +575,25 @@ func TestBrailleHeadKeepsOffOtherLines(t *testing.T) {
 		if strings.Contains(l, "╌↗") || strings.Contains(l, "╌↘") {
 			t.Errorf("an arrowhead on the dashed line: %q", l)
 		}
+	}
+}
+
+// --width and --height size a picture; given for the text drawing -- into
+// a .txt file as into a terminal -- they say they cannot shorten it,
+// named as every message of the command is. --width 0 is the default, as
+// in plot.
+func TestDiagramTextSizeNotes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "d.txt")
+	_, errOut, err := draw(t, regions, "--out", path, "--width", "10", "--height", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"diagram: the text drawing is", "--width 10", "--height 2"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr %q does not say %q", errOut, want)
+		}
+	}
+	if _, _, err := draw(t, regions, "--terminal", "text", "--width", "0"); err != nil {
+		t.Errorf("--width 0: %v", err)
 	}
 }

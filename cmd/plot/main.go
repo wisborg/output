@@ -84,8 +84,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
 	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise")
 	fs.StringVar(&o.out, "out", "", "write the chart to this PNG rather than drawing it in the terminal")
-	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default: the terminal's, or 100); in pixels in a PNG (default: "+strconv.Itoa(imageWidth)+")")
-	fs.IntVar(&o.height, "height", 0, "the chart's height: in lines in the terminal (default: 24, and 10 more for each further column, held to the terminal's); in pixels in a PNG (default: "+strconv.Itoa(imageHeight)+", and 300 more for each further column)")
+	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default, or 0: the terminal's, or 100); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageWidth)+")")
+	fs.IntVar(&o.height, "height", 0, "the chart's height: in lines in the terminal (default, or 0: 24, and 10 more for each further column, held to the terminal's); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageHeight)+", and 300 more for each further column)")
 	fs.StringVar(&o.terminal, "terminal", string(terminal.Auto), "how the chart is shown in the terminal: auto (a picture where the terminal shows one, braille otherwise), iterm, kitty or braille")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a PNG; the terminal's own in a terminal), light or dark")
 	fs.StringVar(&o.title, "title", "", "the chart's title (default: what is plotted against what)")
@@ -107,10 +107,21 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return err
 	}
 	if len(files) > 1 {
-		return fmt.Errorf("one file at a time: %s", strings.Join(files, " "))
+		return cli.Usagef("one file at a time: %s", strings.Join(files, " "))
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	// Every flag is checked whichever way the chart is drawn: --theme pink
+	// with the chart in braille once drew it and exited 0, and the same
+	// command with --out was refused.
+	if _, _, err := terminal.Choose(terminal.Protocol(o.terminal), getenv, false); err != nil {
+		return cli.Usagef("--terminal %v", err)
+	}
+	switch o.theme {
+	case "auto", "light", "dark":
+	default:
+		return cli.Usagef("--theme %q: use auto, light or dark", o.theme)
+	}
 	for _, f := range []struct {
 		name string
 		v    int
@@ -466,7 +477,7 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 	}
 	how, note, err := terminal.Choose(mode, d.getenv, tty)
 	if err != nil {
-		return fmt.Errorf("--terminal %w", err)
+		return cli.Usagef("--terminal %v", err)
 	}
 	if note != "" {
 		fmt.Fprintln(errOut, note+"; --terminal iterm or kitty draws one anyway")
@@ -480,10 +491,11 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 	if rows > 0 {
 		h = min(h, rows-3)
 	}
-	if widthSet {
+	// 0 is the default, as it is for a PNG, and as diagram has it.
+	if widthSet && width > 0 {
 		w = width
 	}
-	if heightSet {
+	if heightSet && height > 0 {
 		h = height
 	}
 	if how == terminal.Braille {
