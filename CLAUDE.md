@@ -404,10 +404,15 @@ through the second says the second replicates to the third.
 
 **A label is text someone else may have written, and is written as text.**
 A DOT file, a bar's label built from a file name, a CSV's column names: none
-of it is the program's own. In the text drawing and in `progress`, a control
-character is written as one U+FFFD -- an escape reaching the terminal is a
-command to it (clear the screen, retitle the window, write the clipboard),
-and a line break or a tab breaks the box or the bar it is in. In SVG, which
+of it is the program's own. In the text drawing, in `progress`, in a table
+and in a braille chart's titles, a control character, a format character
+(a bidi override, a zero-width space; the two joiners excepted) and a byte
+that is not UTF-8 are each written as one U+FFFD -- an escape reaching the
+terminal is a command to it (clear the screen, retitle the window, write
+the clipboard), a line break or a tab breaks the box or the bar it is in,
+and a bidi override turns the rest of the line round. The four packages
+each keep their own `printable` and `hidden`, since none may import
+another; change one and change all four. In SVG, which
 a browser runs scripts in as it would a page, a label goes only into a
 `<text>` element's content, through `xmlText`, which escapes the markup
 characters and replaces what XML cannot hold; no attribute is ever made

@@ -130,7 +130,8 @@ func TestWriteCSV_PropagatesWriteErrors(t *testing.T) {
 // A delimiter that cannot delimit is refused before anything is written,
 // whatever the table holds: encoding/csv checks only as it writes a
 // record, so the same style once passed with nothing to write and failed
-// with rows.
+// with rows. The error is ErrBadDelimiter, so a caller can tell its style
+// at fault from the writer.
 func TestWriteCSV_RefusesABadDelimiter(t *testing.T) {
 	for _, c := range []rune{'"', '\r', '\n', utf8.RuneError} {
 		for _, rows := range []int{0, 1} {
@@ -140,7 +141,7 @@ func TestWriteCSV_RefusesABadDelimiter(t *testing.T) {
 			}
 			var b strings.Builder
 			err := tbl.WriteCSV(&b, CSVStyle{Comma: c, OmitHeader: true})
-			if err == nil || b.Len() != 0 {
+			if !errors.Is(err, ErrBadDelimiter) || b.Len() != 0 {
 				t.Errorf("%q with %d rows: %v, wrote %q", c, rows, err, b.String())
 			}
 		}

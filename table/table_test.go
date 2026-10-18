@@ -181,6 +181,25 @@ func TestRender_ControlCharactersAreNotWritten(t *testing.T) {
 	}
 }
 
+// TestRender_FormatCharactersAreNotWritten: a bidi override turns the rest
+// of a row round, a zero-width space makes two names that look the same
+// differ, and a byte that is not UTF-8 is not text. Each is written as
+// U+FFFD; the joiners an emoji family is made with are kept.
+func TestRender_FormatCharactersAreNotWritten(t *testing.T) {
+	tbl := New(Column{Header: "n\u202Ea"}, Column{Header: "n"})
+	tbl.MustAppend("a\u202Eb\u200Bc\xffd\u2028e\uFEFFf", 1)
+	tbl.MustAppend("👨\u200D👩", 2)
+	got := tbl.String()
+	for _, want := range []string{"n�a", "a�b�c�d�e�f", "👨\u200D👩"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
+		}
+	}
+	if strings.ContainsAny(got, "\u202E\u200B\u2028\uFEFF") || !utf8.ValidString(got) {
+		t.Errorf("a format character or a byte that is not UTF-8 written: %q", got)
+	}
+}
+
 // TestRender_MultilineSplitsHeadings: a heading is split on its newlines
 // as a value is, and neither leaves a blank line for a trailing newline or
 // a carriage return before one.

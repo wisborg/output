@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 )
@@ -788,6 +789,25 @@ func TestDisplay_LabelControlCharactersAreNotWritten(t *testing.T) {
 				t.Errorf("one bar on %d rows: %q", len(lines), lines)
 			}
 		}
+	}
+}
+
+// TestDisplay_LabelFormatCharactersAreNotWritten: a bidi override in a
+// file's name turns the rest of the bar's row round, and a byte that is not
+// UTF-8 is not text. Each is shown as U+FFFD; the joiners are kept.
+func TestDisplay_LabelFormatCharactersAreNotWritten(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Plain, Columns: 80, Now: c.now, Interval: time.Second})
+	bar := d.Bar(BarSpec{Label: "a\u202Eb\u200Bc\xffd\u2028e\uFEFFf", Total: 10, Unit: "👨\u200D👩"})
+	c.add(time.Second)
+	bar.Set(5)
+	out := buf.String()
+	if strings.ContainsAny(out, "\u202E\u200B\u2028\uFEFF") || !utf8.ValidString(out) {
+		t.Errorf("a format character or a byte that is not UTF-8 written: %q", out)
+	}
+	if !strings.Contains(out, "a�b�c�d�e�f") || !strings.Contains(out, "👨\u200D👩") {
+		t.Errorf("the label is not there with its format characters replaced: %q", out)
 	}
 }
 

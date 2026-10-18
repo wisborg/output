@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/clipperhouse/uax29/v2/graphemes"
 )
@@ -81,13 +82,16 @@ func (t *Table) String() string {
 // themselves, because only they know what the absence means; a bare header
 // over nothing reads as though the data failed to load.
 //
-// A control character in a cell or a heading is written as U+FFFD, a
-// column wide. A cell is often someone else's data -- a file's name, a
-// field of a record -- and an escape in it written to a terminal is a
-// command to the terminal, where a tab or a carriage return moves the
-// cursor a distance no width counts and the columns after it are out of
-// true. So a cell holds text, not colour: an SGR sequence is no exception.
-// WriteCSV writes values exactly, controls and all, since a CSV is data.
+// A control character in a cell or a heading is written as U+FFFD, as is
+// a format character such as a bidi override or a zero-width space (the
+// joiners U+200C and U+200D excepted), and a byte that is not UTF-8. A cell
+// is often someone else's data -- a file's name, a field of a record -- and
+// an escape in it written to a terminal is a command to the terminal, where
+// a tab or a carriage return moves the cursor a distance no width counts and
+// the columns after it are out of true; a bidi override turns the rest of
+// the row round, and its cells read in the wrong order. So a cell holds
+// text, not colour: an SGR sequence is no exception. WriteCSV writes values
+// exactly, controls and all, since a CSV is data.
 func (t *Table) Render(w io.Writer, style Style) error {
 	lay := t.layout(style)
 	if lay == nil {
@@ -229,17 +233,36 @@ func (t *Table) physical(lay *layout, raw []string, style Style) [][]string {
 	return out
 }
 
-// printable is s with each control character written as U+FFFD. See Render.
+// printable is s with each character hidden has, and each byte that is
+// not UTF-8, written as U+FFFD. See Render.
 func printable(s string) string {
-	if !strings.ContainsFunc(s, unicode.IsControl) {
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, hidden) {
 		return s
 	}
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+	return strings.Map(func(r rune) rune { // a byte that is not UTF-8 comes as U+FFFD
+		if hidden(r) {
 			return '\uFFFD'
 		}
 		return r
 	}, s)
+}
+
+// hidden is whether r is written as U+FFFD: a control character, a line or
+// paragraph separator, or a format character -- a bidi override, a
+// zero-width space, a byte-order mark. A format character draws nothing,
+// and a terminal's reader cannot see it: U+202E turns the rest of a line
+// round, so "exe.txt" in a name reads as something else, and a zero-width
+// space makes two names that look the same differ. The joiners U+200C and
+// U+200D are kept: they are part of the text they are in -- an emoji
+// family, a Persian word -- and a width measures it with them.
+func hidden(r rune) bool {
+	switch {
+	case unicode.IsControl(r), r == '\u2028', r == '\u2029':
+		return true
+	case r == '\u200C', r == '\u200D':
+		return false
+	}
+	return unicode.Is(unicode.Cf, r)
 }
 
 // format turns one cell value into text, before truncation.

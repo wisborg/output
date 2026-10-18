@@ -2,6 +2,7 @@ package table
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"unicode/utf8"
@@ -18,9 +19,16 @@ type CSVStyle struct {
 	// ordinary CSV, and this only has to be set to depart from it (e.g. '\t'
 	// for TSV, or ';' where a decimal comma is in use). A quote, a line
 	// break or a rune that is not valid cannot delimit anything, and
-	// WriteCSV refuses one before writing a byte.
+	// WriteCSV refuses one before writing a byte, with ErrBadDelimiter.
 	Comma rune
 }
+
+// ErrBadDelimiter is what WriteCSV's error wraps when CSVStyle.Comma cannot
+// delimit a field: a quote, a line break, or a rune that is not valid. It is
+// the caller's style at fault rather than the writer, so a program that
+// takes the delimiter from its user can tell the two apart with errors.Is
+// and say which flag to change.
+var ErrBadDelimiter = errors.New("table: cannot delimit CSV")
 
 // WriteCSV writes the table as CSV.
 //
@@ -56,7 +64,7 @@ func (t *Table) WriteCSV(w io.Writer, style CSVStyle) error {
 		// Checked here, before anything is written: encoding/csv checks
 		// it only on writing a record, so with no rows to write and no
 		// header the same style was fine, and with rows it was not.
-		return fmt.Errorf("table: %q cannot delimit CSV", c)
+		return fmt.Errorf("%w with %q", ErrBadDelimiter, c)
 	}
 	if len(t.Columns) == 0 {
 		// encoding/csv would write a bare newline for an empty record.

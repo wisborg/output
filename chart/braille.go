@@ -153,17 +153,16 @@ func (s Scale) fault() error {
 // cut is s made printable and cut to at most n runes, the measure the
 // drawing's gutter is counted in.
 //
-// Printable: a control character, or a byte that is not UTF-8, is written
-// as U+FFFD. A title, a strip's name and a band kind's are text someone
+// Printable: a character hidden has, or a byte that is not UTF-8, is
+// written as U+FFFD. A title, a strip's name and a band kind's are text someone
 // else may have written -- plot names its strips after a CSV's column
 // headings -- and an escape in one written to a terminal is a command to it:
 // a heading holding "\x1b]0;...\x07" retitled the window when the file was
 // plotted.
 func cut(s string, n int) string {
-	s = strings.ToValidUTF8(s, "\uFFFD")
-	if strings.ContainsFunc(s, unicode.IsControl) {
-		s = strings.Map(func(r rune) rune {
-			if unicode.IsControl(r) {
+	if !utf8.ValidString(s) || strings.ContainsFunc(s, hidden) {
+		s = strings.Map(func(r rune) rune { // a byte that is not UTF-8 comes as U+FFFD
+			if hidden(r) {
 				return '\uFFFD'
 			}
 			return r
@@ -174,6 +173,24 @@ func cut(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:max(n, 0)])
+}
+
+// hidden is whether r is written as U+FFFD: a control character, a line or
+// paragraph separator, or a format character -- a bidi override, a
+// zero-width space, a byte-order mark. A format character draws nothing,
+// and a terminal's reader cannot see it: U+202E turns the rest of a line
+// round, so "exe.txt" in a name reads as something else, and a zero-width
+// space makes two names that look the same differ. The joiners U+200C and
+// U+200D are kept: they are part of the text they are in -- an emoji
+// family, a Persian word -- and a width measures it with them.
+func hidden(r rune) bool {
+	switch {
+	case unicode.IsControl(r), r == '\u2028', r == '\u2029':
+		return true
+	case r == '\u200C', r == '\u200D':
+		return false
+	}
+	return unicode.Is(unicode.Cf, r)
 }
 
 // braille is the strip's rows: its line drawn cols characters wide and

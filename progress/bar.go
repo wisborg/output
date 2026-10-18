@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // BarSpec describes one bar. Only Label is really needed; a Total of zero or
@@ -15,7 +16,9 @@ import (
 type BarSpec struct {
 	// Label names the work, e.g. "rendering". It is shown first and is the
 	// last thing dropped when the terminal is narrow. A control character
-	// in it, or in Unit, is shown as U+FFFD.
+	// in it, or in Unit, is shown as U+FFFD, as is a format character
+	// such as a bidi override or a zero-width space, and a byte that is
+	// not UTF-8.
 	Label string
 
 	// Total is how many units the job will take. Zero or less means unknown:
@@ -97,22 +100,41 @@ type Bar struct {
 	plainDone int64
 }
 
-// printable is s with each control character written as U+FFFD. A label is
-// often built from someone's data -- a file's name -- and a line break in
-// it makes one bar two rows where the erase counts one, so the display eats
-// the line above it from then on; a tab moves the cursor a distance the
-// width does not count; an escape is a command to the terminal. In plain
-// mode, a log line holding them is no better.
+// printable is s with each character hidden has, and each byte that is
+// not UTF-8, written as U+FFFD. A label is often built from someone's data
+// -- a file's name -- and a line break in it makes one bar two rows where
+// the erase counts one, so the display eats the line above it from then on;
+// a tab moves the cursor a distance the width does not count; an escape is
+// a command to the terminal. In plain mode, a log line holding them is no
+// better.
 func printable(s string) string {
-	if !strings.ContainsFunc(s, unicode.IsControl) {
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, hidden) {
 		return s
 	}
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+	return strings.Map(func(r rune) rune { // a byte that is not UTF-8 comes as U+FFFD
+		if hidden(r) {
 			return '\uFFFD'
 		}
 		return r
 	}, s)
+}
+
+// hidden is whether r is written as U+FFFD: a control character, a line or
+// paragraph separator, or a format character -- a bidi override, a
+// zero-width space, a byte-order mark. A format character draws nothing,
+// and a terminal's reader cannot see it: U+202E turns the rest of a line
+// round, so "exe.txt" in a name reads as something else, and a zero-width
+// space makes two names that look the same differ. The joiners U+200C and
+// U+200D are kept: they are part of the text they are in -- an emoji
+// family, a Persian word -- and a width measures it with them.
+func hidden(r rune) bool {
+	switch {
+	case unicode.IsControl(r), r == '\u2028', r == '\u2029':
+		return true
+	case r == '\u200C', r == '\u200D':
+		return false
+	}
+	return unicode.Is(unicode.Cf, r)
 }
 
 func newBar(d *Display, spec BarSpec) *Bar {

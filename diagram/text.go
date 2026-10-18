@@ -6,7 +6,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/clipperhouse/uax29/v2/graphemes"
@@ -161,8 +160,8 @@ func (c *textCanvas) fill(r Rect, bg color.Color) {
 const wideTail rune = -1
 
 // write writes s from (x, y) in col, over the lines: a character to a
-// cell, or two for a wide one, as Width counts them. A control character is
-// written as U+FFFD, as printable has it; a combining mark with nothing
+// cell, or two for a wide one, as Width counts them. A character hidden has
+// is written as U+FFFD, as printable has it; a combining mark with nothing
 // before it to combine with takes no cell, and is not written.
 func (c *textCanvas) write(x, y int, s string, col color.Color) {
 	g := graphemes.FromString(printable(s))
@@ -184,7 +183,7 @@ func (c *textCanvas) write(x, y int, s string, col color.Color) {
 	}
 }
 
-// set puts r at (x, y) in col. A control character is written as U+FFFD,
+// set puts r at (x, y) in col. A character hidden has is written as U+FFFD,
 // as write writes one: a label is text someone else may have written, and
 // an escape in it written to a terminal is a command to the terminal -- to
 // clear it, retitle the window, or write the clipboard -- where a tab or a
@@ -196,7 +195,7 @@ func (c *textCanvas) write(x, y int, s string, col color.Color) {
 // overwritten left a cell that writes nothing, so the rest of the row
 // moved a column one way or the other, out of line with the rows above.
 func (c *textCanvas) set(x, y int, r rune, col color.Color) {
-	if r != wideTail && unicode.IsControl(r) {
+	if r != wideTail && hidden(r) {
 		r = '\uFFFD'
 	}
 	if !c.in(x, y) {

@@ -265,6 +265,30 @@ func TestTextWritesNoControlCharacters(t *testing.T) {
 	}
 }
 
+// Nor are a label's format characters, or its bytes that are not UTF-8: a
+// bidi override turns the rest of the line round, through the box's edge,
+// and a zero-width space draws nothing a reader can see. Each is one cell of
+// U+FFFD; the joiners an emoji family is made with are kept.
+func TestTextWritesNoFormatCharacters(t *testing.T) {
+	d := &Diagram{Root: Group{Columns: 2, Items: []Item{node("a\u202Eb\u200Bc\xffd\u2028e\uFEFFf"), node("👨\u200D👩")}}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(lay.Text(), "\n")
+	if strings.ContainsAny(text, "\u202E\u200B\u2028\uFEFF") || !utf8.ValidString(text) {
+		t.Errorf("a format character or a byte that is not UTF-8 written: %q", text)
+	}
+	for _, want := range []string{"│ " + "a�b�c�d�e�f" + " │", "👨\u200D👩"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("no %q in:\n%s", want, text)
+		}
+	}
+	if got := Width("a\u202Eb\u200Bc\xffd\u2028e\uFEFFf"); got != 11 {
+		t.Errorf("Width = %d, want 11, a cell for each U+FFFD", got)
+	}
+}
+
 // A label is measured in a terminal's columns: a CJK character two, a
 // combining accent none, a flag two. Counted in runes, a CJK label
 // overflowed its box and pushed the boxes after it on its line out of true;
