@@ -274,6 +274,30 @@ func TestScaleOfReadingsTooFarApartForAFloat(t *testing.T) {
 	}
 }
 
+// An end that is not a number is taken for nought, so the scale is still
+// one: a NaN end once made every fraction on it NaN, and nothing was drawn.
+func TestScaleOfANaNEnd(t *testing.T) {
+	for _, s := range []Scale{NewScale(math.NaN(), 1, 5, Number), ExactScale(0, math.NaN(), 5, Number)} {
+		if !finite(s.Min) || !finite(s.Max) || !finite(s.Step) || !(s.Max > s.Min) || s.Min != 0 {
+			t.Errorf("scale %+v, want one from nought", s)
+		}
+	}
+}
+
+// Readings far from nought but close together are ticked at their own
+// span, not one the size of the numbers: around a million, a hundredth
+// apart, the step is finer than a hundredth. The least step is a fraction
+// of the numbers' size so fine that it bites only where a float64 runs out
+// of digits; one much coarser drew these readings at a step near one, a
+// single tick on a flat line.
+func TestScaleOfCloseReadingsFarFromNought(t *testing.T) {
+	for _, s := range []Scale{NewScale(1e6, 1e6+0.01, 5, Number), ExactScale(1e6, 1e6+0.01, 5, Number)} {
+		if s.Step > 0.01/2 || len(s.Ticks()) < 3 {
+			t.Errorf("scale %+v: step %v, ticks %v", s, s.Step, s.Ticks())
+		}
+	}
+}
+
 // A reading that is not a number is no reading, though Ok says it is: it
 // breaks the line rather than being drawn somewhere, and it does not reach
 // the scale or poison a smoothing window.

@@ -326,8 +326,34 @@ func TestLimits(t *testing.T) {
 			t.Errorf("%s: %v, want an error saying %q", c.name, err, c.want)
 		}
 	}
-	if _, err := Parse("digraph{" + strings.Repeat("{", 100) + "a" + strings.Repeat("}", 100) + "}"); err != nil {
+	// At the bounds: 100 deep and 300 edges are read, one more of either
+	// refused, and an Options.MaxEdges is held to as exactly.
+	nest := func(n int) string { return "digraph{" + strings.Repeat("{", n) + "a" + strings.Repeat("}", n) + "}" }
+	if _, err := Parse(nest(100)); err != nil {
 		t.Errorf("nested 100 deep: %v", err)
+	}
+	if _, err := Parse(nest(101)); err == nil {
+		t.Errorf("nested 101 deep was read")
+	}
+	chain := func(n int) string {
+		var b strings.Builder
+		b.WriteString("digraph{")
+		for i := range n {
+			fmt.Fprintf(&b, "a%d->a%d;", i, i+1)
+		}
+		return b.String() + "}"
+	}
+	if _, err := Parse(chain(DefaultMaxEdges)); err != nil {
+		t.Errorf("%d edges: %v", DefaultMaxEdges, err)
+	}
+	if _, err := Parse(chain(DefaultMaxEdges + 1)); !errors.Is(err, ErrTooManyEdges) {
+		t.Errorf("%d edges: %v, want ErrTooManyEdges", DefaultMaxEdges+1, err)
+	}
+	if _, err := ParseWith(chain(5), Options{MaxEdges: 5}); err != nil {
+		t.Errorf("5 edges, at a MaxEdges of 5: %v", err)
+	}
+	if _, err := ParseWith(chain(6), Options{MaxEdges: 5}); !errors.Is(err, ErrTooManyEdges) {
+		t.Errorf("6 edges, at a MaxEdges of 5: %v, want ErrTooManyEdges", err)
 	}
 }
 

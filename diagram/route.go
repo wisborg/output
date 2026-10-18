@@ -468,8 +468,10 @@ func (rt *router) stateOf(k int32) state {
 // maxSearch is the most states one search visits before it gives up. Every
 // state of a page of 400 by 400 cells, where once it was a third as many,
 // which with the search kept in maps took seconds an edge; on a page that
-// large a search that gave up drew the edge through the boxes.
-const maxSearch = 400 * 400 * 8
+// large a search that gave up drew the edge through the boxes. A variable
+// only so that a test can make every search give up, and see the paths
+// drawn then.
+var maxSearch = 400 * 400 * 8
 
 // item is a state waiting to be searched from: the cost to it, that and
 // the estimate of the rest, and the order it was found in, so that the

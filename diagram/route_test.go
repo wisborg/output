@@ -420,3 +420,80 @@ func TestLaneLabelKeepsItsSpace(t *testing.T) {
 		t.Errorf("the lane's label is reserved from %v, its words from %v", at, g.LabelAt)
 	}
 }
+
+// Where a search gives up -- a page too large to search -- an edge is
+// drawn on the plain path: straight across what two boxes share, the
+// second of two between them two cells off the first; out, along and in
+// where they share nothing; and a loop out of its node's right side and
+// into its bottom. Every search gives up here, so these are the paths.
+func TestPlainPathsWhereSearchGivesUp(t *testing.T) {
+	defer func(n int) { maxSearch = n }(maxSearch)
+	maxSearch = 0
+	d := &Diagram{
+		// a above b, both wide enough for the second edge between them to
+		// run two cells off the first.
+		Root: Group{Columns: 2, Items: nodes("a is wide", "c", "b is wide")},
+		Edges: []Edge{
+			{From: "a is wide", To: "b is wide", Head: true}, {From: "a is wide", To: "b is wide", Head: true},
+			{From: "a is wide", To: "c", Head: true}, {From: "b is wide", To: "c", Head: true},
+			{From: "c", To: "c", Head: true},
+		},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := map[string]Rect{}
+	for _, n := range lay.Nodes {
+		r[n.Node.ID] = n.Rect
+	}
+	if fmt.Sprint(lay.Edges[0].Points) == fmt.Sprint(lay.Edges[1].Points) {
+		t.Errorf("the two edges from a to b are drawn as one: %v", lay.Edges[0].Points)
+	}
+	for k, want := range [][]Point{
+		path(r["a is wide"], r["b is wide"], 0), path(r["a is wide"], r["b is wide"], 1),
+		path(r["a is wide"], r["c"], 0), path(r["b is wide"], r["c"], 0),
+		loop(r["c"]),
+	} {
+		if got := lay.Edges[k].Points; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("edge %d: %v, want the plain path %v", k, got, want)
+		}
+	}
+
+	// And the plain paths themselves, between boxes a row apart, a column
+	// apart and neither.
+	a, below, right, far := Rect{0, 0, 5, 3}, Rect{0, 5, 5, 3}, Rect{8, 0, 5, 3}, Rect{8, 6, 5, 3}
+	wide, wideBelow := Rect{0, 0, 11, 3}, Rect{0, 5, 11, 3}
+	for _, c := range []struct {
+		a, b Rect
+		nth  int
+		want []Point
+	}{
+		{a, below, 0, []Point{{2, 2}, {2, 5}}},
+		{below, a, 0, []Point{{2, 5}, {2, 2}}},
+		{wide, wideBelow, 1, []Point{{7, 2}, {7, 5}}}, // two cells off the middle
+		{wide, wideBelow, 2, []Point{{3, 2}, {3, 5}}},
+		{wide, wideBelow, 3, []Point{{9, 2}, {9, 5}}}, // four, held to the cells inside the corners
+		{a, below, 1, []Point{{3, 2}, {3, 5}}},
+		{a, right, 0, []Point{{4, 1}, {8, 1}}},
+		{right, a, 0, []Point{{8, 1}, {4, 1}}},
+		{a, far, 0, []Point{{2, 2}, {2, 4}, {10, 4}, {10, 6}}}, // the gap below is wider than the one beside
+		{far, a, 0, []Point{{10, 6}, {10, 4}, {2, 4}, {2, 2}}},
+		{a, Rect{20, 3, 5, 3}, 0, []Point{{4, 1}, {12, 1}, {12, 4}, {20, 4}}},
+	} {
+		if got := path(c.a, c.b, c.nth); fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("path(%v, %v, %d) = %v, want %v", c.a, c.b, c.nth, got, c.want)
+		}
+	}
+	if got, want := loop(a), []Point{{4, 1}, {7, 1}, {7, 4}, {3, 4}, {3, 2}}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("loop = %v, want %v", got, want)
+	}
+	for _, c := range []struct{ a0, a1, b0, b1, lo, hi int }{{0, 4, 0, 4, 1, 3}, {0, 4, 2, 9, 3, 3}} {
+		if lo, hi, ok := span(c.a0, c.a1, c.b0, c.b1); !ok || lo != c.lo || hi != c.hi {
+			t.Errorf("span(%d, %d, %d, %d) = %d, %d, %v", c.a0, c.a1, c.b0, c.b1, lo, hi, ok)
+		}
+	}
+	if _, _, ok := span(0, 4, 3, 9); ok {
+		t.Errorf("boxes sharing only a corner's cells share a span")
+	}
+}

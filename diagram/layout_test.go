@@ -646,3 +646,39 @@ func TestLayoutMaxCells(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// The page is as large as what is on it: a title wider than the boxes is
+// written whole, not cut off at their right edge; a title over no boxes
+// still has its rows; and a loop, which reaches past its node's side, is
+// on the page to its last row.
+func TestPageHoldsTitleAndLoops(t *testing.T) {
+	const title = "a title much wider than its one box"
+	lay, err := (&Diagram{Title: title, Root: Group{Items: []Item{node("a")}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := strings.Join(lay.Text(), "\n"); lay.Width < Width(title) || !strings.Contains(text, title) {
+		t.Errorf("width %d for a title of %d:\n%s", lay.Width, Width(title), text)
+	}
+
+	lay, err = (&Diagram{Title: "t"}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lay.Height < 1 || !strings.Contains(strings.Join(lay.Text(), "\n"), "t") {
+		t.Errorf("a title over nothing: height %d, text %q", lay.Height, lay.Text())
+	}
+
+	loop := Edge{From: "a", To: "a", Head: true}
+	lay, err = (&Diagram{Root: Group{Items: []Item{node("a")}}, Edges: []Edge{loop, loop}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range lay.Edges {
+		for _, p := range e.Points {
+			if p.X >= lay.Width || p.Y >= lay.Height {
+				t.Errorf("a loop's corner %v is off a page of %d by %d", p, lay.Width, lay.Height)
+			}
+		}
+	}
+}
