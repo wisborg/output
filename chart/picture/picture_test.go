@@ -254,3 +254,16 @@ func TestImageBands(t *testing.T) {
 		t.Errorf("the title line's right end has %d pixels inked without bands and %d with, want none and a legend", inked(a), inked(b))
 	}
 }
+
+// A picture of more than MaxPixels is refused before a pixel is allocated,
+// as diagram/picture's is: a size from a flag once asked for forty
+// gigabytes.
+func TestImageTooLarge(t *testing.T) {
+	img, err := Draw(ramp(1000, 1000), 100000, 100000, Options{})
+	if err == nil || img != nil || !strings.Contains(err.Error(), "million") {
+		t.Errorf("100000 by 100000: %v", err)
+	}
+	if _, err := Draw(ramp(1000, 1000), 8000, 8000, Options{}); err != nil {
+		t.Errorf("8000 by 8000: %v", err)
+	}
+}

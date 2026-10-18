@@ -69,9 +69,17 @@ type Options struct {
 	Fonts []*opentype.Font
 }
 
+// MaxPixels is the most pixels a picture Draw draws may have: 2^26, a
+// quarter of a gigabyte of RGBA, 8000 by 8000, as diagram/picture's. A size
+// asked for in a flag -- plot --width 100000 --height 100000 -- asked for
+// forty gigabytes, and the program swapped for minutes, or died, rather
+// than saying why.
+const MaxPixels = 1 << 26
+
 // Draw is c drawn as a picture width by height pixels. A chart without
-// strips, one chart.Chart.Check refuses, and a picture too small to hold a
-// plot are each an error, never a nil picture or an empty frame.
+// strips, one chart.Chart.Check refuses, a picture too small to hold a
+// plot, and one of more than MaxPixels are each an error, never a nil
+// picture or an empty frame.
 //
 // Text is sized from the picture's width, and its height shared between
 // its strips, so that a stack of several reads at the size one does; see
@@ -87,6 +95,9 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	}
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("picture: %d by %d pixels is too small for a chart", width, height)
+	}
+	if float64(width)*float64(height) > MaxPixels {
+		return nil, fmt.Errorf("picture: %d by %d pixels is more than %d million", width, height, MaxPixels/1000000)
 	}
 	pal := opts.Palette.filled()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
