@@ -22,13 +22,11 @@ import (
 var cells = &runewidth.Condition{StrictEmojiNeutral: true}
 
 // Width is how many cells s takes in a layout: its width in a terminal's
-// columns, with each control character, format character and byte that is
-// not UTF-8 a cell, as the text drawing writes each as U+FFFD. The pictures are drawn on the same cells, and measure a
-// label by it to patch the background beneath one.
-//
-// Not the count of its runes, which is what the layout once measured: a
-// CJK label then overflowed its box, and pushed every box after it on its
-// line out of true.
+// columns -- two for a CJK character, none for a combining accent, not the
+// count of its runes -- with each control character, format character and
+// byte that is not UTF-8 a cell, as the text drawing writes each as U+FFFD.
+// The pictures are drawn on the same cells, and measure a label by it to
+// patch the background beneath one.
 func Width(s string) int { return cells.StringWidth(printable(s)) }
 
 // printable is s with each character hidden has, and each byte that is

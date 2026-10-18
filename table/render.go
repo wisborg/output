@@ -41,7 +41,7 @@ type Style struct {
 	// aligned:
 	//
 	//	name    detail
-	//	------  --------------
+	//	----------------
 	//	first   line one
 	//	        line two
 	//

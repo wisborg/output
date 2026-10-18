@@ -37,9 +37,9 @@ type Options struct {
 }
 
 // MaxPixels is the most pixels a picture Draw draws may have: 2^26, a
-// quarter of a gigabyte of RGBA, 8000 by 8000. A size asked for in a
-// flag, or a diagram drawn at a large text size, asked for terabytes,
-// and the program died allocating them rather than saying why.
+// quarter of a gigabyte of RGBA, 8000 by 8000. A size asked for in a flag,
+// or a diagram drawn at a large text size, can come to terabytes: an error
+// saying so is better than a program that dies allocating them.
 const MaxPixels = 1 << 26
 
 // Draw draws lay. A TextPx that is not a number, or that makes a picture of

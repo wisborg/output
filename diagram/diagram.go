@@ -131,8 +131,9 @@ type Edge struct {
 
 // MaxGrid is the most rows or columns a grid may have, and the furthest
 // row or column an item may be pinned to. A grid's every row and column is
-// sized and searched by the router, so a pin to row 3000 -- a few bytes of
-// a DOT file -- asked for millions of cells, and gigabytes, for one box.
+// sized and searched by the router, so without it a pin to row 3000 -- a
+// few bytes of a DOT file -- would ask for millions of cells, and
+// gigabytes, for one box.
 const MaxGrid = 100
 
 // Group is a group of nodes, and of groups.

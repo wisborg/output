@@ -325,7 +325,8 @@ func (c *Canvas) Dashed(xs, ys []float64, width, dash, gap float64, col color.Co
 
 // Ellipse is the outline of the ellipse at (cx, cy) with radii rx and ry,
 // as a polygon of enough sides to be a curve, clockwise on the screen, for
-// Polygon to fill and Outline to stroke.
+// Polygon to fill and Polyline or Dashed, closed by repeating its first
+// point, to stroke.
 func Ellipse(cx, cy, rx, ry float64) [][2]float64 {
 	n := max(24, int((rx+ry)*2))
 	pts := make([][2]float64, n)

@@ -28,15 +28,14 @@
 //
 // When the writer is not a terminal -- redirected to a file, piped, or on a
 // platform this package cannot ask -- a Display emits plain periodic lines
-// with no escape sequences at all and never overwrites anything. That is the
-// same output a redirected run has always produced, and it is why a program
-// can use this unconditionally rather than branching on where its output is
-// going.
+// with no escape sequences at all and never overwrites anything. That is why
+// a program can use this unconditionally rather than branching on where its
+// output is going.
 //
 // Those lines are snapshots, written once an interval, so the last one can
 // fall short of where the job ended; Bar.Done writes one closing line at the
 // final state for a bar that has written any. A job that finishes within an
-// interval writes nothing at all, as before.
+// interval writes nothing at all.
 //
 // # The one rule
 //
@@ -47,6 +46,22 @@
 // supposed to sit beneath. So lines are measured in terminal columns and
 // truncated, and a bar too narrow to hold its fields drops fields rather than
 // wrapping.
+//
+// A line is laid out one column short of the terminal's width, and never
+// writes its last column: terminals disagree about what writing that column
+// does to the cursor, and on some it wraps.
+//
+// The trough's eighth blocks and brackets are East Asian Ambiguous, which a
+// terminal in a CJK locale draws two columns wide. Where the measure counts
+// them so, the trough is drawn in ASCII, as Options.ASCII asks for, rather
+// than drawn wider than it was counted.
+//
+// # A stalled bar
+//
+// A bar that has not moved for five seconds shows no rate and no estimate,
+// rather than the speed it last ran at: a job that has stopped must not read
+// as one running. The display redraws on a timer for this, since nothing
+// else redraws a display whose only bar has stopped.
 package progress
 
 import (
@@ -123,7 +138,9 @@ type Options struct {
 	// U+2588..U+258F. The blocks give a bar eight times the resolution of
 	// its width in cells, which is the difference between a bar that moves
 	// smoothly and one that jumps; they need a font that has them, which is
-	// nearly universal but not guaranteed.
+	// nearly universal but not guaranteed. A display draws in ASCII without
+	// being asked where its measure counts the blocks two columns wide, as
+	// in a CJK locale.
 	ASCII bool
 
 	// Palette colours the filled part of every bar. The zero value is

@@ -19,8 +19,7 @@ type Band struct {
 }
 
 // Span is the band's ends in order: a band written To before From is the
-// same stretch, and every renderer draws it as one, from Span. Braille
-// once marked such a band at its middle while the picture drew nothing.
+// same stretch, and every renderer draws it as one, from Span.
 func (b Band) Span() (from, to float64) { return min(b.From, b.To), max(b.From, b.To) }
 
 // BandKind is a kind of band: how a legend names it, and how it is marked.

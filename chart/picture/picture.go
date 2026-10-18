@@ -72,9 +72,8 @@ type Options struct {
 
 // MaxPixels is the most pixels a picture Draw draws may have: 2^26, a
 // quarter of a gigabyte of RGBA, 8000 by 8000, as diagram/picture's. A size
-// asked for in a flag -- plot --width 100000 --height 100000 -- asked for
-// forty gigabytes, and the program swapped for minutes, or died, rather
-// than saying why.
+// is often a user's flag, and 100000 by 100000 would be forty gigabytes: an
+// error saying so is better than a program that swaps or dies.
 const MaxPixels = 1 << 26
 
 // Draw is c drawn as a picture width by height pixels. A chart without

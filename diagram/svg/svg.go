@@ -26,8 +26,12 @@ const DefaultTextPx = 16
 // Options are how a diagram is written. The zero value is the Light palette
 // and text DefaultTextPx tall.
 type Options struct {
+	// Palette is the document's colours; the zero value is Light.
 	Palette diagram.Palette
-	TextPx  float64
+	// TextPx is the size of the labels, in pixels; it sets the size of
+	// everything else, as a cell is a letter wide and a line tall. Zero or
+	// less is DefaultTextPx; NaN or an infinity is an error.
+	TextPx float64
 }
 
 // fonts is the font-family the text is set in.
@@ -38,9 +42,9 @@ const fonts = `'Go Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono'
 // refuse.
 const MaxSide = 100000
 
-// Write writes lay to w as an SVG document. A TextPx that is not a number
-// is an error: written into the document it made width="NaN", which no
-// reader draws.
+// Write writes lay to w as an SVG document. A TextPx that is not a number,
+// and one that makes the document less than a pixel or more than MaxSide
+// on a side, are errors: no viewer draws such a document.
 func Write(w io.Writer, lay *diagram.Layout, opts Options) error {
 	if lay == nil {
 		return errors.New("svg: no layout to write")

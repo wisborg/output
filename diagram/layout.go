@@ -188,7 +188,8 @@ type layouter struct {
 // Layout lays the diagram out, held to the default LayoutOptions. An edge
 // naming a node the diagram does not hold, a node held twice, two items
 // pinned to one cell, a grid or a pin past MaxGrid, an item that is
-// neither a node nor a group, and a page larger than MaxCells are errors.
+// neither a node nor a group, and a page larger than MaxCells (ErrTooLarge)
+// are errors.
 func (d *Diagram) Layout() (*Layout, error) { return d.LayoutWith(LayoutOptions{}) }
 
 // LayoutOptions are the limits a layout is made within.
