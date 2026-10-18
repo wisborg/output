@@ -96,9 +96,13 @@ tidy:
 # Each group is checked against an ALLOWLIST of the modules it may compile
 # in, by module path, so a new dependency anywhere fails here until this
 # target names it -- a list of modules each group must not have let any
-# other through, x/text into table, say. And the packages the layering
-# keeps apart are checked too: progress imports no other package of the
-# module, table none either, and the root package only table.
+# other through, x/text into table, say. And every library package is
+# checked against an allowlist of the module's own packages it may
+# compile in: progress, table, chart and diagram none but their own; the
+# root package table; the picture packages their model and the canvas;
+# dot and svg the diagram. Checked by module alone, chart importing
+# internal/cli, or diagram importing chart, passed: those are the same
+# module.
 ## deps: check each package compiles in only the modules it is meant to
 deps:
 	@fail=0; \
@@ -119,9 +123,19 @@ deps:
 	  check "./table ./progress" "$$rw"; \
 	  check "." "$$rw|go.yaml.in/yaml/v3"; \
 	  check "./cmd/plot ./cmd/diagram" "$$rw|$$img"; \
-	  own "./progress" 'github.com/wisborg/output/progress'; \
-	  own "./table" 'github.com/wisborg/output/table'; \
-	  own "." 'github.com/wisborg/output|github.com/wisborg/output/table'; \
+	  m='github.com/wisborg/output'; \
+	  own "." "$$m|$$m/table"; \
+	  own "./table" "$$m/table"; \
+	  own "./progress" "$$m/progress"; \
+	  own "./chart" "$$m/chart"; \
+	  own "./chart/terminal" "$$m/chart/terminal"; \
+	  own "./chart/picture" "$$m/chart/picture|$$m/chart|$$m/internal/canvas"; \
+	  own "./internal/canvas" "$$m/internal/canvas"; \
+	  own "./internal/cli" "$$m/internal/cli"; \
+	  own "./diagram" "$$m/diagram"; \
+	  own "./diagram/dot" "$$m/diagram/dot|$$m/diagram"; \
+	  own "./diagram/svg" "$$m/diagram/svg|$$m/diagram"; \
+	  own "./diagram/picture" "$$m/diagram/picture|$$m/diagram|$$m/internal/canvas"; \
 	  [ $$fail -eq 0 ] && echo "deps: chart is the standard library alone, diagram adds only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
 	  exit $$fail
 
