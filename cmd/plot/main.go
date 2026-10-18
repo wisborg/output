@@ -58,6 +58,7 @@ type options struct {
 	header        string
 	dates         string
 	decimal       string
+	xDate         string
 	out           string
 	width, height int
 	terminal      string
@@ -82,6 +83,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.delimiter, "delimiter", "auto", "what separates values: auto, tab, or a character such as , ; or |")
 	fs.StringVar(&o.header, "header", string(headerAuto), "whether the first row names the columns: auto, yes or no")
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
+	fs.StringVar(&o.xDate, "x-date", "", "read the x column as dates written as numbers: unix (seconds since 1970), unix-ms (milliseconds) or yyyymmdd (20240305), which a number alone cannot say it is")
 	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise")
 	fs.StringVar(&o.out, "out", "", "write the chart to this PNG rather than drawing it in the terminal")
 	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default, or 0: the terminal's, or 100); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageWidth)+")")
@@ -177,9 +179,29 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return writeColumns(stdout, t, cols)
 	}
 
+	xLayout := ""
+	if o.xDate != "" {
+		l, ok := xDateLayout(o.xDate)
+		if !ok {
+			return cli.Usagef("--x-date %q: use unix, unix-ms or yyyymmdd", o.xDate)
+		}
+		xLayout = l
+	}
 	x, err := chooseX(t, cols, o.x)
 	if err != nil {
 		return err
+	}
+	if xLayout != "" {
+		if x < 0 {
+			return cli.Usagef("--x-date reads the x column as dates, and the chart is against the row: say --x")
+		}
+		cells := make([]string, len(t.rows))
+		for i, rec := range t.rows {
+			cells[i] = rec[x]
+		}
+		if cols[x] = asDates(cells, xLayout); cols[x].values == cols[x].wrong {
+			return fmt.Errorf("--x-date %s: no cell of %q reads as one", o.xDate, t.names[x])
+		}
 	}
 	ys, err := chooseY(t, cols, x, o.y)
 	if err != nil {

@@ -420,7 +420,11 @@ A column is plotted by name or by number.
 Without `--x` the first column is the axis where it holds dates, or numbers in
 order; otherwise the row is. Dates are read in ISO 8601's forms, with month
 names, and in numbers alone — `03/04/2024` — whose day and month are told
-apart by a day past the 12th, or by `--dates dmy` or `mdy` where none is.
+apart by a day past the 12th, or by `--dates dmy` or `mdy` where none is; and
+as logs and databases write a moment, `2024-03-05 14:30:15 +0100`, `…+0100`
+without the colon, `… UTC`, `…+01`. A column of numbers that are dates —
+seconds since 1970, milliseconds, or `20240305` — is read as one with
+`--x-date unix`, `unix-ms` or `yyyymmdd`, since a number cannot say so itself.
 
 The rows are drawn in the axis's order, so a file written newest first is
 drawn oldest first. An empty cell, `NA` or `null` is a gap in the line, never

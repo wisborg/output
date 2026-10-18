@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mattn/go-runewidth"
 
@@ -329,5 +330,53 @@ func TestPlotUsageConsistency(t *testing.T) {
 	}
 	if _, _, err := plot(t, "x,y\n"); err == nil || !strings.Contains(err.Error(), "no rows") {
 		t.Errorf("a header alone: %v, want an error saying there are no rows", err)
+	}
+}
+
+// Timestamps as logs and databases write them are dates, read at the wall
+// clock they say: an offset without its colon, a space before the zone or
+// its name, Go's own time.Time.String, PostgreSQL's hours-only offset.
+func TestPlotReadsLogTimestamps(t *testing.T) {
+	for _, d := range []string{
+		"2024-03-05T14:30:15+0100",
+		"2024-03-05 14:30:15 +0100",
+		"2024-03-05 14:30:15 +01:00",
+		"2024-03-05 14:30:15 UTC",
+		"2024-03-05 14:30:15.123 +0100 CET",
+		"2024-03-05 14:30:15+01",
+	} {
+		c := classify([]string{d, d}, datesAuto)
+		if c.kind != dateColumn || c.wrong != 0 {
+			t.Errorf("%q: %v with %d wrong", d, c.kind, c.wrong)
+			continue
+		}
+		if v, _ := c.value(d); time.Unix(int64(v), 0).UTC().Hour() != 14 {
+			t.Errorf("%q read at %v, not at its wall clock's 14:30", d, time.Unix(int64(v), 0).UTC())
+		}
+	}
+}
+
+// --x-date reads an x column of numbers as dates -- seconds or
+// milliseconds since 1970, or eight digits -- which no cell can say for
+// itself; the axis is then a calendar's.
+func TestPlotXDate(t *testing.T) {
+	for _, c := range []struct {
+		mode, data string
+	}{
+		{"unix", "t,v\n1709649015,1\n1709735415,2\n1709821815,3\n"},
+		{"unix-ms", "t,v\n1709649015000,1\n1709735415000,2\n1709821815000,3\n"},
+		{"yyyymmdd", "t,v\n20240305,1\n20240306,2\n20240307,3\n"},
+	} {
+		out, _, err := plot(t, c.data, "--x-date", c.mode)
+		if err != nil {
+			t.Fatalf("%s: %v", c.mode, err)
+		}
+		if !strings.Contains(out, "Mar") {
+			t.Errorf("%s: no date on the axis:\n%s", c.mode, out)
+		}
+	}
+	var ue *cli.UsageError
+	if _, _, err := plot(t, "t,v\n1,2\n", "--x-date", "epoch"); !errors.As(err, &ue) {
+		t.Errorf("--x-date epoch: %v, want a UsageError", err)
 	}
 }

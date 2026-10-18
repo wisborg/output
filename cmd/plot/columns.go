@@ -172,6 +172,19 @@ var isoLayouts = []string{
 	"2006-01-02 15:04:05.999999999Z07:00",
 	"2006-01-02 15:04:05.999999999",
 	"2006-01-02 15:04",
+	// As logs and databases write a moment: an offset without its colon,
+	// as strftime's %z writes it; a space before the zone, or the zone's
+	// name, as Go's own time.Time.String does; an offset of hours alone,
+	// as PostgreSQL prints a timestamptz. A fraction of a second after the
+	// seconds is read with any of them.
+	"2006-01-02T15:04:05-0700",
+	"2006-01-02 15:04:05-0700",
+	"2006-01-02 15:04:05 -0700",
+	"2006-01-02 15:04:05 -07:00",
+	"2006-01-02 15:04:05 -0700 MST",
+	"2006-01-02 15:04:05 MST",
+	"2006-01-02T15:04:05-07",
+	"2006-01-02 15:04:05-07",
 	"2006-01-02",
 	"2006-01",
 	"2006/1/2 15:04:05",
@@ -231,6 +244,19 @@ func monthFirst(layout string) string {
 // whose axis said 14:00 for a reading written 09:00 would read wrong to
 // everyone who wrote it.
 func parseDate(cell, layout string) (float64, bool) {
+	switch layout {
+	case xDateUnix, xDateUnixMs:
+		// Seconds or milliseconds since 1970 began, in UTC: a moment
+		// already, with no wall clock of its own to keep.
+		v, err := strconv.ParseFloat(cell, 64)
+		if err != nil || math.IsInf(v, 0) || math.IsNaN(v) {
+			return 0, false
+		}
+		if layout == xDateUnixMs {
+			v /= 1000
+		}
+		return v, true
+	}
 	t, err := time.Parse(layout, cell)
 	if err != nil {
 		return 0, false
@@ -247,6 +273,46 @@ func parseDateAny(cell string, order dateOrder) (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// The layouts --x-date names: seconds or milliseconds since 1970, which
+// parseDate reads itself, and a date written as eight digits, which is a
+// layout of time's own. Each reads a column of numbers as dates, which no
+// cell of one can say for itself: 20240305 is a number too, and a count of
+// seconds a count of anything.
+const (
+	xDateUnix     = "unix"
+	xDateUnixMs   = "unix-ms"
+	xDateYYYYMMDD = "20060102"
+)
+
+// xDateLayout is the layout --x-date names, and whether it names one.
+func xDateLayout(name string) (string, bool) {
+	switch name {
+	case "unix":
+		return xDateUnix, true
+	case "unix-ms":
+		return xDateUnixMs, true
+	case "yyyymmdd":
+		return xDateYYYYMMDD, true
+	}
+	return "", false
+}
+
+// asDates is the column of cells read as dates by layout: as many as read
+// so, and the rest wrong.
+func asDates(cells []string, layout string) column {
+	col := column{kind: dateColumn, layout: layout}
+	for _, c := range cells {
+		if missing(c) {
+			continue
+		}
+		col.values++
+		if _, ok := parseDate(c, layout); !ok {
+			col.wrong++
+		}
+	}
+	return col
 }
 
 // columnKind is what a column holds.
