@@ -743,3 +743,24 @@ func TestDiagramTextSizeNotes(t *testing.T) {
 		t.Errorf("--width 0: %v", err)
 	}
 }
+
+// A port that cannot be kept is said so, naming the edge: one that had no
+// effect and no word looked as though it had not been read. One kept is
+// not mentioned.
+func TestDiagramSaysWhichPortsWereNotKept(t *testing.T) {
+	const blocked = `digraph {
+	columns = 3
+	x; y; z; m; d; q; a
+	x:s -> d:n [style = dashed]
+	y:s -> d:n [style = dashed]
+	z:s -> d:n [style = dashed]
+	a -> d:n
+}`
+	_, errOut, err := draw(t, blocked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(errOut, "drawn by other sides than its ports ask for") != 1 || !strings.Contains(errOut, "the edge a to d ") {
+		t.Errorf("stderr %q, want one note, for a to d", errOut)
+	}
+}

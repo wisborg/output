@@ -121,13 +121,32 @@ type Edge struct {
 	Label    string
 	// Head and Tail say the edge has an arrowhead at To and at From.
 	Head, Tail bool
-	Line       Line
+	// FromSide and ToSide are the sides of its boxes the edge leaves From
+	// by and enters To by; zero is any. They steer the line only: no box
+	// moves for them. Where no line can leave or enter by them -- every way
+	// out of that side blocked -- the edge is drawn by any side, and its
+	// PlacedEdge says so.
+	FromSide, ToSide Side
+	Line             Line
 	// Colour is the line's colour; nil is the palette's.
 	Colour color.Color
 	// Invisible draws nothing; in a layered group the edge still orders
 	// the layers.
 	Invisible bool
 }
+
+// Side is a side of a box, or several, an edge may end at: North, East,
+// South and West -- the top, the right, the bottom and the left, as DOT's
+// compass points n, e, s and w name them -- or'd together. The zero Side
+// is any.
+type Side uint8
+
+const (
+	North Side = 1 << iota
+	East
+	South
+	West
+)
 
 // MaxGrid is the most rows or columns a grid may have, and the furthest
 // row or column an item may be pinned to. A grid's every row and column is

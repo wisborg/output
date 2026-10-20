@@ -544,13 +544,27 @@ services more than a flow chart. `--edges orthogonal` turns it off whatever
 the file says. The text drawing keeps such edges along rows and columns
 unless `--braille thin` or `--braille thick` asks for them at their angle,
 in braille dots one or two deep, as plot draws its charts; each ends in the
-usual arrowhead, on a one-cell stub into its box. Shapes are boxes, rounded boxes, ellipses,
+usual arrowhead, on a one-cell stub into its box.
+
+A box's place comes from the grid or the layers; a line's from the router,
+which a port steers. Graphviz's compass points say which side of its box an
+edge leaves or enters by — `a:s -> b:n` leaves `a` from its bottom and
+enters `b` from its top, as do `tailport = s` and `headport = n` — and no
+box moves for them. `n`, `e`, `s` and `w` are a side each; a corner, `ne`
+say, is either side of it, since a line never ends on a box's corner; `c`
+and `_` are any side. An edge with a port is drawn along rows and columns
+in a picture with straight edges too. Where no line can leave or enter by
+the side asked for without joining another's line or passing through a
+box, the edge is drawn by another side, and `diagram` says which edge.
+
+Shapes are boxes, rounded boxes, ellipses,
 cylinders and plain text; lines solid, dashed, dotted or bold; colours
 Graphviz's, by `#rrggbb` or by the common X11 names.
 
 Of DOT, the whole grammar is read, and the attributes that say what a
 diagram means; those about how Graphviz draws are ignored. HTML labels are
-read as their words, ports are read and not drawn; an edge ending at a
+read as their words, a port naming a record's field is read and not drawn,
+as a record shape is not; an edge ending at a
 cluster itself (Graphviz's `lhead` and `ltail`), record shapes and
 Graphviz's other layout engines are not supported.
 

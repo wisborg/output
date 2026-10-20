@@ -215,6 +215,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
+	sidesNote(stderr, lay)
 	if o.out != "" {
 		if err := writeFile(o, lay, stderr, getenv); err != nil {
 			return err
@@ -373,6 +374,19 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	}
 	shown := min(cols, int(math.Ceil(float64(img.Bounds().Dx())/perCol)))
 	return terminal.Write(out, how, buf.Bytes(), shown)
+}
+
+// sidesNote says on errOut which edges are drawn by other sides of their
+// boxes than their ports ask for -- a:s -> b, or tailport and headport --
+// where no line leaves or enters by those without joining another's or
+// passing through a box. A port that had no effect without a word looked
+// as though it had been read wrongly, or not at all.
+func sidesNote(errOut io.Writer, lay *diagram.Layout) {
+	for _, e := range lay.Edges {
+		if e.SidesDropped {
+			fmt.Fprintf(errOut, "diagram: the edge %s to %s is drawn by other sides than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To)
+		}
+	}
 }
 
 // textSizeNote says on errOut where --width or --height asked for a text

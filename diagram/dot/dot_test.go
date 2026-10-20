@@ -531,3 +531,37 @@ func TestTextEdges(t *testing.T) {
 		t.Errorf("legend %v and items %v, want no legend and the cluster back", d.Legend, items(&d.Root))
 	}
 }
+
+// A port's compass point says which side of its box an edge leaves or
+// enters by: written on the node, a:s, or as tailport and headport, the
+// node's over the attribute's. A corner is the two sides either side of
+// it, c and _ any side, and a port naming a record's field, which is not
+// drawn, any side too. A port on a node in a chain is the port of both
+// edges that end there.
+func TestPortsAreSides(t *testing.T) {
+	const n, e, s, w = diagram.North, diagram.East, diagram.South, diagram.West
+	for _, c := range []struct {
+		src      string
+		from, to []diagram.Side
+	}{
+		{"digraph { a:s -> b:n }", []diagram.Side{s}, []diagram.Side{n}},
+		{"digraph { a -> b [tailport = e, headport = \"f:w\"] }", []diagram.Side{e}, []diagram.Side{w}},
+		{"digraph { a:f:ne -> b:c; a:sw -> b:_ }", []diagram.Side{n | e, s | w}, []diagram.Side{0, 0}},
+		{"digraph { a:field -> b:N }", []diagram.Side{0}, []diagram.Side{0}},
+		{"digraph { a -> b:n -> c }", []diagram.Side{0, n}, []diagram.Side{n, 0}},
+		{"digraph { edge [headport = s]; a -> b; c -> d:e }", []diagram.Side{0, 0}, []diagram.Side{s, e}},
+		{"digraph { a:n -> b [tailport = s] }", []diagram.Side{n}, []diagram.Side{0}},
+		{"graph { a:w -- b:e }", []diagram.Side{w}, []diagram.Side{e}},
+		{"strict digraph { a -> b; a:s -> b }", []diagram.Side{s}, []diagram.Side{0}},
+	} {
+		d := parse(t, c.src)
+		if len(d.Edges) != len(c.from) {
+			t.Fatalf("%s: %d edges", c.src, len(d.Edges))
+		}
+		for i, edge := range d.Edges {
+			if edge.FromSide != c.from[i] || edge.ToSide != c.to[i] {
+				t.Errorf("%s: edge %d sides %v and %v, want %v and %v", c.src, i, edge.FromSide, edge.ToSide, c.from[i], c.to[i])
+			}
+		}
+	}
+}

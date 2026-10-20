@@ -460,6 +460,14 @@ dozens of times. A path also leaves and enters by the sides facing the
 other box where it can, so a flow keeps flowing. Do not "simplify" this
 back to shapes worked out per edge.
 
+**A port steers a line, never a box.** `Edge.FromSide` and `ToSide` --
+DOT's compass points, `a:s` or `tailport`/`headport` -- limit which outline
+cells `outline` offers the search, and nothing else: the grid and the
+layers place the boxes as before. Keeping lines apart outranks a port: a
+path by any side that joins no line is taken before one by the side asked
+for that does, and `PlacedEdge.SidesDropped` and `diagram`'s note say so,
+since a port with no visible effect and no word reads as one ignored.
+
 The page the router searches has a margin on every side, not only the right
 and the bottom: without room above, an edge between two boxes of the top row
 had no way round the box between them. What the lines do not take of it is

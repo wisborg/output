@@ -75,6 +75,7 @@ func (l *layouter) route() {
 		return dist(order[i]) < dist(order[j])
 	})
 	paths := make([][]Point, len(l.d.Edges))
+	dropped := make([]bool, len(l.d.Edges))
 	parallel := map[[2]string]int{}
 	// The edges the picture draws along their paths keep clear of the
 	// straight lines it draws, which they may cross but not follow, turn
@@ -110,11 +111,26 @@ func (l *layouter) route() {
 		// A loop is searched for as any edge is, from the node back into
 		// it, so that it keeps clear of the lines and frames about it and
 		// a second loop on the same node goes round the first.
-		pts := r.find(a, b, e.Tail, i, true)
-		if pts == nil {
-			pts = r.find(a, b, e.Tail, i, false)
+		//
+		// Lines kept apart come before the sides an edge asks for: a path
+		// by any side that joins no other line is taken over one by the
+		// side asked for that does, since a line read as another's
+		// misleads, and one by another side only looks other than asked.
+		sided := e.FromSide != 0 || e.ToSide != 0
+		var pts []Point
+		for _, try := range []struct{ strict, anySide bool }{{true, false}, {true, true}, {false, false}, {false, true}} {
+			if try.anySide && !sided {
+				continue
+			}
+			r.anySide = try.anySide
+			if pts = r.find(a, b, e.Tail, i, try.strict); pts != nil {
+				dropped[i] = try.anySide
+				break
+			}
 		}
+		r.anySide = false
 		if pts == nil {
+			dropped[i] = sided
 			if e.From == e.To {
 				pts = loop(a)
 			} else {
@@ -125,7 +141,7 @@ func (l *layouter) route() {
 		paths[i] = pts
 	}
 	for i := range l.d.Edges {
-		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i]})
+		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i], SidesDropped: dropped[i]})
 	}
 }
 
@@ -165,6 +181,9 @@ type router struct {
 	bare map[Rect]bool
 	// search is the arrays find keeps its work in, kept for the next.
 	search search
+	// anySide has find end a path at any side of its boxes, whatever
+	// sides its edge asks for.
+	anySide bool
 }
 
 // sharing says edge i's line may run along edge j's: the two share their
@@ -541,13 +560,16 @@ func (q *queue) pop() item {
 
 func opposite(way int) int { return way ^ 1 } // up and down, left and right, are pairs
 
+// wayside is the side of a box a way out of it leaves by.
+var wayside = [4]Side{North, South, West, East}
+
 // outline is r's outline cells edge i may end at -- not its corners, nor
 // a cell another edge ends at but one it may share with -- each with the
-// way out of the box there. Where strict is false, any but a corner, each
-// with what ending there costs.
-func (rt *router) outline(r Rect, i int, strict bool) (cells []Point, out, costs []int) {
+// way out of the box there, on sides alone where sides is not zero. Where
+// strict is false, any but a corner, each with what ending there costs.
+func (rt *router) outline(r Rect, i int, strict bool, sides Side) (cells []Point, out, costs []int) {
 	add := func(p Point, way int) {
-		if !rt.in(p.X, p.Y) {
+		if !rt.in(p.X, p.Y) || sides != 0 && sides&wayside[way] == 0 {
 			return
 		}
 		cost := 0
@@ -613,8 +635,12 @@ func offMiddle(p Point, r Rect, way int) int {
 // on it, ending beside another's end -- is allowed at joinCost a cell; one
 // through a box never is.
 func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
-	starts, outs, startCosts := rt.outline(a, i, strict)
-	goals, ins, endCosts := rt.outline(b, i, strict)
+	from, to := rt.edges[i].FromSide, rt.edges[i].ToSide
+	if rt.anySide {
+		from, to = 0, 0
+	}
+	starts, outs, startCosts := rt.outline(a, i, strict, from)
+	goals, ins, endCosts := rt.outline(b, i, strict, to)
 	if len(starts) == 0 || len(goals) == 0 {
 		return nil
 	}

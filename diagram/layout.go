@@ -93,6 +93,10 @@ type PlacedEdge struct {
 	// unless it is asked for braille.
 	Straight bool
 	Shift    float64
+	// SidesDropped says the edge asks for a side, by FromSide or ToSide,
+	// that no line could leave or enter its box by without joining
+	// another's or passing through a box, and it is drawn by any side.
+	SidesDropped bool
 	// pictureAt, where pictured, is where a picture writes the label: the
 	// picture of a diagram with straight edges draws other lines than the
 	// text drawing does, and its labels are placed against those.

@@ -560,3 +560,127 @@ func TestMayPassAnArrowheadOnlyToMerge(t *testing.T) {
 		t.Errorf("x to b past the tail of x to c with an arrowhead there: allowed")
 	}
 }
+
+// on says the path pts leaves r by side at its first point: the point on
+// that side's row or column, the next beyond it.
+func on(pts []Point, r Rect, side Side) bool {
+	p, q := pts[0], pts[1]
+	switch side {
+	case North:
+		return p.Y == r.Y && q.Y < p.Y
+	case South:
+		return p.Y == r.Y+r.H-1 && q.Y > p.Y
+	case West:
+		return p.X == r.X && q.X < p.X
+	case East:
+		return p.X == r.X+r.W-1 && q.X > p.X
+	}
+	return false
+}
+
+// reversed is pts end first.
+func reversed(pts []Point) []Point {
+	out := make([]Point, len(pts))
+	for i, p := range pts {
+		out[len(pts)-1-i] = p
+	}
+	return out
+}
+
+// An edge leaves and enters by the sides its FromSide and ToSide ask for,
+// each of the four out of one box into each of the four of another, and
+// either side of a corner; asking for none leaves the router its choice.
+func TestPortsSteerTheLine(t *testing.T) {
+	sides := []Side{North, East, South, West}
+	for _, from := range sides {
+		for _, to := range sides {
+			d := &Diagram{
+				Root:  Group{Columns: 2, Items: nodes("a", "b", "c", "d")},
+				Edges: []Edge{{From: "a", To: "d", Head: true, FromSide: from, ToSide: to}},
+			}
+			lay, err := d.Layout()
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := lay.Edges[0]
+			a, _ := lay.Node("a")
+			b, _ := lay.Node("d")
+			if e.SidesDropped || !on(e.Points, a.Rect, from) || !on(reversed(e.Points), b.Rect, to) {
+				t.Errorf("a by %v to d by %v: %v, dropped %v:\n%s", from, to, e.Points, e.SidesDropped, strings.Join(lay.Text(), "\n"))
+			}
+		}
+	}
+	d := &Diagram{
+		Root:  Group{Columns: 2, Items: nodes("a", "b", "c", "d")},
+		Edges: []Edge{{From: "a", To: "d", Head: true, FromSide: South | West, ToSide: North | West}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := lay.Edges[0]
+	a, _ := lay.Node("a")
+	b, _ := lay.Node("d")
+	if !(on(e.Points, a.Rect, South) || on(e.Points, a.Rect, West)) || !(on(reversed(e.Points), b.Rect, North) || on(reversed(e.Points), b.Rect, West)) {
+		t.Errorf("a by its bottom or left to d by its top or left: %v:\n%s", e.Points, strings.Join(lay.Text(), "\n"))
+	}
+}
+
+// Where no line can enter by the side asked for without joining another's
+// -- d's top taken by three dashed arrowheads, which a solid line may not
+// merge into -- the edge enters by another, joins no line, and says it
+// was moved; one that never asked is never said to be. And where the
+// search gives up altogether, a plain path keeps no side either.
+func TestPortsDroppedWhereNoLineFits(t *testing.T) {
+	d := &Diagram{
+		Root: Group{Columns: 3, Items: nodes("x", "y", "z", "m", "d", "q", "a")},
+		Edges: []Edge{
+			{From: "x", To: "d", Head: true, Line: Dashed, FromSide: South, ToSide: North},
+			{From: "y", To: "d", Head: true, Line: Dashed, FromSide: South, ToSide: North},
+			{From: "z", To: "d", Head: true, Line: Dashed, FromSide: South, ToSide: North},
+			{From: "a", To: "d", Head: true, ToSide: North},
+			{From: "m", To: "q", Head: true},
+		},
+	}
+	neverJoin(t, d)
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []bool{false, false, false, true, false} {
+		if got := lay.Edges[i].SidesDropped; got != want {
+			t.Errorf("edge %d from %s: dropped %v, want %v:\n%s", i, lay.Edges[i].Edge.From, got, want, strings.Join(lay.Text(), "\n"))
+		}
+	}
+
+	defer func(n int) { maxSearch = n }(maxSearch)
+	maxSearch = 0
+	d = &Diagram{
+		Root:  Group{Columns: 2, Items: nodes("a", "b")},
+		Edges: []Edge{{From: "a", To: "b", Head: true, FromSide: North}, {From: "b", To: "a", Head: true}},
+	}
+	if lay, err = d.Layout(); err != nil {
+		t.Fatal(err)
+	}
+	if !lay.Edges[0].SidesDropped || lay.Edges[1].SidesDropped {
+		t.Errorf("plain paths: dropped %v and %v, want true and false", lay.Edges[0].SidesDropped, lay.Edges[1].SidesDropped)
+	}
+}
+
+// An edge that asks for a side is drawn along its path in a picture with
+// straight edges: a straight line runs between the boxes' middles, out of
+// whichever side it meets.
+func TestPortsAreNeverStraight(t *testing.T) {
+	d := &Diagram{
+		Straight: true,
+		Root:     Group{Columns: 2, Items: nodes("a", "b")},
+		Edges:    []Edge{{From: "a", To: "b", Head: true, FromSide: South}, {From: "b", To: "a", Head: true}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lay.Edges[0].Straight || !lay.Edges[1].Straight {
+		t.Errorf("straight: %v and %v, want false and true", lay.Edges[0].Straight, lay.Edges[1].Straight)
+	}
+}

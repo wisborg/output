@@ -23,7 +23,9 @@ func centre(r Rect) (x, y float64) {
 // other node. A loop keeps its loop, and an invisible edge is drawn
 // neither way.
 func (lay *Layout) straightens(e Edge) bool {
-	if e.From == e.To || e.Invisible {
+	// Nor one that asks for a side: a straight line runs between the
+	// boxes' middles, out of whichever side it meets.
+	if e.From == e.To || e.Invisible || e.FromSide != 0 || e.ToSide != 0 {
 		return false
 	}
 	a, _ := lay.Node(e.From)
