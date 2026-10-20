@@ -52,6 +52,9 @@ var ErrBadDelimiter = errors.New("table: cannot delimit CSV")
 //
 // Cells containing the delimiter, quotes or newlines are quoted by
 // encoding/csv, so Style.Multiline has no CSV equivalent and needs none.
+// A row that is one empty field -- an empty cell, or header, in a table of
+// one column -- is written as "", not as a blank line, since a reader
+// skips a blank line and the row with it.
 //
 // Values are written exactly as Column.Format makes them, and that includes
 // a nil cell, which fmt writes as "<nil>": give the column a value of your
@@ -76,13 +79,29 @@ func (t *Table) WriteCSV(w io.Writer, style CSVStyle) error {
 	if style.Comma != 0 {
 		cw.Comma = style.Comma
 	}
+	write := func(record []string) error {
+		if len(record) != 1 || record[0] != "" {
+			return cw.Write(record)
+		}
+		// encoding/csv writes one empty field as a bare newline, which
+		// its own reader, and most others, skip as a blank line: a table
+		// of one column lost every row whose cell was empty. It has no
+		// way to quote a field that does not need it, so the row goes
+		// past it, after what it holds: a write to w for each such row.
+		cw.Flush()
+		if err := cw.Error(); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, `""`+"\n")
+		return err
+	}
 
 	if !style.OmitHeader {
 		record := make([]string, len(t.Columns))
 		for i, c := range t.Columns {
 			record[i] = c.Header
 		}
-		if err := cw.Write(record); err != nil {
+		if err := write(record); err != nil {
 			return err
 		}
 	}
@@ -97,7 +116,7 @@ func (t *Table) WriteCSV(w io.Writer, style CSVStyle) error {
 				record[i] = t.format(t.Columns[i], e.cells[i])
 			}
 		}
-		if err := cw.Write(record); err != nil {
+		if err := write(record); err != nil {
 			return err
 		}
 	}

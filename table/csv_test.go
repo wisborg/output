@@ -1,7 +1,9 @@
 package table
 
 import (
+	"encoding/csv"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -92,6 +94,33 @@ func TestWriteCSV_QuotesAwkwardValues(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+// A table of one column keeps a row whose cell is empty, and an empty
+// header: encoding/csv writes one empty field as a blank line, which a
+// reader skips, so the file read back one row short.
+func TestWriteCSV_OneEmptyFieldIsARow(t *testing.T) {
+	tbl := New(Column{Header: ""})
+	tbl.MustAppend("a")
+	tbl.MustAppend("")
+	tbl.MustAppend("b")
+	got := csvOf(t, tbl, CSVStyle{})
+	records, err := csv.NewReader(strings.NewReader(got)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{""}, {"a"}, {""}, {"b"}}
+	if !reflect.DeepEqual(records, want) {
+		t.Errorf("read back %q from %q, want %q", records, got, want)
+	}
+	// Two columns of empty fields are a row already: written as encoding/csv writes them.
+	two := New(Column{Header: "x"}, Column{Header: "y"})
+	two.MustAppend("", "")
+	check(t, csvOf(t, two, CSVStyle{}), "x,y\n,\n")
+	// Written past encoding/csv, the row's write error is still returned.
+	if err := New(Column{}).WriteCSV(&failWriter{n: 0}, CSVStyle{}); !errors.Is(err, errWrite) {
+		t.Errorf("an empty header to a failing writer: %v, want %v", err, errWrite)
 	}
 }
 
