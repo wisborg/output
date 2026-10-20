@@ -73,6 +73,27 @@ func TestWriteIsWellFormed(t *testing.T) {
 	}
 }
 
+// A palette that sets some colours takes the rest from Light: one setting
+// its foreground alone wrote with a nil background, and panicked.
+func TestWritePartPalette(t *testing.T) {
+	d := &diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{
+		{Node: &diagram.Node{ID: "a", Fill: color.RGBA{0xF5, 0xD7, 0x6E, 0xFF}}},
+	}}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, lay, Options{Palette: diagram.Palette{Foreground: color.RGBA{0x11, 0x22, 0x33, 0xFF}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"#112233", "#f5f4f1"} {
+		if !strings.Contains(strings.ToLower(buf.String()), want) {
+			t.Errorf("no %s in the document: the foreground asked for and Light's background", want)
+		}
+	}
+}
+
 // A label is text someone else may have written, and an SVG is opened in a
 // browser, which runs a script in one as it would in a page. Whatever a
 // label holds -- markup, an attribute's quotes, a control character, a byte

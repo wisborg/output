@@ -26,7 +26,7 @@ const DefaultTextPx = 16
 // Options are how a diagram is written. The zero value is the Light palette
 // and text DefaultTextPx tall.
 type Options struct {
-	// Palette is the document's colours; the zero value is Light.
+	// Palette is the document's colours; each it leaves nil is Light's.
 	Palette diagram.Palette
 	// TextPx is the size of the labels, in pixels; it sets the size of
 	// everything else, as a cell is a letter wide and a line tall. Zero or
@@ -49,10 +49,7 @@ func Write(w io.Writer, lay *diagram.Layout, opts Options) error {
 	if lay == nil {
 		return errors.New("svg: no layout to write")
 	}
-	pal := opts.Palette
-	if pal == (diagram.Palette{}) {
-		pal = diagram.Light
-	}
+	pal := opts.Palette.Filled()
 	px := opts.TextPx
 	if math.IsNaN(px) || math.IsInf(px, 0) {
 		return fmt.Errorf("svg: a text size of %v pixels", px)

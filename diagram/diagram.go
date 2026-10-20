@@ -251,12 +251,31 @@ type Palette struct {
 	Dim color.Color
 }
 
+// Filled is p with each colour it leaves nil taken from Light. Only the
+// zero Palette was Light once, and a palette that set its foreground alone
+// drew with a nil background, and panicked.
+func (p Palette) Filled() Palette {
+	for _, c := range []struct {
+		to   *color.Color
+		from color.Color
+	}{
+		{&p.Background, Light.Background}, {&p.Foreground, Light.Foreground}, {&p.Dim, Light.Dim},
+	} {
+		if *c.to == nil {
+			*c.to = c.from
+		}
+	}
+	return p
+}
+
 // TextOn is the colour of a label on fill: whichever of the palette's
 // foreground and background stands out from it more, by WCAG's contrast
 // ratio. Without a fill it is the foreground. So a pale fill keeps dark
 // text in the dark palette too, where light text on it would be white on
-// pale yellow; a translucent fill is taken over the background.
+// pale yellow; a translucent fill is taken over the background. A colour
+// p leaves nil is Light's, as in Filled.
 func (p Palette) TextOn(fill color.Color) color.Color {
+	p = p.Filled()
 	if fill == nil {
 		return p.Foreground
 	}

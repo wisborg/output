@@ -47,6 +47,21 @@ func TestDrawFillsAndSizes(t *testing.T) {
 	}
 }
 
+// A palette that sets some colours takes the rest from Light: one setting
+// its foreground alone drew with a nil background, and panicked.
+func TestDrawPartPalette(t *testing.T) {
+	d := &diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{
+		{Node: &diagram.Node{ID: "a", Fill: color.RGBA{0xF5, 0xD7, 0x6E, 0xFF}}},
+	}}}
+	img, err := Draw(layout(t, d), Options{Palette: diagram.Palette{Foreground: diagram.Dark.Foreground}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.RGBAAt(1, 1); got != diagram.Light.Background {
+		t.Errorf("the corner %v, want Light's background %v", got, diagram.Light.Background)
+	}
+}
+
 // Ink is laid where the edge runs: the middle of its path, between the two
 // boxes, is the foreground's colour, not the background's.
 func TestDrawDrawsEdges(t *testing.T) {

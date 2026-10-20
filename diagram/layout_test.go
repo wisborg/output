@@ -269,6 +269,10 @@ func TestTextOn(t *testing.T) {
 		{Dark, deep, Dark.Foreground},
 		// Hardly there, a translucent pale fill is the dark background.
 		{Dark, color.NRGBA{0xF5, 0xD7, 0x6E, 0x10}, Dark.Foreground},
+		// A palette that sets some colours takes the rest from Light: one
+		// with no foreground read the luminance of nil, and panicked.
+		{Palette{Background: color.White}, pale, Light.Foreground},
+		{Palette{Foreground: Dark.Foreground}, nil, Dark.Foreground},
 	} {
 		if got := c.pal.TextOn(c.fill); got != c.want {
 			t.Errorf("%v on %v: %v, want %v", c.pal, c.fill, got, c.want)

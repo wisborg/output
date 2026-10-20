@@ -26,7 +26,8 @@ import (
 const DefaultTextPx = 16
 
 // Options are how a picture is drawn. The zero value is the Light palette,
-// text DefaultTextPx tall, and Go Mono alone.
+// text DefaultTextPx tall, and Go Mono alone; a palette that sets some
+// colours takes the rest from Light.
 type Options struct {
 	Palette diagram.Palette
 	// TextPx is the size of the labels, in pixels; it sets the size of
@@ -48,10 +49,7 @@ func Draw(lay *diagram.Layout, opts Options) (*image.RGBA, error) {
 	if lay == nil {
 		return nil, errors.New("picture: no layout to draw")
 	}
-	pal := opts.Palette
-	if pal == (diagram.Palette{}) {
-		pal = diagram.Light
-	}
+	pal := opts.Palette.Filled()
 	px := opts.TextPx
 	if math.IsNaN(px) || math.IsInf(px, 0) {
 		return nil, fmt.Errorf("picture: a text size of %v pixels", px)
