@@ -13,10 +13,11 @@ import "sort"
 // A path never enters a box but at its two ends: a line through a box
 // reads as a line from it. Nor does it run along another edge's line, or
 // turn where another's line is, or end where another ends -- unless the
-// two share their head or their tail, and not both: each of those joins
-// two edges into one line, which reads as a connection. For two into one
-// node, or two out of one, that is the truth, and a trunk merging into one
-// arrowhead, or a stem forking, is the clearest way to draw it; for any
+// two have their arrowheads at one node, or their bare ends, and not both
+// (see meet): each of those joins two edges into one line, which reads as
+// a connection. For two into one node, or two out of one, that is the
+// truth, and a trunk merging into one arrowhead, or a stem forking, is the
+// clearest way to draw it; for any
 // other two it is a connection that is not there -- a to b and b to a
 // drawn as one line with a head at each end, or one edge's line taken over
 // by another's half way. Two between the same nodes the same way are kept
@@ -193,10 +194,27 @@ type router struct {
 	anySide bool
 }
 
-// sharing says edge i's line may run along edge j's: the two share their
-// head or their tail, but not both, are drawn alike -- a dashed line and a
-// solid one merged into one would be drawn as one or the other -- and
-// each runs one way, with an arrowhead at its head and none at its tail.
+// oneWay is the node at the end of e with an arrowhead and the node at
+// its bare end, where it has an arrowhead at one end only: at its head,
+// or at its tail, dir=back, which runs as much one way as the other.
+func oneWay(e Edge) (arrow, bare string, ok bool) {
+	switch {
+	case e.Head && !e.Tail:
+		return e.To, e.From, true
+	case e.Tail && !e.Head:
+		return e.From, e.To, true
+	}
+	return "", "", false
+}
+
+// meet is the node edges a and b may share a line at, and whether there
+// is one: each runs one way, and they have their arrowheads at one node
+// and their bare ends at two -- a trunk merging into one arrowhead -- or
+// their bare ends at one and their arrowheads at two, a stem forking.
+// Which of From and To each end is does not matter: b -> a and
+// a -> c [dir=back] merge into one arrowhead at a as b -> a and c -> a do.
+// An arrowhead at a node where the other's end is bare is a chain
+// through it, a into s and out of s to b, and shares nothing.
 //
 // One way, because a shared stretch says which way it runs only by the
 // arrowheads at its far ends. Out of a node into a fork, with an
@@ -205,6 +223,23 @@ type router struct {
 // both ways, and an edge leaving its line at a fork could have come from
 // either end of it; an edge with none runs neither, and a fork joining
 // three lines reads as joining any two of them.
+func meet(a, b Edge) (string, bool) {
+	aArrow, aBare, aOk := oneWay(a)
+	bArrow, bBare, bOk := oneWay(b)
+	switch {
+	case !aOk || !bOk:
+		return "", false
+	case aArrow == bArrow && aBare != bBare:
+		return aArrow, true
+	case aBare == bBare && aArrow != bArrow:
+		return aBare, true
+	}
+	return "", false
+}
+
+// sharing says edge i's line may run along edge j's: they meet, and are
+// drawn alike -- a dashed line and a solid one merged into one would be
+// drawn as one or the other.
 func (rt *router) sharing(i, j int) bool {
 	if j < 0 {
 		return false
@@ -215,32 +250,36 @@ func (rt *router) sharing(i, j int) bool {
 	if a.From == a.To || b.From == b.To {
 		return false
 	}
-	oneWay := a.Head && !a.Tail && b.Head && !b.Tail
-	return oneWay && (a.From == b.From) != (a.To == b.To) && a.Line == b.Line && same(a.Colour, b.Colour)
+	_, ok := meet(a, b)
+	return ok && a.Line == b.Line && same(a.Colour, b.Colour)
 }
 
 // mayEnd says edge i may pass a cell where the heads and the tails of
-// others end: by a head, only if it goes into the same node, from another,
-// to merge into its arrowhead; by a tail, only if it comes out of the same
-// node to another, as a stem forking -- each only where the two may share
-// a line at all. Anything else there would cut off an arrowhead, or read
-// as leaving or entering with an edge it is not.
+// others end, at their To and their From: only where the two may share a
+// line and meet at that node -- into the same arrowhead, or out of the
+// same bare end as a stem forking. Anything else there would cut off an
+// arrowhead, or read as leaving or entering with an edge it is not.
 func (rt *router) mayEnd(i int, heads, tails []int) bool {
-	a := rt.edges[i]
 	for _, j := range heads {
 		if j < 0 {
 			return false // a straight line's end
 		}
-		if a.To != rt.edges[j].To || !rt.sharing(i, j) {
+		if !rt.meetsAt(i, j, rt.edges[j].To) {
 			return false
 		}
 	}
 	for _, j := range tails {
-		if a.From != rt.edges[j].From || !rt.sharing(i, j) {
+		if !rt.meetsAt(i, j, rt.edges[j].From) {
 			return false
 		}
 	}
 	return true
+}
+
+// meetsAt says edges i and j may share a line, and meet at node.
+func (rt *router) meetsAt(i, j int, node string) bool {
+	at, _ := meet(rt.edges[i], rt.edges[j])
+	return rt.sharing(i, j) && at == node
 }
 
 // foreign and shared are the directions the lines in cell (x, y) leave

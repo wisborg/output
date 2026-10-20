@@ -444,14 +444,21 @@ examples to what the costs are for.
 **Two edges never meet unless they share an end.** `route.go` searches the
 page's cells for each path, shortest edges first, and a path may cross
 another's line only at a right angle -- never run along it, turn on it, or
-end where it ends -- unless the two share their head or their tail (not
-both), are drawn alike, and each runs one way, an arrowhead at its head
-and none at its tail, when a trunk merging into one arrowhead or a stem
-forking is the truth and the clearest drawing of it. One way, because the
-arrowheads at a shared stretch's far ends are all that say which way it
-runs: an edge forking off a line with an arrowhead at each end could have
-come from either end, and a fork of lines with none joins any two of the
-three. `TestOnlyOneWayEdgesShareALine` holds it. Anything else
+end where it ends -- unless each runs one way, an arrowhead at one end
+and none at the other, the two are drawn alike, and they have their
+arrowheads at one node and their bare ends at two, or their bare ends at
+one and their arrowheads at two: a trunk merging into one arrowhead, or a
+stem forking, which is the truth and the clearest drawing of it. One way,
+because the arrowheads at a shared stretch's far ends are all that say
+which way it runs: an edge forking off a line with an arrowhead at each
+end could have come from either end, and a fork of lines with none joins
+any two of the three. Which of From and To an arrowhead is at does not
+matter -- `Base -> Derived [dir=back]` runs one way as `Derived -> Base`
+does, and a class diagram's arrows merge into the base class's arrowhead
+either way -- but an arrowhead at a node where the other edge's end is
+bare is a chain through it, and shares nothing. `meet` is the rule;
+`TestOnlyOneWayEdgesShareALine` and
+`TestOneWayEdgesShareALineWhicheverWayWritten` hold it. Anything else
 joining two lines reads as a connection that is not there: a to b and b to
 a drawn as one double-headed line, or one edge's line taken over half way
 by another's. `TestEdgesNeverJoin` holds it on a service mesh, where the
