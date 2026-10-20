@@ -96,6 +96,8 @@ from reality is a test failure.
   `Node`, `Edge`), `Palette`; `layout.go` — `Layout`, grids and layers;
   `route.go` — the search for edges' paths along rows and columns; `straight.go` — which edges a
   picture draws straight, and their labels; `labels.go` — where labels go;
+  `placement.go` — the costs and the local search that choose orthogonal
+  edges' label places together;
   `scale.go` — cells to a picture's units; `text.go` — the text drawing;
   `width.go` — `Width`, the one measure of a label in cells.
 - `diagram/dot/` — the DOT lexer, parser and colours.

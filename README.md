@@ -439,6 +439,14 @@ window; in any other terminal, in tmux, or into a pipe, it is braille; with
 one file of the command, and another format is another reader of the same
 table.
 
+`--width` and `--height` in the terminal are taken as given, not held to the
+window. Braille is drawn whole before a line of it is written, and has no
+ceiling as a PNG has: its memory grows with the width, about 500 MB at a
+million characters, so a mistyped width can take the machine's memory
+before anything is drawn. A picture's pixels are held to a few thousand
+across, but the terminal is still asked to show it as many columns wide as
+`--width` says, past the window's edge if that is wider.
+
 ## diagram
 
 `diagram` lays out and draws diagrams — a flow chart, a database cluster and
