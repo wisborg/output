@@ -50,6 +50,38 @@ func TestEdgesNeverJoin(t *testing.T) {
 	neverJoin(t, d)
 }
 
+// An edge with arrowheads at both ends, or none, shares its line with no
+// other: a stem forking off it, or a trunk merging into it, could have come
+// from either end -- out of a, along a's line to b with an arrowhead at
+// each end, and off to d, read as out of a or of b -- and a fork of lines
+// with no arrowheads reads as joining any two of the three. Those leaving
+// one node with an arrowhead each at its other end still share a stem.
+func TestOnlyOneWayEdgesShareALine(t *testing.T) {
+	grid := Group{Columns: 2, Items: nodes("a", "b", "c", "d")}
+	for _, edges := range [][]Edge{
+		{{From: "a", To: "b", Head: true, Tail: true}, {From: "a", To: "d", Head: true}},
+		{{From: "a", To: "d", Head: true}, {From: "a", To: "b", Head: true, Tail: true}},
+		{{From: "a", To: "b"}, {From: "a", To: "d"}},
+		{{From: "b", To: "a", Head: true, Tail: true}, {From: "d", To: "a", Head: true}},
+	} {
+		neverJoin(t, &Diagram{Root: grid, Edges: edges})
+	}
+	lay, err := (&Diagram{Root: grid, Edges: []Edge{{From: "a", To: "b", Head: true}, {From: "a", To: "d", Head: true}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ab, ad := cellsOf(lay.Edges[0]), cellsOf(lay.Edges[1])
+	shared := 0
+	for p := range ab {
+		if _, ok := ad[p]; ok {
+			shared++
+		}
+	}
+	if shared < 2 {
+		t.Errorf("a to b and a to d share %d cells, not a stem:\n%s", shared, strings.Join(lay.Text(), "\n"))
+	}
+}
+
 // neverJoin fails the test where two of d's edges that may not share a
 // line meet but crossing at a right angle, or where an edge passes through
 // a box but its own two.
@@ -63,7 +95,8 @@ func neverJoin(t *testing.T, d *Diagram) {
 	text := strings.Join(lay.Text(), "\n")
 	for i, a := range lay.Edges {
 		for _, b := range lay.Edges[i+1:] {
-			if (a.Edge.From == b.Edge.From) != (a.Edge.To == b.Edge.To) && a.Edge.Line == b.Edge.Line {
+			oneWay := a.Edge.Head && !a.Edge.Tail && b.Edge.Head && !b.Edge.Tail
+			if oneWay && (a.Edge.From == b.Edge.From) != (a.Edge.To == b.Edge.To) && a.Edge.Line == b.Edge.Line {
 				continue // these may share a trunk or a stem
 			}
 			cb := cellsOf(b)
@@ -495,5 +528,35 @@ func TestPlainPathsWhereSearchGivesUp(t *testing.T) {
 	}
 	if _, _, ok := span(0, 4, 3, 9); ok {
 		t.Errorf("boxes sharing only a corner's cells share a span")
+	}
+}
+
+// An edge passes another's arrowhead only to merge into it, so only where
+// the two may share a line: into the same node, each one way, drawn alike.
+// Into the arrowhead of an edge with one at each end, or of a dashed one
+// where it is solid, it would cross the line there and cut the head off.
+func TestMayPassAnArrowheadOnlyToMerge(t *testing.T) {
+	rt := &router{edges: []Edge{
+		{From: "x", To: "b", Head: true},
+		{From: "a", To: "b", Head: true},
+		{From: "a", To: "b", Head: true, Tail: true},
+		{From: "c", To: "b", Head: true, Line: Dashed},
+		{From: "x", To: "c", Head: true},
+	}}
+	for j, want := range []bool{1: true, 2: false, 3: false} {
+		if j == 0 {
+			continue
+		}
+		if got := rt.mayEnd(0, []int{j}, nil); got != want {
+			t.Errorf("x to b past the head of %+v: %v, want %v", rt.edges[j], got, want)
+		}
+	}
+	// And a tail only to fork from it: out of the same node, each one way.
+	if !rt.mayEnd(0, nil, []int{4}) {
+		t.Errorf("x to b past the tail of x to c: refused, want a stem forking")
+	}
+	rt.edges[4].Tail = true
+	if rt.mayEnd(0, nil, []int{4}) {
+		t.Errorf("x to b past the tail of x to c with an arrowhead there: allowed")
 	}
 }

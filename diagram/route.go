@@ -168,8 +168,17 @@ type router struct {
 }
 
 // sharing says edge i's line may run along edge j's: the two share their
-// head or their tail, but not both, and are drawn alike -- a dashed line
-// and a solid one merged into one would be drawn as one or the other.
+// head or their tail, but not both, are drawn alike -- a dashed line and a
+// solid one merged into one would be drawn as one or the other -- and
+// each runs one way, with an arrowhead at its head and none at its tail.
+//
+// One way, because a shared stretch says which way it runs only by the
+// arrowheads at its far ends. Out of a node into a fork, with an
+// arrowhead at the end of each branch and none at the node, it can only
+// have come from the node. An edge with arrowheads at both ends runs
+// both ways, and an edge leaving its line at a fork could have come from
+// either end of it; an edge with none runs neither, and a fork joining
+// three lines reads as joining any two of them.
 func (rt *router) sharing(i, j int) bool {
 	if j < 0 {
 		return false
@@ -180,26 +189,28 @@ func (rt *router) sharing(i, j int) bool {
 	if a.From == a.To || b.From == b.To {
 		return false
 	}
-	return (a.From == b.From) != (a.To == b.To) && a.Line == b.Line && same(a.Colour, b.Colour)
+	oneWay := a.Head && !a.Tail && b.Head && !b.Tail
+	return oneWay && (a.From == b.From) != (a.To == b.To) && a.Line == b.Line && same(a.Colour, b.Colour)
 }
 
 // mayEnd says edge i may pass a cell where the heads and the tails of
 // others end: by a head, only if it goes into the same node, from another,
 // to merge into its arrowhead; by a tail, only if it comes out of the same
-// node to another, as a stem forking. Anything else there would cut off an
-// arrowhead, or read as leaving or entering with an edge it is not.
+// node to another, as a stem forking -- each only where the two may share
+// a line at all. Anything else there would cut off an arrowhead, or read
+// as leaving or entering with an edge it is not.
 func (rt *router) mayEnd(i int, heads, tails []int) bool {
 	a := rt.edges[i]
 	for _, j := range heads {
 		if j < 0 {
 			return false // a straight line's end
 		}
-		if b := rt.edges[j]; a.To != b.To || a.From == b.From {
+		if a.To != rt.edges[j].To || !rt.sharing(i, j) {
 			return false
 		}
 	}
 	for _, j := range tails {
-		if b := rt.edges[j]; a.From != b.From || a.To == b.To {
+		if a.From != rt.edges[j].From || !rt.sharing(i, j) {
 			return false
 		}
 	}
