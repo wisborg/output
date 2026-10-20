@@ -550,12 +550,15 @@ A box's place comes from the grid or the layers; a line's from the router,
 which a port steers. Graphviz's compass points say which side of its box an
 edge leaves or enters by — `a:s -> b:n` leaves `a` from its bottom and
 enters `b` from its top, as do `tailport = s` and `headport = n` — and no
-box moves for them. `n`, `e`, `s` and `w` are a side each; a corner, `ne`
+box moves for them. Where an edge has both, its own `tailport` is taken
+over `a:s`, and `a:s` over an `edge [tailport = …]` default, as Graphviz
+takes them. `n`, `e`, `s` and `w` are a side each; a corner, `ne`
 say, is either side of it, since a line never ends on a box's corner; `c`
 and `_` are any side. An edge with a port is drawn along rows and columns
 in a picture with straight edges too. Where no line can leave or enter by
 the side asked for without joining another's line or passing through a
-box, the edge is drawn by another side, and `diagram` says which edge.
+box, that end is drawn by another side, the other end keeping its own
+where it can, and `diagram` says which edge.
 
 Shapes are boxes, rounded boxes, ellipses,
 cylinders and plain text; lines solid, dashed, dotted or bold; colours

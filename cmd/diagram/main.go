@@ -380,11 +380,13 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 // boxes than their ports ask for -- a:s -> b, or tailport and headport --
 // where no line leaves or enters by those without joining another's or
 // passing through a box. A port that had no effect without a word looked
-// as though it had been read wrongly, or not at all.
+// as though it had been read wrongly, or not at all. The nodes' names are
+// quoted, as the reader's errors quote them: they are the file's text,
+// and an escape in one written as it is is a command to the terminal.
 func sidesNote(errOut io.Writer, lay *diagram.Layout) {
 	for _, e := range lay.Edges {
 		if e.SidesDropped {
-			fmt.Fprintf(errOut, "diagram: the edge %s to %s is drawn by other sides than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To)
+			fmt.Fprintf(errOut, "diagram: the edge %q to %q is drawn by other sides than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To)
 		}
 	}
 }

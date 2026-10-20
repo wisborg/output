@@ -466,7 +466,13 @@ cells `outline` offers the search, and nothing else: the grid and the
 layers place the boxes as before. Keeping lines apart outranks a port: a
 path by any side that joins no line is taken before one by the side asked
 for that does, and `PlacedEdge.SidesDropped` and `diagram`'s note say so,
-since a port with no visible effect and no word reads as one ignored.
+since a port with no visible effect and no word reads as one ignored. One
+end that cannot keep its side does not give up the other's: the search
+free to end anywhere charges `missCost` for an end off the sides asked
+for. Where `a:s` and a `tailport` meet, the reader takes them in
+Graphviz's order -- the statement's own attribute, then the node's port,
+then a default -- which `withPorts` keeps by holding the node's port as
+the edge's `tailport` attribute, as Graphviz does.
 
 The page the router searches has a margin on every side, not only the right
 and the bottom: without room above, an edge between two boxes of the top row
