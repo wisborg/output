@@ -412,7 +412,7 @@ func (p *parser) stmt(s *scope) error {
 		if err != nil {
 			return err
 		}
-		return p.edgeRest(s, ends, 0)
+		return p.edgeRest(s, ends, "")
 	case p.tok.kind != tID:
 		return p.errorf("expected a statement, found %s", p.describe())
 	case p.reserved():
@@ -432,12 +432,12 @@ func (p *parser) stmt(s *scope) error {
 		s.graphAttrs[id], s.graphLines[id] = p.tok.text, p.tok.line
 		return p.advance()
 	}
-	side, err := p.port()
+	port, err := p.port()
 	if err != nil {
 		return err
 	}
 	if p.tok.kind == tEdge {
-		return p.edgeRest(s, []string{p.node(s, id)}, side)
+		return p.edgeRest(s, []string{p.node(s, id)}, port)
 	}
 	attrs, lines, err := p.attrLists()
 	if err != nil {
@@ -448,23 +448,24 @@ func (p *parser) stmt(s *scope) error {
 	return nil
 }
 
-// port reads a node's [: ID [: ID]], and is the sides its compass point
-// names: see portSide.
-func (p *parser) port() (diagram.Side, error) {
+// port reads a node's [: ID [: ID]], and is the port as a tailport or
+// headport attribute would give it -- "s", "field:s" -- or "" where none
+// is written.
+func (p *parser) port() (string, error) {
 	var parts []string
 	for p.punct(":") {
 		if err := p.advance(); err != nil {
-			return 0, err
+			return "", err
 		}
 		if p.tok.kind != tID {
-			return 0, p.errorf("expected a port after :, found %s", p.describe())
+			return "", p.errorf("expected a port after :, found %s", p.describe())
 		}
 		parts = append(parts, p.tok.text)
 		if err := p.advance(); err != nil {
-			return 0, err
+			return "", err
 		}
 	}
-	return portSide(parts), nil
+	return strings.Join(parts, ":"), nil
 }
 
 // portSide is the sides a port names by its compass point, its last part
@@ -512,15 +513,15 @@ func compass(word string) (diagram.Side, bool) {
 // the node, or the nodes of a subgraph -- if the statement is one: each
 // further end, and the attributes. Every node of one end is joined to
 // every node of the next.
-func (p *parser) edgeRest(s *scope, from []string, fromSide diagram.Side) error {
+func (p *parser) edgeRest(s *scope, from []string, fromPort string) error {
 	if p.tok.kind != tEdge {
 		return nil
 	}
 	ends := [][]string{from}
-	// sides is each end's port's sides, written on the node -- a:s -- and
-	// so of every edge that ends there: a -> b:n -> c leaves b by its top
-	// as it enters it. A subgraph's end has none.
-	sides := []diagram.Side{fromSide}
+	// ports is each end's port, written on the node -- a:s -- and so of
+	// every edge that ends there: a -> b:n -> c leaves b by its top as it
+	// enters it. A subgraph's end has none.
+	ports := []string{fromPort}
 	for p.tok.kind == tEdge {
 		if p.directed != (p.tok.text == "->") {
 			if p.directed {
@@ -537,7 +538,7 @@ func (p *parser) edgeRest(s *scope, from []string, fromSide diagram.Side) error 
 			if err != nil {
 				return err
 			}
-			ends, sides = append(ends, nodes), append(sides, 0)
+			ends, ports = append(ends, nodes), append(ports, "")
 		case p.reserved():
 			return p.errorf("expected a node after the edge, found the keyword %s; quote it to name a node so", p.tok.text)
 		case p.tok.kind == tID:
@@ -545,11 +546,11 @@ func (p *parser) edgeRest(s *scope, from []string, fromSide diagram.Side) error 
 			if err := p.advance(); err != nil {
 				return err
 			}
-			side, err := p.port()
+			port, err := p.port()
 			if err != nil {
 				return err
 			}
-			ends, sides = append(ends, []string{p.node(s, id)}), append(sides, side)
+			ends, ports = append(ends, []string{p.node(s, id)}), append(ports, port)
 		default:
 			return p.errorf("expected a node after the edge, found %s", p.describe())
 		}
@@ -558,8 +559,8 @@ func (p *parser) edgeRest(s *scope, from []string, fromSide diagram.Side) error 
 	if err != nil {
 		return err
 	}
-	merged, mergedLines := clone(s.edgeAttrs), clone(s.edgeLines)
-	merge(merged, mergedLines, attrs, lines)
+	mergedLines := clone(s.edgeLines)
+	maps.Copy(mergedLines, lines)
 	for i := 1; i < len(ends); i++ {
 		for _, a := range ends[i-1] {
 			for _, b := range ends[i] {
@@ -578,23 +579,28 @@ func (p *parser) edgeRest(s *scope, from []string, fromSide diagram.Side) error 
 						// apply where an edge is made, so an "edge [...]"
 						// default in force at the second statement is no
 						// attribute of the edge it restates.
-						both := clone(p.edgeAttrs[k])
-						maps.Copy(both, attrs)
+						// An undirected edge restated the other way
+						// round, b -- a for a -- b, has its ports
+						// written the other way round too.
+						tail, head := ports[i-1], ports[i]
+						if p.d.Edges[k].From != a {
+							tail, head = head, tail
+						}
+						both := withPorts(p.edgeAttrs[k], tail, head, attrs)
 						e := diagram.Edge{From: p.d.Edges[k].From, To: p.d.Edges[k].To, Head: p.directed}
 						if err := p.applyEdge(&e, both, mergedLines); err != nil {
 							return err
 						}
-						e.FromSide, e.ToSide = portOver(e.FromSide, sides[i-1]), portOver(e.ToSide, sides[i])
 						p.d.Edges[k], p.edgeAttrs[k] = e, both
 						continue
 					}
 					p.seen[key] = len(p.d.Edges)
 				}
+				merged := withPorts(s.edgeAttrs, ports[i-1], ports[i], attrs)
 				e := diagram.Edge{From: a, To: b, Head: p.directed}
 				if err := p.applyEdge(&e, merged, mergedLines); err != nil {
 					return err
 				}
-				e.FromSide, e.ToSide = portOver(e.FromSide, sides[i-1]), portOver(e.ToSide, sides[i])
 				p.d.Edges = append(p.d.Edges, e)
 				p.edgeAttrs = append(p.edgeAttrs, merged)
 			}
@@ -603,15 +609,23 @@ func (p *parser) edgeRest(s *scope, from []string, fromSide diagram.Side) error 
 	return nil
 }
 
-// portOver is the sides a port written on the node, of, gives an edge's
-// end over those its tailport or headport attribute gave it, attr: the
-// node's is the nearer the edge, as a statement's own attributes are over
-// its defaults.
-func portOver(attr, of diagram.Side) diagram.Side {
-	if of != 0 {
-		return of
+// withPorts is an edge's attributes, as Graphviz has them: before -- the
+// defaults in force, or what a strict graph's earlier statement of the
+// edge gave it -- then the ports written on its nodes, tail and head, as
+// its tailport and headport, then the statement's own attributes, own.
+// So a:n -> b [tailport = s] leaves a by its bottom, while under
+// edge [tailport = s] it leaves by its top; and a port written in one
+// statement of a strict graph's edge stays where the next writes none.
+func withPorts(before map[string]string, tail, head string, own map[string]string) map[string]string {
+	m := clone(before)
+	if tail != "" {
+		m["tailport"] = tail
 	}
-	return attr
+	if head != "" {
+		m["headport"] = head
+	}
+	maps.Copy(m, own)
+	return m
 }
 
 // subgraph reads [subgraph [ID]] { stmt_list }, and is the nodes it holds.

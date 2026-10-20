@@ -533,11 +533,15 @@ func TestTextEdges(t *testing.T) {
 }
 
 // A port's compass point says which side of its box an edge leaves or
-// enters by: written on the node, a:s, or as tailport and headport, the
-// node's over the attribute's. A corner is the two sides either side of
-// it, c and _ any side, and a port naming a record's field, which is not
-// drawn, any side too. A port on a node in a chain is the port of both
-// edges that end there.
+// enters by: written on the node, a:s, or as tailport and headport, in
+// Graphviz's order -- the statement's own attribute over the node's port,
+// and the node's port over a default, even c over one. A corner is the
+// two sides either side of it, c and _ any side, and a port naming a
+// record's field, which is not drawn, any side too. A port on a node in a
+// chain is the port of both edges that end there. A strict graph's edge
+// keeps a port that a later statement of it does not change, at the end
+// it was written at, even where an undirected edge is restated the other
+// way round. Each case's sides are what dot -Tcanon gives it.
 func TestPortsAreSides(t *testing.T) {
 	const n, e, s, w = diagram.North, diagram.East, diagram.South, diagram.West
 	for _, c := range []struct {
@@ -550,7 +554,13 @@ func TestPortsAreSides(t *testing.T) {
 		{"digraph { a:field -> b:N }", []diagram.Side{0}, []diagram.Side{0}},
 		{"digraph { a -> b:n -> c }", []diagram.Side{0, n}, []diagram.Side{n, 0}},
 		{"digraph { edge [headport = s]; a -> b; c -> d:e }", []diagram.Side{0, 0}, []diagram.Side{s, e}},
-		{"digraph { a:n -> b [tailport = s] }", []diagram.Side{n}, []diagram.Side{0}},
+		{"digraph { a:n -> b [tailport = s] }", []diagram.Side{s}, []diagram.Side{0}},
+		{"digraph { a -> b:n [headport = s] }", []diagram.Side{0}, []diagram.Side{s}},
+		{"digraph { edge [tailport = s]; a:n -> b; c:c -> d }", []diagram.Side{n, 0}, []diagram.Side{0, 0}},
+		{"strict digraph { a:s -> b; a -> b }", []diagram.Side{s}, []diagram.Side{0}},
+		{"strict digraph { a:s -> b; a -> b [tailport = n] }", []diagram.Side{n}, []diagram.Side{0}},
+		{"strict graph { a -- b; b:w -- a }", []diagram.Side{0}, []diagram.Side{w}},
+		{"strict graph { a:e -- b; b -- a:n }", []diagram.Side{n}, []diagram.Side{0}},
 		{"graph { a:w -- b:e }", []diagram.Side{w}, []diagram.Side{e}},
 		{"strict digraph { a -> b; a:s -> b }", []diagram.Side{s}, []diagram.Side{0}},
 	} {
