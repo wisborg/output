@@ -629,7 +629,9 @@ func TestPortsSteerTheLine(t *testing.T) {
 // Where no line can enter by the side asked for without joining another's
 // -- d's top taken by three dashed arrowheads, which a solid line may not
 // merge into -- the edge enters by another, joins no line, and says it
-// was moved; one that never asked is never said to be. And where the
+// was moved; one that never asked is never said to be. It still leaves
+// by the side it asks for at its other end, which nothing blocks: one
+// side that cannot be kept does not give up the other. And where the
 // search gives up altogether, a plain path keeps no side either.
 func TestPortsDroppedWhereNoLineFits(t *testing.T) {
 	d := &Diagram{
@@ -638,7 +640,7 @@ func TestPortsDroppedWhereNoLineFits(t *testing.T) {
 			{From: "x", To: "d", Head: true, Line: Dashed, FromSide: South, ToSide: North},
 			{From: "y", To: "d", Head: true, Line: Dashed, FromSide: South, ToSide: North},
 			{From: "z", To: "d", Head: true, Line: Dashed, FromSide: South, ToSide: North},
-			{From: "a", To: "d", Head: true, ToSide: North},
+			{From: "a", To: "d", Head: true, FromSide: West, ToSide: North},
 			{From: "m", To: "q", Head: true},
 		},
 	}
@@ -646,6 +648,9 @@ func TestPortsDroppedWhereNoLineFits(t *testing.T) {
 	lay, err := d.Layout()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if a, _ := lay.Node("a"); !on(lay.Edges[3].Points, a.Rect, West) {
+		t.Errorf("a to d leaves a by other than its left, which nothing blocks:\n%s", strings.Join(lay.Text(), "\n"))
 	}
 	for i, want := range []bool{false, false, false, true, false} {
 		if got := lay.Edges[i].SidesDropped; got != want {

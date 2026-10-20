@@ -124,13 +124,11 @@ func (l *layouter) route() {
 			}
 			r.anySide = try.anySide
 			if pts = r.find(a, b, e.Tail, i, try.strict); pts != nil {
-				dropped[i] = try.anySide
 				break
 			}
 		}
 		r.anySide = false
 		if pts == nil {
-			dropped[i] = sided
 			if e.From == e.To {
 				pts = loop(a)
 			} else {
@@ -139,6 +137,10 @@ func (l *layouter) route() {
 		}
 		r.draw(pts, i)
 		paths[i] = pts
+		// Said of the path drawn, not of the search that found it: one
+		// free to end anywhere may still have kept a side, and a plain
+		// path may happen to.
+		dropped[i] = sided && !keepsSides(pts, e.FromSide, e.ToSide)
 	}
 	for i := range l.d.Edges {
 		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i], SidesDropped: dropped[i]})
@@ -159,6 +161,11 @@ const (
 	// another's line, turning on it, at another's end -- is taken all the
 	// same, where nothing else is: more than any detour across a page.
 	joinCost = 1000
+	// missCost is an end on a side its edge does not ask for, where a
+	// path keeping to those it asks for at both ends cannot be found:
+	// more than a detour, so one end keeps its side where only the other
+	// cannot, and less than a join, which outranks a side.
+	missCost = 500
 )
 
 // router is the page as the paths found so far have left it.
@@ -181,8 +188,8 @@ type router struct {
 	bare map[Rect]bool
 	// search is the arrays find keeps its work in, kept for the next.
 	search search
-	// anySide has find end a path at any side of its boxes, whatever
-	// sides its edge asks for.
+	// anySide has find end a path at any side of its boxes, an end off
+	// the sides its edge asks for at missCost.
 	anySide bool
 }
 
@@ -563,21 +570,54 @@ func opposite(way int) int { return way ^ 1 } // up and down, left and right, ar
 // wayside is the side of a box a way out of it leaves by.
 var wayside = [4]Side{North, South, West, East}
 
+// sideOut is the side of its box a path leaves by, from its first point,
+// on the box's outline, to its next, out of it. Every path starts so, the
+// plain ones too; read from its last point to the one before, it is the
+// side the path enters its other box by.
+func sideOut(p, q Point) Side {
+	switch {
+	case q.Y < p.Y:
+		return North
+	case q.Y > p.Y:
+		return South
+	case q.X < p.X:
+		return West
+	}
+	return East
+}
+
+// keepsSides says the path pts leaves its first box by one of from and
+// enters its last by one of to, each zero for any.
+func keepsSides(pts []Point, from, to Side) bool {
+	n := len(pts)
+	if n < 2 {
+		return from == 0 && to == 0
+	}
+	return (from == 0 || from&sideOut(pts[0], pts[1]) != 0) && (to == 0 || to&sideOut(pts[n-1], pts[n-2]) != 0)
+}
+
 // outline is r's outline cells edge i may end at -- not its corners, nor
 // a cell another edge ends at but one it may share with -- each with the
-// way out of the box there, on sides alone where sides is not zero. Where
+// way out of the box there, on sides alone where sides is not zero --
+// or, under anySide, on any side, those off sides at missCost. Where
 // strict is false, any but a corner, each with what ending there costs.
 func (rt *router) outline(r Rect, i int, strict bool, sides Side) (cells []Point, out, costs []int) {
 	add := func(p Point, way int) {
-		if !rt.in(p.X, p.Y) || sides != 0 && sides&wayside[way] == 0 {
+		if !rt.in(p.X, p.Y) {
 			return
 		}
 		cost := 0
+		if sides != 0 && sides&wayside[way] == 0 {
+			if !rt.anySide {
+				return
+			}
+			cost = missCost
+		}
 		if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) || rt.foreign(i, p.X, p.Y) != 0 {
 			if strict {
 				return
 			}
-			cost = joinCost
+			cost += joinCost
 		}
 		for k, c := range cells {
 			if c == p {
@@ -635,12 +675,8 @@ func offMiddle(p Point, r Rect, way int) int {
 // on it, ending beside another's end -- is allowed at joinCost a cell; one
 // through a box never is.
 func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
-	from, to := rt.edges[i].FromSide, rt.edges[i].ToSide
-	if rt.anySide {
-		from, to = 0, 0
-	}
-	starts, outs, startCosts := rt.outline(a, i, strict, from)
-	goals, ins, endCosts := rt.outline(b, i, strict, to)
+	starts, outs, startCosts := rt.outline(a, i, strict, rt.edges[i].FromSide)
+	goals, ins, endCosts := rt.outline(b, i, strict, rt.edges[i].ToSide)
 	if len(starts) == 0 || len(goals) == 0 {
 		return nil
 	}

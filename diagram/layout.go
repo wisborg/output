@@ -94,8 +94,9 @@ type PlacedEdge struct {
 	Straight bool
 	Shift    float64
 	// SidesDropped says the edge asks for a side, by FromSide or ToSide,
-	// that no line could leave or enter its box by without joining
-	// another's or passing through a box, and it is drawn by any side.
+	// that its line does not leave or enter its box by: no line could
+	// without joining another's or passing through a box. The other end
+	// keeps the side it asks for where it can.
 	SidesDropped bool
 	// pictureAt, where pictured, is where a picture writes the label: the
 	// picture of a diagram with straight edges draws other lines than the

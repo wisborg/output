@@ -124,8 +124,8 @@ type Edge struct {
 	// FromSide and ToSide are the sides of its boxes the edge leaves From
 	// by and enters To by; zero is any. They steer the line only: no box
 	// moves for them. Where no line can leave or enter by them -- every way
-	// out of that side blocked -- the edge is drawn by any side, and its
-	// PlacedEdge says so.
+	// out of that side blocked -- that end is drawn by any side, the other
+	// keeping its own where it can, and its PlacedEdge says so.
 	FromSide, ToSide Side
 	Line             Line
 	// Colour is the line's colour; nil is the palette's.
