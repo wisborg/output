@@ -747,9 +747,12 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 			head   bool
 			end    Point
 			dx, dy float64
+			// fromLast is which end of cells this end is: a cell for its
+			// arrow is looked for from there, inwards.
+			fromLast bool
 		}{
-			{headAt, headArrow, headOK, e.Edge.Head, last, sx1 - sx0, sy1 - sy0},
-			{tailAt, tailArrow, tailOK, e.Edge.Tail, first, sx0 - sx1, sy0 - sy1},
+			{headAt, headArrow, headOK, e.Edge.Head, last, sx1 - sx0, sy1 - sy0, true},
+			{tailAt, tailArrow, tailOK, e.Edge.Tail, first, sx0 - sx1, sy0 - sy1, false},
 		}
 		for _, s := range ends {
 			switch {
@@ -759,9 +762,15 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 				// line or word takes. Set on the end regardless, it once
 				// took the last cell of another edge's line, which then
 				// stopped short of its box and seemed to end at this one.
+				// From this end's own cell: looked for from the head's, a
+				// tail's arrow was drawn beside the head's, at the far box.
 				at := s.end
-				for k := len(cells) - 1; k >= 0; k-- {
-					if p := cells[k]; c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 {
+				for k := range cells {
+					p := cells[k]
+					if s.fromLast {
+						p = cells[len(cells)-1-k]
+					}
+					if c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 {
 						at = p
 						break
 					}

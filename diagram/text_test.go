@@ -382,6 +382,50 @@ func TestBrailleStraightHeads(t *testing.T) {
 	}
 }
 
+// Where neither end of a straight edge drawn in braille has a free cell by
+// its box for a stub, each arrow is drawn at an angle on the line, by its
+// own box: the tail's was once looked for from the head's end, and drawn
+// beside the head's arrow, at the far box, with nothing at the tail.
+func TestBrailleArrowsWithoutStubsAtTheirEnds(t *testing.T) {
+	lay := &Layout{Width: 30, Height: 16, nodeAt: map[string]PlacedNode{}}
+	lay.Nodes = []PlacedNode{{Node: &Node{ID: "a"}, Rect: Rect{0, 0, 5, 3}}, {Node: &Node{ID: "b"}, Rect: Rect{20, 10, 5, 3}}}
+	for _, n := range lay.Nodes {
+		lay.nodeAt[n.Node.ID] = n
+	}
+	c := newTextCanvas(30, 16)
+	// Lines through every cell a stub could take: right of and below a,
+	// left of and above b.
+	c.line(Point{0, 3}, Point{10, 3}, false, nil)
+	c.line(Point{5, 0}, Point{5, 3}, false, nil)
+	c.line(Point{15, 9}, Point{25, 9}, false, nil)
+	c.line(Point{19, 9}, Point{19, 13}, false, nil)
+	for _, n := range lay.Nodes {
+		drawTextNode(c, n, Light)
+	}
+	drawTextStraight(c, lay, PlacedEdge{Edge: &Edge{From: "a", To: "b", Head: true, Tail: true}, Straight: true})()
+	var arrows []Point
+	for y := range c.h {
+		for x := range c.w {
+			if strings.ContainsRune("↘↖", c.text[y][x]) {
+				arrows = append(arrows, Point{x, y})
+			}
+		}
+	}
+	text := strings.Join(c.rows(false), "\n")
+	if len(arrows) != 2 {
+		t.Fatalf("arrows at %v, want one at each end:\n%s", arrows, text)
+	}
+	for _, p := range arrows {
+		want, other := Point{2, 1}, Point{22, 11} // a's middle, and b's
+		if c.text[p.Y][p.X] == '↘' {
+			want, other = other, want
+		}
+		if length(p, want) >= length(p, other) {
+			t.Errorf("%c at %v, nearer the other box than its own:\n%s", c.text[p.Y][p.X], p, text)
+		}
+	}
+}
+
 // Over half of a wide character the other half is cleared, so the row keeps
 // its width: a narrow character on the cell a wide one covers once left the
 // wide one drawing two columns, and one on its first cell left a cell that

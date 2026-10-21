@@ -239,7 +239,10 @@ func (lay *Layout) placeStraightLabels() {
 	}
 	for i := range lay.Edges {
 		e := &lay.Edges[i]
-		if e.Edge.Label == "" {
+		// Nor one without a path, an invisible edge's, which is not drawn:
+		// its label, placed with nothing to be beside, went to the corner,
+		// and a long one widened the picture by its width of blank.
+		if e.Edge.Label == "" || len(e.Points) < 2 {
 			continue
 		}
 		lines := strings.Split(e.Edge.Label, "\n")

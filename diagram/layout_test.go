@@ -544,6 +544,26 @@ func TestStraightLabelOnItsLine(t *testing.T) {
 	}
 }
 
+// An invisible edge is not drawn, and its label takes no room: placed
+// with no line to be beside, it went to the picture's corner, and a long
+// one widened the picture by its width of blank.
+func TestInvisibleEdgeLabelTakesNoRoom(t *testing.T) {
+	for _, straight := range []bool{false, true} {
+		width := func(label string) int {
+			d := &Diagram{Straight: straight, Root: Group{Items: []Item{node("a"), node("b"), node("c")}},
+				Edges: []Edge{{From: "a", To: "b", Invisible: true, Label: label}, {From: "a", To: "c", Head: true}}}
+			lay, err := d.Layout()
+			if err != nil {
+				t.Fatal(err)
+			}
+			return lay.Width
+		}
+		if with, without := width(strings.Repeat("G", 120)), width(""); with != without {
+			t.Errorf("straight %v: %d columns wide with an invisible edge's label, %d without", straight, with, without)
+		}
+	}
+}
+
 // A straight edge's label written on its own line is excused only the
 // line: where the line crosses a lane's divider, the label is not written
 // along the divider.
