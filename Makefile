@@ -159,8 +159,8 @@ bench:
 #   make fuzz FUZZTIME=10m
 FUZZTIME ?= 1m
 
-# The fuzz targets read what a stranger may write -- DOT, and a CSV for
-# plot -- and draw it every way a command does. `go test` replays only
+# The fuzz targets read what a stranger may write -- DOT, a CSV for plot,
+# a table's cell -- and write it every way a command or a table does. `go test` replays only
 # their seeds and testdata/fuzz/, which hold the inputs that once broke
 # something: a second at most, so the everyday run stays quick.
 #
@@ -170,13 +170,13 @@ FUZZTIME ?= 1m
 # it, so a search continues from the last, and `make fuzz-save` adds what a
 # search found, to be committed when it is worth keeping. `make
 # fuzz-replay` runs the whole corpus once through the targets' checks, in
-# seconds -- for after a change likelier than most to break an edge case. An input that breaks a target
-# is written to testdata/fuzz/ and committed with its fix, replayed for
-# good. go test fuzzes one target of one package at a time, hence a loop.
-FUZZ      := diagram/dot:FuzzParse cmd/plot:FuzzPlot
+# seconds -- for after a change likelier than most to break an edge
+# case. An input that breaks a target is written to testdata/fuzz/ and
+# committed with its fix, replayed for good. go test fuzzes one target of one package at a time, hence a loop.
+FUZZ      := diagram/dot:FuzzParse cmd/plot:FuzzPlot table:FuzzWriteMarkdown
 FUZZCACHE  = $(shell go env GOCACHE)/fuzz/github.com/wisborg/output
 
-## fuzz: search for DOT and CSV that break a command, FUZZTIME each (1m)
+## fuzz: search for DOT, CSV and cells that break a writer, FUZZTIME each (1m)
 fuzz: fuzz-load
 	@for t in $(FUZZ); do pkg=$${t%%:*}; fn=$${t##*:}; \
 	  go test -run '^$$' -fuzz "^$$fn\$$" -fuzztime $(FUZZTIME) ./$$pkg || exit 1; done

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0000\x0400$0\x04\x04000\x0400\x0400")

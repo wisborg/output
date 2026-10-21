@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\b\xe50\f0日\xe6")

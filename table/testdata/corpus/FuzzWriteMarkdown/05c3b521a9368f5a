@@ -1,0 +1,2 @@
+go test fuzz v1
+string("👨\u200d\x04\x9f\x91\xa9\u200d👧")

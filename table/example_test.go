@@ -127,3 +127,27 @@ func ExampleTable_WriteCSV() {
 	// corner_1,+2.70,the corner
 	// corner_3,+2.75,"also, a corner"
 }
+
+// ExampleTable_WriteMarkdown writes the table for a pull request or an
+// issue. Align sets the row of dashes; the cells are written as text, so a
+// name with stars or a pipe in it reads as it was written; a line break is
+// <br>; MaxWidth does not apply, as a renderer wraps a long cell.
+func ExampleTable_WriteMarkdown() {
+	t := table.New(
+		table.Column{Header: "clip"},
+		table.Column{Header: "offset", Align: table.Right, Format: "%+.2fs"},
+		table.Column{Header: "note", MaxWidth: 4},
+	)
+	t.MustAppend("corner_1", 2.70, "*the* corner")
+	t.AppendSeparator() // no meaning in Markdown; skipped
+	t.MustAppend("corner_3", 2.75, "a | b\nsecond line")
+
+	if err := t.WriteMarkdown(os.Stdout, table.MarkdownStyle{}); err != nil {
+		fmt.Println("markdown:", err)
+	}
+	// Output:
+	// | clip     | offset | note                  |
+	// | -------- | -----: | --------------------- |
+	// | corner_1 | +2.70s | \*the\* corner        |
+	// | corner_3 | +2.75s | a \| b<br>second line |
+}
