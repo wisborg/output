@@ -21,6 +21,7 @@ make race                  # the tests as CI runs them
 make deps                  # each package compiles in only what it is meant to
 make build                 # -> bin/plot, bin/diagram
 make run ARGS="--list data.csv"     # CMD=diagram for the other
+make fuzz FUZZTIME=5m      # search for DOT and CSV that break a command
 make clean                 # remove bin/, empty .scratch/
 ```
 
@@ -584,6 +585,19 @@ The characteristic bug here is output that *looks* right, so a test asserting
   spare. `TestDisplay_DoesNotTruncateWhatWouldHaveFitted` is the assertion
   that catches that class; the width invariant alone cannot.
 - Examples are tests. Add one for anything a user would reach for first.
+- Input a stranger writes is fuzzed. `FuzzParse` (in `diagram/dot`) reads
+  DOT and draws it as text, braille, colour and SVG, and `FuzzPlot` (in
+  `cmd/plot`) charts a CSV and lists it; each checks no panic and the
+  promises a label carries -- no control character reaching a terminal,
+  UTF-8 throughout, well-formed SVG, a chart within its width -- not merely
+  "no error". `go test` replays the seeds and `testdata/fuzz/`; `make fuzz`
+  searches. An input it finds is committed under `testdata/fuzz/` with the
+  fix. A seed for each hostile case is what makes the replay worth having:
+  one holding `\x1b` as text in DOT, which has no such escape, was no
+  escape at all, and one with a byte that is not UTF-8 was refused whole,
+  before any label was drawn. The text drawing keeps escapes out twice --
+  `printable`, and `set` cell by cell -- and drops a control character for
+  taking no cell, so breaking `hidden` alone does not show in it.
 
 ## Git
 

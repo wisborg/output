@@ -143,6 +143,22 @@ deps:
 	  [ $$fail -eq 0 ] && echo "deps: chart/terminal is the standard library alone, chart and diagram add only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
 	  exit $$fail
 
+# FUZZTIME is how long `make fuzz` searches each target, e.g.
+#   make fuzz FUZZTIME=10m
+FUZZTIME ?= 1m
+
+# The fuzz targets read what a stranger may write -- DOT, and a CSV for
+# plot -- and draw it every way a command does. `go test` replays their
+# seeds and anything saved in testdata/fuzz on every run; this searches for
+# more. An input that breaks one is written to that package's
+# testdata/fuzz/, and is committed with its fix, so it is replayed for
+# good. go test fuzzes one target of one package at a time, hence a line
+# each.
+## fuzz: search for DOT and CSV that break a command, FUZZTIME each (1m)
+fuzz:
+	go test -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) ./diagram/dot
+	go test -run '^$$' -fuzz '^FuzzPlot$$' -fuzztime $(FUZZTIME) ./cmd/plot
+
 ## clean: remove bin/, and empty .scratch/
 clean:
 	rm -rf bin
