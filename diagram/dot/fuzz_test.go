@@ -49,6 +49,8 @@ func FuzzParse(f *testing.F) {
 		"digraph { a [shape=cylinder, fillcolor=\"#ffd76e\", style=filled]; a -> a }",
 		"digraph { \"日本語\" -> \"👨‍👩‍👧\" [label=\"\x1b]0;t\x07\"]; c [label=\"a\tb\u202ec\"] }",
 		"digraph { a [label=\"not UTF-8: \xff\"] }",
+		"digraph { node [shape=record]; s [label=\"<a> x|{<b> y|{c|<d> e}}|\\{z\\}\"]; t [shape=Mrecord, label=\"<p> p|q\"]; s:d -> t:p; s:a:n -> t; t -> s:b }",
+		"digraph { rankdir=LR; node [shape=record]; r [label=\"{<k> key|value}|<x> x\"]; r:k -> r:x; q [label=\"{broken\"] }",
 		"digraph { a [label=\"<b>&amp; \\\"q\\\" \x01\"] -> b [label=\"]]> <!--\"] }",
 		"digraph { legend [label=\"k\"]; {a b} -> {c d} [style=dashed] }",
 	} {

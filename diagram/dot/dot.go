@@ -470,14 +470,26 @@ func (p *parser) port() (string, error) {
 
 // portSide is the sides a port names by its compass point, its last part
 // -- node:s, node:field:s, or a tailport or headport of "s" or "field:s"
-// -- and any side where it has none: node:field names a field of a record,
-// a shape not drawn here.
+// -- and any side where it has none.
 func portSide(parts []string) diagram.Side {
 	if len(parts) == 0 {
 		return 0
 	}
 	side, _ := compass(parts[len(parts)-1])
 	return side
+}
+
+// portField is the record field a port names, its first part -- node:field
+// or node:field:s -- or "" where it names a compass point alone, node:s.
+// A field no record of that name has is any side, as layout reads it.
+func portField(parts []string) string {
+	if len(parts) == 0 || parts[0] == "" {
+		return ""
+	}
+	if _, ok := compass(parts[0]); ok && len(parts) == 1 {
+		return ""
+	}
+	return parts[0]
 }
 
 // compass is the sides a DOT compass point names, and whether word is
@@ -879,6 +891,15 @@ func (p *parser) applyNode(info *nodeInfo) error {
 		n.Label = " "
 	}
 	n.Shape = shape(attrs["shape"])
+	if s := strings.ToLower(attrs["shape"]); s == "record" || s == "mrecord" {
+		v, ok := attrs["label"]
+		if !ok {
+			v = `\N` // a record of one field, the node's name
+		}
+		if fields, ok := record(v, n.ID, p.name); ok {
+			n.Record = fields
+		}
+	}
 	st := styleSet(attrs["style"])
 	n.Line, n.Invisible = line(st), st["invis"]
 	if st["rounded"] && n.Shape == diagram.Box {
@@ -936,6 +957,8 @@ func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string, lines map[s
 	}
 	e.FromSide = portSide(strings.Split(attrs["tailport"], ":"))
 	e.ToSide = portSide(strings.Split(attrs["headport"], ":"))
+	e.FromPort = portField(strings.Split(attrs["tailport"], ":"))
+	e.ToPort = portField(strings.Split(attrs["headport"], ":"))
 	c, err := colourAttr(attrs, "color")
 	if err != nil {
 		return &Error{Line: lineOf(err, lines, p.tok.line), Msg: fmt.Sprintf("edge %s to %s: %v", e.From, e.To, err)}
