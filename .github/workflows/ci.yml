@@ -13,21 +13,38 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
-      # Report both legs. Which Go version broke is the useful half of the
-      # answer, and fail-fast throws it away by cancelling the other job.
+      # Report every leg. Which Go version or system broke is the useful
+      # half of the answer, and fail-fast throws it away by cancelling the
+      # other jobs.
       fail-fast: false
       matrix:
-        go:
+        include:
           # The floor declared in go.mod. A library's stated minimum is a
           # promise, and the only way to keep it is to build against it --
           # it is otherwise very easy to use something newer and not notice.
-          - "1.25"
+          - { os: ubuntu-latest, go: "1.25" }
           # ...and current, so a change in the toolchain shows up here rather
           # than in someone's build.
-          - stable
-    name: go ${{ matrix.go }}
+          - { os: ubuntu-latest, go: stable }
+          # The terminal code is three files, one per system, picked by build
+          # tag: a mistake in the macOS or Windows one compiles away on Linux
+          # and is never run. Windows' was written against the documented API
+          # and tested nowhere else. Neither job has a terminal, so what they
+          # run is every path that falls back when there is none -- which is
+          # what term_windows.go's "fails closed" promises -- with the rest of
+          # the tests on that system's files, paths and line endings: Git
+          # checks the examples out with CRLF there. Current Go alone, as the
+          # floor is a property of the code, not of the system.
+          - { os: macos-latest, go: stable }
+          - { os: windows-latest, go: stable }
+    name: go ${{ matrix.go }} on ${{ matrix.os }}
+    defaults:
+      run:
+        # Git's bash on Windows, so that every step is one script for all
+        # three systems.
+        shell: bash
     steps:
       # Actions are pinned to a commit SHA, not a tag. A tag is mutable: if
       # the action's repository or a maintainer's account is compromised, v7
@@ -52,6 +69,8 @@ jobs:
           cache: false
 
       - name: gofmt
+        # Formatting and the layering are the same on every system: once.
+        if: runner.os == 'Linux'
         # Capture and test for emptiness rather than piping gofmt into
         # something that decides the exit status. `gofmt -l` exits 0 whether
         # or not it printed a filename, so any check that reads an exit code
@@ -68,6 +87,7 @@ jobs:
         run: go vet ./...
 
       - name: layering
+        if: runner.os == 'Linux'
         # Each package compiles in only the modules it is meant to, which
         # is a promise to the programs depending on them; see the Makefile.
         run: make deps

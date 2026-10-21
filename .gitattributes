@@ -1,0 +1,5 @@
+# A fuzz input is bytes Go wrote and reads back exactly: checked out with
+# CRLF on Windows, every file of testdata/ would read as another input, or
+# none. The examples are left to the platform, so that Windows CI reads
+# DOT and CSV with CRLF, as Windows users' files have them.
+**/testdata/** -text
