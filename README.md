@@ -70,11 +70,13 @@ t.WriteMarkdown(os.Stdout, table.MarkdownStyle{})
 too. A cell is written as text: each of `` \ ` * _ [ ] < > | ~ & $ `` is
 escaped, so a name with stars or a pipe in it reads as it was written rather
 than as italics or a broken row, but an underscore inside a word, which is
-never emphasis, is left alone. A line break is `<br>`. `MaxWidth` does not
-apply, since a renderer wraps a long cell; separators are skipped, and an
-empty table writes nothing, as text does. `MarkdownStyle{Markup: true}` writes
-cells as Markdown of your own, links and all, escaping only a pipe. No escape
-stops GitHub making a link of a bare URL, or a mention of `@name` and `#12`.
+never emphasis, is left alone; other punctuation is left as it is, so a
+number, a date or a path reads in the source as it renders. A line break is
+`<br>`. `Format` applies, as everywhere; `MaxWidth` does not, since a renderer
+wraps a long cell; separators are skipped, and an empty table writes nothing,
+as text does. `MarkdownStyle{Markup: true}` writes cells as Markdown of your
+own, links and all, escaping only a pipe. No escape stops GitHub making a link
+of a bare URL, or a mention of `@name` and `#12`.
 
 ## Choosing the format when the program runs
 

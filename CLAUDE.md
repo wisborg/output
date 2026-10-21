@@ -178,6 +178,8 @@ text.** `WriteMarkdown` follows `Render` where a reader is the point --
 an empty table writes nothing -- and departs where a renderer differs:
 `MaxWidth` does not apply, as a renderer wraps a long cell rather than running
 it off an edge, and a line break is `<br>`, as a newline would end the table.
+`Format` applies, as it does to CSV, being the caller saying how a value is
+written; separators are skipped, as a Markdown table has no rule between rows.
 A cell is someone else's data as much in Markdown as on a terminal, and there
 its punctuation is markup: a name with stars in it would be set in italics,
 `[x](url)` would be a link, a pipe would end the cell and shift every cell
