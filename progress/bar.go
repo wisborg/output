@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/clipperhouse/uax29/v2/graphemes"
 )
 
 // BarSpec describes one bar. Only Label is really needed; a Total of zero or
@@ -827,9 +829,13 @@ func formatDuration(d time.Duration) string {
 // horizontal ellipsis so a reader can tell a shortened line from a complete
 // one.
 //
-// It walks runes and accumulates measured width rather than slicing bytes:
-// slicing splits multi-byte runes, and counting runes gets wide characters
-// wrong. Both failures are invisible until somebody's label is not ASCII.
+// It walks characters and accumulates measured width rather than slicing
+// bytes: slicing splits multi-byte runes, and counting runes gets wide
+// characters wrong. Both failures are invisible until somebody's label is
+// not ASCII. A character is a grapheme cluster, measured whole, as table
+// and chart cut theirs: walked rune by rune, a family of emoji joined by
+// zero-width joiners lost all but its first members and left a joiner
+// dangling before the ellipsis.
 func truncate(s string, cols int, measure func(string) int) string {
 	if cols <= 0 {
 		return ""
@@ -845,15 +851,15 @@ func truncate(s string, cols int, measure func(string) int) string {
 	if budget == 0 {
 		return ellipsis
 	}
-	var sb strings.Builder
-	used := 0
-	for _, r := range s {
-		w := measure(string(r))
+	used, end := 0, 0
+	g := graphemes.FromString(s)
+	for g.Next() {
+		w := measure(g.Value())
 		if used+w > budget {
 			break
 		}
-		sb.WriteRune(r)
 		used += w
+		end = g.End()
 	}
-	return sb.String() + ellipsis
+	return s[:end] + ellipsis
 }

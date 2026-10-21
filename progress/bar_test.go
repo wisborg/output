@@ -189,6 +189,28 @@ func TestTruncate_MeasuresColumnsNotBytesOrRunes(t *testing.T) {
 	}
 }
 
+// A label is cut between characters, as a table's cell and a chart's
+// title are: walked rune by rune, a family of emoji joined by zero-width
+// joiners was cut part way and left a joiner dangling before the ellipsis,
+// and a flag of two regional indicators became half of one.
+func TestTruncate_KeepsCharactersWhole(t *testing.T) {
+	measure := (&Display{}).widthFunc()
+	for _, c := range []struct{ s, unit string }{
+		{strings.Repeat("👨‍👩‍👧", 6), "👨‍👩‍👧"},
+		{strings.Repeat("🇩🇰", 6), "🇩🇰"},
+	} {
+		for cols := 2; cols <= 9; cols++ {
+			got := truncate(c.s, cols, measure)
+			if w := measure(got); w > cols {
+				t.Errorf("truncate(%q, %d) = %q, %d columns", c.s, cols, got, w)
+			}
+			if rest := strings.ReplaceAll(strings.TrimSuffix(got, "…"), c.unit, ""); rest != "" {
+				t.Errorf("truncate(%q, %d) = %q: part of a character, %q, left", c.s, cols, got, rest)
+			}
+		}
+	}
+}
+
 // TestBar_ASCIIAvoidsTheBlockGlyphs covers the option for a font without
 // U+2588..U+258F.
 func TestBar_ASCIIAvoidsTheBlockGlyphs(t *testing.T) {
