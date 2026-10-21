@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -177,6 +178,50 @@ func TestPlotWritesAPNG(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), path) {
 		t.Errorf("stderr %q does not name the file", stderr.String())
+	}
+}
+
+// Every example CSV in the repository draws, in braille and as a PNG: an
+// example that no longer reads is worse than none. Drawn narrower than
+// its title, each line is at most the width in a terminal's columns --
+// summer-weather.csv's title, in Japanese, came out 59 columns of 50 when
+// a title was cut by runes.
+func TestExamples(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no examples/*.csv")
+	}
+	const width = 50
+	for _, path := range paths {
+		var out, errOut bytes.Buffer
+		if err := run([]string{"--terminal", "braille", "--width", strconv.Itoa(width), "--height", "20", path}, strings.NewReader(""), &out, &errOut, noEnv); err != nil {
+			t.Errorf("%s in braille: %v", path, err)
+			continue
+		}
+		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+		if len(lines) < 10 {
+			t.Errorf("%s: %d lines, want a chart:\n%s", path, len(lines), out.String())
+		}
+		// In a CJK locale runewidth counts the axes' box-drawing characters
+		// two columns each, which the braille rows are not laid out by; the
+		// title is cut by runewidth's measure in any locale.
+		if runewidth.DefaultCondition.EastAsianWidth {
+			lines = lines[:1]
+		}
+		for _, l := range lines {
+			if w := runewidth.StringWidth(l); w > width {
+				t.Errorf("%s: a line %d columns wide, past %d: %q", path, w, width, l)
+			}
+		}
+		png := filepath.Join(t.TempDir(), "chart.png")
+		if err := run([]string{"--out", png, path}, strings.NewReader(""), &out, &errOut, noEnv); err != nil {
+			t.Errorf("%s as a PNG: %v", path, err)
+		} else if fi, err := os.Stat(png); err != nil || fi.Size() == 0 {
+			t.Errorf("%s as a PNG: nothing written (%v)", path, err)
+		}
 	}
 }
 

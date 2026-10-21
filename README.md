@@ -440,6 +440,12 @@ window; in any other terminal, in tmux, or into a pipe, it is braille; with
 one file of the command, and another format is another reader of the same
 table.
 
+[`examples/summer-weather.csv`](examples/summer-weather.csv) is a month of
+made-up daily readings under Japanese column names. Its title is wider than
+a narrow terminal, and is cut to the width in the terminal's columns, a
+CJK character taking two, as a table's cells are:
+`plot --terminal braille --width 50 examples/summer-weather.csv`.
+
 `--width` and `--height` in the terminal are taken as given, not held to the
 window. Braille is drawn whole before a line of it is written, and has no
 ceiling as a PNG has: its memory grows with the width, about 500 MB at a

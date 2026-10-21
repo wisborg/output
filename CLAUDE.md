@@ -76,7 +76,8 @@ from reality is a test failure.
   `diagram/picture`, and internal so that it is not an API anyone else
   depends on.
 - `examples/` — DOT files a reader can copy, each drawn as text, PNG and
-  SVG by `cmd/diagram`'s `TestExamples`, so one that stops reading fails the
+  SVG by `cmd/diagram`'s `TestExamples`, and CSV files, each drawn in
+  braille and as a PNG by `cmd/plot`'s, so one that stops reading fails the
   build rather than the reader.
 - `internal/cli/` — what the commands share in reading their command line:
   `Parse` takes flags before or after the file and returns a mistake as a
