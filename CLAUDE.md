@@ -72,7 +72,7 @@ from reality is a test failure.
 - `chart/series.go` — the package doc, `Point`, `Segments`, `Smooth`.
 - `chart/bin.go` — `Column` and `Bin`: what each column of a drawing shows.
 - `chart/scale.go` — `RobustRange`, `Scale`, `NewScale`, `ExactScale`, ticks
-  and labels.
+  and labels, a `Log` scale's among them.
 - `chart/braille.go` — `Chart`, `Strip`, and the braille rendering.
 - `chart/date.go` — the `Date` kind's steps, calendar ticks and labels.
 - `chart/band.go` — `Band`, `BandKind`, and their braille rows.
@@ -574,6 +574,26 @@ shred the line.
 **`plot`'s y axis spans every value; `--robust` is opt-in.** `RobustRange`
 suits a sensor whose spikes are dropouts; in someone's spreadsheet the
 outlier is as likely to be the point — the wettest day of the year.
+
+**A log scale is a `Kind`, for Y alone, and never draws a reading it has
+no place for.** `Kind` already decides a scale's ticks and labels, and those
+and `Frac` are all a log scale changes, so it is `chart.Log` rather than a
+field beside `Kind`, and both renderers draw it unchanged. It is for a
+strip's Y: `Bin` divides the x axis evenly, and `Check` refuses a Log X
+rather than bin it wrongly. A reading at or below zero has no place on one,
+and `Frac` holds it at the bottom as it holds any reading below a scale --
+which would draw it as the least reading, where it is none -- so `plot
+--log` makes each one a gap and says how many, as it says of a cell that is
+not a number; a library caller does the same with `Point.Ok`. A column's dot
+is still its arithmetic mean, drawn by its logarithm: a geometric mean would
+draw a different number from the one a column's readings average to, and
+the two agree where the column's readings are close, which at a chart's
+resolution they mostly are. The ends are rounded out to whole powers of ten,
+not to whole steps: every ten powers, readings from 1 to 1e30 were drawn from
+1e-10 to 1e40. Its arithmetic is in powers of ten throughout, as readings of
+1e-300 and 1e300 overflow a ratio, and it reaches no lower than 1e-300, below
+which a float64 holds too few digits for 1, 2 and 5 times a power of ten to
+differ.
 
 **A drawing too large is refused by default, and `--high-memory` draws it.**
 A size is usually a flag, and a digit too many once took 1.5 GB for a braille

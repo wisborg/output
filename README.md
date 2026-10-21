@@ -430,6 +430,7 @@ plot prices.csv                          # every column of numbers against the f
 plot --y close,volume prices.csv         # these columns, a strip each
 plot --x month --y rain --out rain.png weather.tsv
 some-program | plot --smooth 7           # from standard input, a 7-row average
+plot --log latency.csv                   # each power of ten the same height
 plot --list prices.csv                   # what each column holds
 ```
 
@@ -459,6 +460,16 @@ a zero, and a cell that is not a number in a column of them is a gap too,
 which `plot` says. The y axis spans every value unless `--robust` asks for the
 middle 98%: a spike in someone's data is as likely to be the point as an
 error.
+
+`--log` draws each y axis by its logarithm, every power of ten the same
+height, for readings that grow by multiplying — latency, a price over decades
+— which a linear axis draws as a line along the bottom with a spike at the
+end. Its ticks are 1, 2 and 5 times each power of ten where there is room, and
+every power, or every few, where there is not, written briefly: `0.02`,
+`500`, `2k`, `50M`. A reading at or below zero has no place on a log axis: it
+is a gap in the line, which `plot` says, never a dot along the bottom as if it
+were the least; a column with nothing above zero is refused. In the library
+it is `chart.Log`, a `Kind` like `Number` and `Date`, for a strip's Y scale.
 
 In iTerm2, WezTerm, kitty and Ghostty the chart is a picture the width of the
 window; in any other terminal, in tmux, or into a pipe, it is braille; with

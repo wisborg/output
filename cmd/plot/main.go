@@ -69,6 +69,7 @@ type options struct {
 	title         string
 	smooth        int
 	robust        bool
+	log           bool
 	fonts         []string
 	highMemory    bool
 }
@@ -97,6 +98,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.title, "title", "", "the chart's title (default: what is plotted against what)")
 	fs.IntVar(&o.smooth, "smooth", 0, "average each value with those of the rows either side of it, this many rows in all -- the odd number after an even one -- never across a gap")
 	fs.BoolVar(&o.highMemory, "high-memory", false, "draw a chart however much memory it takes: without it a braille chart of more than a million characters (some 25 MB) and a picture of more than "+strconv.Itoa(picture.DefaultMaxPixels/1000000)+" million pixels (some 650 MB) are refused, as a size mistyped is likelier than one meant, and the refusal says what it would take")
+	fs.BoolVar(&o.log, "log", false, "draw each y axis by its logarithm, every power of ten the same height: for readings that grow by multiplying, which a linear axis draws as a line along the bottom; a reading at or below zero has no place on it, and is a gap, which plot says")
 	fs.BoolVar(&o.robust, "robust", false, "set each y axis from the middle 98% of its values, so a few outliers do not flatten the rest; those beyond are drawn at the edge")
 	fs.Func("font", "a TrueType or OpenType font for the letters the built-in font lacks, in a picture; repeat for several", func(s string) error {
 		o.fonts = append(o.fonts, s)
@@ -227,7 +229,23 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if s.noX > 0 {
 		notes = append(notes, fmt.Sprintf("%q: %s no %s, left out", t.names[x], rowsOf(s.noX), cols[x].kind))
 	}
-	copts := chartOptions{title: o.title, smooth: o.smooth, robust: o.robust}
+	if o.log {
+		// A reading at or below zero has no place on a log axis: a gap,
+		// said, never one drawn along the bottom as if it were the least.
+		for k, name := range s.yNames {
+			n := 0
+			for i := range s.rows {
+				if r := &s.rows[i]; r.ok[k] && !(r.ys[k] > 0) {
+					r.ok[k] = false
+					n++
+				}
+			}
+			if n > 0 {
+				notes = append(notes, fmt.Sprintf("%q: %s at or below zero, left as gaps on a log axis", name, cells(n)))
+			}
+		}
+	}
+	copts := chartOptions{title: o.title, smooth: o.smooth, robust: o.robust, log: o.log}
 	fonts, err := loadFonts(o.fonts)
 	if err != nil {
 		return err

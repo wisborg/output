@@ -14,14 +14,13 @@ import (
 )
 
 // FuzzPlot reads a file as a stranger may write it and charts whatever
-// reads, in braille 60 by 16 characters, smoothed and not, and lists its
-// columns. A CSV is often someone else's, so none of it may panic, and
-// what is written must keep what the command promises of a heading or a
-// cell: standard output and standard error hold no control character but
-// a line's end and are UTF-8, and no line of the chart is wider than 60
-// columns.
-//
-// go test runs the seeds and testdata/fuzz alone; make fuzz searches.
+// reads, in braille 60 by 16 characters, smoothed, on a log axis and plain,
+// and lists its columns. A CSV is often someone else's, so none of it may
+// panic, and what is written must keep what the command promises of a
+// heading or a cell: standard output and standard error hold no control
+// character but a line's end and are UTF-8, and no line of the chart is
+// wider than 60 columns.  go test runs the seeds and testdata/fuzz alone;
+// make fuzz searches.
 func FuzzPlot(f *testing.F) {
 	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.csv"))
 	if err != nil {
@@ -65,6 +64,7 @@ func checkPlot(t *testing.T, data string) {
 	for _, args := range [][]string{
 		{"--terminal", "braille", "--width", "60", "--height", "16"},
 		{"--terminal", "braille", "--width", "60", "--height", "16", "--smooth", "3", "--robust"},
+		{"--terminal", "braille", "--width", "60", "--height", "16", "--log"},
 		{"--list"},
 	} {
 		var out, errOut bytes.Buffer

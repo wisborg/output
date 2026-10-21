@@ -487,3 +487,30 @@ func TestPlotHighMemory(t *testing.T) {
 		t.Errorf("a PNG of 2^41 pixels with --high-memory: %v", err)
 	}
 }
+
+// --log draws each y axis by its logarithm, labelled at powers of ten; a
+// reading at or below zero has no place on it, and is a gap that plot
+// says, never a dot along the bottom; a column with nothing above zero is
+// refused, saying why.
+func TestPlotLog(t *testing.T) {
+	data := "n,latency\n1,0.8\n2,3\n3,12\n4,0\n5,95\n6,400\n7,2100\n8,-1\n9,9800\n10,51000\n"
+	out, errOut, err := plot(t, data, "--log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"10k┤", "100┤", "  1┤"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q on the axis:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(errOut, `"latency": 2 cells at or below zero, left as gaps on a log axis`) {
+		t.Errorf("stderr %q does not say what was left out", errOut)
+	}
+	// Linear, the same file has no such labels: the flag is what made them.
+	if lin, _, _ := plot(t, data); strings.Contains(lin, "10k┤") {
+		t.Errorf("a linear axis labelled as a log one:\n%s", lin)
+	}
+	if _, _, err := plot(t, "n,v\n1,0\n2,-3\n", "--log"); err == nil || !strings.Contains(err.Error(), "above zero") {
+		t.Errorf("a column with nothing above zero: %v", err)
+	}
+}

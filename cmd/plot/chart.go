@@ -73,6 +73,7 @@ type chartOptions struct {
 	title  string
 	smooth int  // rows to average each reading over, as smoothRows has it; 0 or 1 is none
 	robust bool // scale y from the middle 98% of readings
+	log    bool // each y axis by its logarithm; no reading at or below zero is left
 }
 
 // buildChart is s's chart, for a drawing of resolution columns -- dots
@@ -105,10 +106,17 @@ func buildChart(s series, opts chartOptions, resolution, xTicks, yTicks int) (ch
 			segs = chart.Smooth(segs, time.Duration(smoothRows(opts.smooth)-1)*time.Second)
 		}
 		ylo, yhi, ok := yRange(segs, opts.robust)
-		if !ok {
+		kind := chart.Number
+		if opts.log {
+			kind = chart.Log
+		}
+		switch {
+		case !ok && opts.log:
+			return chart.Chart{}, fmt.Errorf("%q has no numbers above zero to plot on a log axis", name)
+		case !ok:
 			return chart.Chart{}, fmt.Errorf("%q has no numbers to plot", name)
 		}
-		c.Strips = append(c.Strips, chart.Strip{Title: name, Y: chart.NewScale(ylo, yhi, yTicks, chart.Number), Segments: segs})
+		c.Strips = append(c.Strips, chart.Strip{Title: name, Y: chart.NewScale(ylo, yhi, yTicks, kind), Segments: segs})
 	}
 	c.Title = opts.title
 	if c.Title == "" {
