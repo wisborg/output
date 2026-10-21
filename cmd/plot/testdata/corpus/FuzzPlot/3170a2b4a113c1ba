@@ -1,0 +1,2 @@
+go test fuzz v1
+string("A,\x1b\xb00\xb4ȟ0000\xac0\xac\xac\xac00\n1000-01-01,,0\n1000-01-01,0\n00000")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("000a,0000a,aaaaaa\n2024-01-02,10 ,0\n2024-01-01,11\n0000a\xff\xff0,NA")

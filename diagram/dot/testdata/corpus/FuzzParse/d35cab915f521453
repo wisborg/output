@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{rankdir=LR  suBgrAph cluster000{ label=\"0\"a columns=2a a  0a 1a}0A -> x00 }")

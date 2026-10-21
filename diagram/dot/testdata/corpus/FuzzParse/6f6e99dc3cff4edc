@@ -1,0 +1,2 @@
+go test fuzz v1
+string("日杬蜬藥蜬蜬語杬蜬藬蜬語杬蜬藬諞")

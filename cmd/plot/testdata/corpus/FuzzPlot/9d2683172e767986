@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\x9400000000\n\x8eĔ|Я00\xcf,\xe40000000\xec,0\xa80000000,Ω.000000\n\xe9000ϲ.;\xbb")

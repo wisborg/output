@@ -1,0 +1,2 @@
+go test fuzz v1
+string("1\xac語,弗\xa5本語,値\n0,0")

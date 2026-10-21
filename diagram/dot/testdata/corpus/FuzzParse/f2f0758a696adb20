@@ -1,0 +1,2 @@
+go test fuzz v1
+string("grAph{rankdir=<000000aaa00>0}")

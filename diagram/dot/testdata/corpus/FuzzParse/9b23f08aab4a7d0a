@@ -1,0 +1,2 @@
+go test fuzz v1
+string("日本語00👨\u200d\xf0\x9f\x91\xe2")

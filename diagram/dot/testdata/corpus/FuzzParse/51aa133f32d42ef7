@@ -1,0 +1,2 @@
+go test fuzz v1
+string("striCt grAph{a:n--0:s --a[00A]1}")

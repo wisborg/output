@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph {Aaa[aa\"\"000000a=aaaa\x0100000000000")

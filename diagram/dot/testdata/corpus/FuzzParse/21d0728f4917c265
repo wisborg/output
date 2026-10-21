@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrA 日本語00👨\u200d👩\u200d👧")

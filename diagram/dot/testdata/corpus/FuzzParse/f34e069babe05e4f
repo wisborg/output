@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{0->0->0->0->0->0->0->0[label]0->0[label\"\"color=\"#000\"]")

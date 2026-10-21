@@ -29,7 +29,7 @@ RUN ?=
 ## help: list these targets
 help:
 	@echo "output targets:"
-	@sed -n 's/^## //p' $(MAKEFILE_LIST) | awk -F': ' '{printf "  %-8s %s\n", $$1, $$2}'
+	@sed -n 's/^## //p' $(MAKEFILE_LIST) | awk -F': ' '{printf "  %-12s %s\n", $$1, $$2}'
 
 ## build: compile bin/plot and bin/diagram
 build: $(BINS)
@@ -119,7 +119,7 @@ deps:
 	    bad=$$(go list -deps $$1 | grep '^github.com/wisborg/output' | grep -vxE "$$2" || true); \
 	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$1 imports:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
 	  }; \
-	  check "./chart/terminal ./internal/memory" ''; \
+	  check "./chart/terminal ./internal/memory ./internal/fuzzcorpus" ''; \
 	  check "./chart ./diagram ./diagram/dot ./diagram/svg" "$$rw"; \
 	  check "./internal/canvas" "$$img"; \
 	  check "./chart/picture ./diagram/picture" "$$rw|$$img"; \
@@ -136,6 +136,7 @@ deps:
 	  own "./internal/canvas" "$$m/internal/canvas"; \
 	  own "./internal/cli" "$$m/internal/cli"; \
 	  own "./internal/memory" "$$m/internal/memory"; \
+	  own "./internal/fuzzcorpus" "$$m/internal/fuzzcorpus"; \
 	  own "./diagram" "$$m/diagram|$$m/internal/memory"; \
 	  own "./diagram/dot" "$$m/diagram/dot|$$m/diagram|$$m/internal/memory"; \
 	  own "./diagram/svg" "$$m/diagram/svg|$$m/diagram|$$m/internal/memory"; \
@@ -148,16 +149,52 @@ deps:
 FUZZTIME ?= 1m
 
 # The fuzz targets read what a stranger may write -- DOT, and a CSV for
-# plot -- and draw it every way a command does. `go test` replays their
-# seeds and anything saved in testdata/fuzz on every run; this searches for
-# more. An input that breaks one is written to that package's
-# testdata/fuzz/, and is committed with its fix, so it is replayed for
-# good. go test fuzzes one target of one package at a time, hence a line
-# each.
+# plot -- and draw it every way a command does. `go test` replays only
+# their seeds and testdata/fuzz/, which hold the inputs that once broke
+# something: a second at most, so the everyday run stays quick.
+#
+# A search keeps the inputs that reach code no earlier one did, in Go's
+# build cache, which no other machine has. testdata/corpus/ is where they
+# are kept for good, outside what go test reads: `make fuzz` starts from
+# it, so a search continues from the last, and `make fuzz-save` adds what a
+# search found, to be committed when it is worth keeping. `make
+# fuzz-replay` runs the whole corpus once through the targets' checks, in
+# seconds -- for after a change likelier than most to break an edge case. An input that breaks a target
+# is written to testdata/fuzz/ and committed with its fix, replayed for
+# good. go test fuzzes one target of one package at a time, hence a loop.
+FUZZ      := diagram/dot:FuzzParse cmd/plot:FuzzPlot
+FUZZCACHE  = $(shell go env GOCACHE)/fuzz/github.com/wisborg/output
+
 ## fuzz: search for DOT and CSV that break a command, FUZZTIME each (1m)
-fuzz:
-	go test -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) ./diagram/dot
-	go test -run '^$$' -fuzz '^FuzzPlot$$' -fuzztime $(FUZZTIME) ./cmd/plot
+fuzz: fuzz-load
+	@for t in $(FUZZ); do pkg=$${t%%:*}; fn=$${t##*:}; \
+	  go test -run '^$$' -fuzz "^$$fn\$$" -fuzztime $(FUZZTIME) ./$$pkg || exit 1; done
+
+# fuzz-replay runs each package's TestFuzzCorpus, which go test skips
+# unless FUZZ_CORPUS is set. `go test -fuzz -fuzztime 1x` looked like the
+# way, and replayed nothing: it stops before reaching what the cache holds,
+# and an input planted there to fail went through.
+## fuzz-replay: run every input in testdata/corpus once, in seconds
+fuzz-replay:
+	FUZZ_CORPUS=1 go test -count=1 -run '^TestFuzzCorpus$$' $(foreach t,$(FUZZ),./$(firstword $(subst :, ,$(t))))
+
+## fuzz-save: add what searches found to testdata/corpus, to commit
+fuzz-save:
+	@for t in $(FUZZ); do pkg=$${t%%:*}; fn=$${t##*:}; \
+	  mkdir -p $$pkg/testdata/corpus/$$fn; \
+	  before=$$(ls $$pkg/testdata/corpus/$$fn | wc -l); \
+	  [ -d "$(FUZZCACHE)/$$pkg/$$fn" ] && cp -n "$(FUZZCACHE)/$$pkg/$$fn"/* $$pkg/testdata/corpus/$$fn/ 2>/dev/null; \
+	  echo "$$fn: $$(( $$(ls $$pkg/testdata/corpus/$$fn | wc -l) - before )) new, in $$pkg/testdata/corpus/$$fn"; done
+
+# fuzz-load puts testdata/corpus where go test -fuzz looks for what it has
+# kept: a file is named by its content's hash, so one already there is the
+# same input, and is left.
+fuzz-load:
+	@for t in $(FUZZ); do pkg=$${t%%:*}; fn=$${t##*:}; \
+	  if [ -d $$pkg/testdata/corpus/$$fn ]; then \
+	    mkdir -p "$(FUZZCACHE)/$$pkg/$$fn"; \
+	    cp -n $$pkg/testdata/corpus/$$fn/* "$(FUZZCACHE)/$$pkg/$$fn/" 2>/dev/null || true; \
+	  fi; done
 
 ## clean: remove bin/, and empty .scratch/
 clean:
@@ -165,4 +202,4 @@ clean:
 	@find .scratch -mindepth 1 -maxdepth 1 ! -name env -exec rm -rf {} + 2>/dev/null || true
 	@echo "cleaned"
 
-.PHONY: help build install run gates test race cover tidy deps clean
+.PHONY: help build install run gates test race cover tidy deps fuzz fuzz-replay fuzz-save fuzz-load clean

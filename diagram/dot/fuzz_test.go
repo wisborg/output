@@ -12,6 +12,7 @@ import (
 
 	"github.com/wisborg/output/diagram"
 	"github.com/wisborg/output/diagram/svg"
+	"github.com/wisborg/output/internal/fuzzcorpus"
 )
 
 // FuzzParse reads DOT as a stranger may write it and draws whatever reads:
@@ -53,46 +54,57 @@ func FuzzParse(f *testing.F) {
 	} {
 		f.Add(s)
 	}
-	f.Fuzz(func(t *testing.T, src string) {
-		if len(src) > 4096 {
-			return
-		}
-		d, err := ParseWith(src, Options{MaxEdges: 40})
+	f.Fuzz(checkDOT)
+}
+
+// TestFuzzCorpus runs checkDOT on every input a search kept, in
+// testdata/corpus: make fuzz-replay.
+func TestFuzzCorpus(t *testing.T) {
+	for name, src := range fuzzcorpus.Strings(t, filepath.Join("testdata", "corpus", "FuzzParse")) {
+		t.Run(name, func(t *testing.T) { checkDOT(t, src) })
+	}
+}
+
+// checkDOT is FuzzParse's check of one input.
+func checkDOT(t *testing.T, src string) {
+	if len(src) > 4096 {
+		return
+	}
+	d, err := ParseWith(src, Options{MaxEdges: 40})
+	if err != nil {
+		return
+	}
+	for _, straight := range []bool{d.Straight, true} {
+		d.Straight = straight
+		lay, err := d.LayoutWith(diagram.LayoutOptions{MaxCells: 40000})
 		if err != nil {
 			return
 		}
-		for _, straight := range []bool{d.Straight, true} {
-			d.Straight = straight
-			lay, err := d.LayoutWith(diagram.LayoutOptions{MaxCells: 40000})
-			if err != nil {
-				return
-			}
-			for _, o := range []diagram.TextOptions{{}, {Braille: diagram.BrailleThin}, {Braille: diagram.BrailleThick}} {
-				for _, l := range lay.Text(o) {
-					if !utf8.ValidString(l) || strings.ContainsFunc(l, control) {
-						t.Fatalf("a text line not UTF-8 or holding a control character: %q", l)
-					}
-				}
-			}
-			for _, l := range lay.ColourText(diagram.Dark) {
-				if !utf8.ValidString(l) || strings.ContainsFunc(l, func(r rune) bool { return r != '\x1b' && control(r) }) {
-					t.Fatalf("a coloured line not UTF-8 or holding a control character: %q", l)
-				}
-			}
-			var buf bytes.Buffer
-			if err := svg.Write(&buf, lay, svg.Options{}); err != nil {
-				continue // a size no viewer draws is refused, not written
-			}
-			dec := xml.NewDecoder(&buf)
-			for {
-				if _, err := dec.Token(); err == io.EOF {
-					break
-				} else if err != nil {
-					t.Fatalf("an SVG that is not well-formed: %v", err)
+		for _, o := range []diagram.TextOptions{{}, {Braille: diagram.BrailleThin}, {Braille: diagram.BrailleThick}} {
+			for _, l := range lay.Text(o) {
+				if !utf8.ValidString(l) || strings.ContainsFunc(l, control) {
+					t.Fatalf("a text line not UTF-8 or holding a control character: %q", l)
 				}
 			}
 		}
-	})
+		for _, l := range lay.ColourText(diagram.Dark) {
+			if !utf8.ValidString(l) || strings.ContainsFunc(l, func(r rune) bool { return r != '\x1b' && control(r) }) {
+				t.Fatalf("a coloured line not UTF-8 or holding a control character: %q", l)
+			}
+		}
+		var buf bytes.Buffer
+		if err := svg.Write(&buf, lay, svg.Options{}); err != nil {
+			continue // a size no viewer draws is refused, not written
+		}
+		dec := xml.NewDecoder(&buf)
+		for {
+			if _, err := dec.Token(); err == io.EOF {
+				break
+			} else if err != nil {
+				t.Fatalf("an SVG that is not well-formed: %v", err)
+			}
+		}
+	}
 }
 
 // control is a C0 or C1 control character, or DEL.

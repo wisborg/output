@@ -1,0 +1,2 @@
+go test fuzz v1
+string("#0\n#0\n#0\n#0\n#0\n#0\n#0\n#0\n#0\n#0\ndigrAph {  A    A00000 0 0  node [A0000 = A000000]   A00; A0000 [A0000 0 A0000000]; A0!")

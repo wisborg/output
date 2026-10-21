@@ -1,0 +1,2 @@
+go test fuzz v1
+string(" digrAph{ 0  0     [0  ]   0 0 [a  ]  [a = a]   x [a = a]    x    -> a  [label = \"000\"]  a  -> a    [label = \"000\"]  a    -> a     [a!")

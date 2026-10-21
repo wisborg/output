@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\x9c\xfc\xb3\xcb\xe0\xea͟\f\xf6\x8c\n1/1/0000,0")

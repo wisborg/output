@@ -22,6 +22,8 @@ make deps                  # each package compiles in only what it is meant to
 make build                 # -> bin/plot, bin/diagram
 make run ARGS="--list data.csv"     # CMD=diagram for the other
 make fuzz FUZZTIME=5m      # search for DOT and CSV that break a command
+make fuzz-replay           # every input a search kept, once: seconds
+make fuzz-save             # keep what searches found, in testdata/corpus/
 make clean                 # remove bin/, empty .scratch/
 ```
 
@@ -88,6 +90,9 @@ from reality is a test failure.
   does. The standard `flag` package reads
   `-out` and `--out` alike; pflag would list them the same but read `-out`
   as `-o -u -t`, breaking command lines already written.
+- `internal/fuzzcorpus/` — `Strings`, for tests alone: reads a fuzz
+  target's kept inputs from `testdata/corpus/`, skipping unless
+  `FUZZ_CORPUS` is set, which `make fuzz-replay` does.
 - `internal/memory/` — `About`, the words a refusal gives the memory a
   drawing would take, "about 1.3 GB": shared by the packages that refuse a
   drawing as too large and the commands.
@@ -590,9 +595,16 @@ The characteristic bug here is output that *looks* right, so a test asserting
   `cmd/plot`) charts a CSV and lists it; each checks no panic and the
   promises a label carries -- no control character reaching a terminal,
   UTF-8 throughout, well-formed SVG, a chart within its width -- not merely
-  "no error". `go test` replays the seeds and `testdata/fuzz/`; `make fuzz`
-  searches. An input it finds is committed under `testdata/fuzz/` with the
-  fix. A seed for each hostile case is what makes the replay worth having:
+  "no error". `go test` replays the seeds and `testdata/fuzz/`, which holds
+  only inputs that once broke a target, committed with the fix: under a
+  second, so the everyday run stays quick. What a search keeps -- every
+  input that reached new code, hundreds -- is committed apart, in
+  `testdata/corpus/`, which `go test` does not read: `make fuzz` starts
+  from it, `make fuzz-save` adds to it, and `make fuzz-replay` runs it all
+  through each target's check, as `TestFuzzCorpus`, in seconds -- for
+  after a change likelier than most to break an edge case. `go test -fuzz
+  -fuzztime 1x` is not a replay: it stops before reaching what it holds,
+  and passed an input planted there to fail. A seed for each hostile case is what makes the replay worth having:
   one holding `\x1b` as text in DOT, which has no such escape, was no
   escape at all, and one with a byte that is not UTF-8 was refused whole,
   before any label was drawn. The text drawing keeps escapes out twice --

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\x80000,\x1b\n,0")

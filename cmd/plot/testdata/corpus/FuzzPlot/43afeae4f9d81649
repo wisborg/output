@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\n2024-01se,volumedate,clo-02,10.5,100\n2024-01-03,11,\n2024-01-04,NA,120\n")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\uf5b5\uf5b5\ue235\ue235")

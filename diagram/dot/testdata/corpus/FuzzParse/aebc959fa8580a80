@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{rankdir=0A {7 8 0A}2->1:w}")

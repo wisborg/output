@@ -1,0 +1,2 @@
+go test fuzz v1
+string("日本語\xe500\n00\n0\n1\xe8\xd4000")

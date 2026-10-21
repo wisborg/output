@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0\t\t\f\t0\nA\n0\n0")

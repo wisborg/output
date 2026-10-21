@@ -1,0 +1,2 @@
+go test fuzz v1
+string("grAph{日本語\"00\"👨\u200d👩\u200d👧\"00000000\"'")

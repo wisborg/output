@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{0{1A0}->{2 7}}")

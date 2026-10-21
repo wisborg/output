@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{a->1->c a->c[dir=0]0}")

@@ -9,6 +9,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
+
+	"github.com/wisborg/output/internal/fuzzcorpus"
 )
 
 // FuzzPlot reads a file as a stranger may write it and charts whatever
@@ -44,33 +46,44 @@ func FuzzPlot(f *testing.F) {
 	} {
 		f.Add(s)
 	}
-	f.Fuzz(func(t *testing.T, data string) {
-		if len(data) > 4096 {
-			return
+	f.Fuzz(checkPlot)
+}
+
+// TestFuzzCorpus runs checkPlot on every input a search kept, in
+// testdata/corpus: make fuzz-replay.
+func TestFuzzCorpus(t *testing.T) {
+	for name, data := range fuzzcorpus.Strings(t, filepath.Join("testdata", "corpus", "FuzzPlot")) {
+		t.Run(name, func(t *testing.T) { checkPlot(t, data) })
+	}
+}
+
+// checkPlot is FuzzPlot's check of one input.
+func checkPlot(t *testing.T, data string) {
+	if len(data) > 4096 {
+		return
+	}
+	for _, args := range [][]string{
+		{"--terminal", "braille", "--width", "60", "--height", "16"},
+		{"--terminal", "braille", "--width", "60", "--height", "16", "--smooth", "3", "--robust"},
+		{"--list"},
+	} {
+		var out, errOut bytes.Buffer
+		_ = run(args, strings.NewReader(data), &out, &errOut, noEnv)
+		for _, w := range []*bytes.Buffer{&out, &errOut} {
+			s := w.String()
+			if !utf8.ValidString(s) || strings.ContainsFunc(s, func(r rune) bool { return r != '\n' && (r < 0x20 || r == 0x7f || r >= 0x80 && r < 0xa0) }) {
+				t.Fatalf("%v wrote text not UTF-8 or holding a control character: %q", args, s)
+			}
 		}
-		for _, args := range [][]string{
-			{"--terminal", "braille", "--width", "60", "--height", "16"},
-			{"--terminal", "braille", "--width", "60", "--height", "16", "--smooth", "3", "--robust"},
-			{"--list"},
-		} {
-			var out, errOut bytes.Buffer
-			_ = run(args, strings.NewReader(data), &out, &errOut, noEnv)
-			for _, w := range []*bytes.Buffer{&out, &errOut} {
-				s := w.String()
-				if !utf8.ValidString(s) || strings.ContainsFunc(s, func(r rune) bool { return r != '\n' && (r < 0x20 || r == 0x7f || r >= 0x80 && r < 0xa0) }) {
-					t.Fatalf("%v wrote text not UTF-8 or holding a control character: %q", args, s)
-				}
-			}
-			// In a CJK locale runewidth counts the axes' box-drawing
-			// characters two columns, which the rows are not laid out by.
-			if args[0] == "--list" || runewidth.DefaultCondition.EastAsianWidth {
-				continue
-			}
-			for _, l := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
-				if w := runewidth.StringWidth(l); w > 60 {
-					t.Fatalf("%v drew a line %d columns wide: %q", args, w, l)
-				}
+		// In a CJK locale runewidth counts the axes' box-drawing
+		// characters two columns, which the rows are not laid out by.
+		if args[0] == "--list" || runewidth.DefaultCondition.EastAsianWidth {
+			continue
+		}
+		for _, l := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+			if w := runewidth.StringWidth(l); w > 60 {
+				t.Fatalf("%v drew a line %d columns wide: %q", args, w, l)
 			}
 		}
-	})
+	}
 }

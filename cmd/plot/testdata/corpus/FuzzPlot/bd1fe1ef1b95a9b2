@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\t0\t\tA\t2\t2")

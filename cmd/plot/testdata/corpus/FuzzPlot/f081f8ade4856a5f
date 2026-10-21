@@ -1,0 +1,2 @@
+go test fuzz v1
+string("日本語,a\x80\xa4\n0,0")
