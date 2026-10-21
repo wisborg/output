@@ -42,3 +42,17 @@ func ExampleChart_Braille() {
 	//            ━━━━━━
 	//     ━ maintenance
 }
+
+// ExampleNewScale_log is a log scale for readings from 3 ms to 40 s, as a
+// latency's: ticked at 1, 2 and 5 times each power of ten, and labelled
+// briefly. Draw a reading at or below zero as a gap -- Point.Ok false --
+// since a log scale has no place for it.
+func ExampleNewScale_log() {
+	s := chart.NewScale(0.003, 40, 16, chart.Log)
+	for _, v := range s.Ticks() {
+		fmt.Print(s.Label(v), " ")
+	}
+	fmt.Println()
+	// Output:
+	// 0.002 0.005 0.01 0.02 0.05 0.1 0.2 0.5 1 2 5 10 20 50
+}

@@ -5,6 +5,8 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // RobustQuantile is how much of the readings at either end RobustRange
@@ -57,6 +59,23 @@ const (
 	// and Scale.Label. Only the years 1 to 9999 are written as dates; a
 	// scale reaching past them has no ticks.
 	Date
+	// Log is a quantity drawn by its logarithm, so that each power of ten
+	// takes the same height: latency, a price over decades, anything that
+	// grows by multiplying, where a linear axis draws all but the largest
+	// readings as a line along the bottom. It is for a strip's Y scale --
+	// Bin divides the x axis evenly -- and its Min must be above zero.
+	//
+	// Its Step is in powers of ten: 1 ticks at every power, 2 at every
+	// other, and so on; a Step below 1 ticks at 1, 2 and 5 times every
+	// power, which are near enough a third of a power apart. Labels are
+	// written as briefly as the tick allows: "0.01", "5", "200", "1k",
+	// "50M", "1e+18".
+	//
+	// A reading at or below zero has no place on it, and is drawn at the
+	// bottom as any reading below a scale is: a reading drawn where it is
+	// not. Leave such a reading out -- Point.Ok false -- so that it is a
+	// gap, as plot does, and say so.
+	Log
 )
 
 // Scale is one axis of a chart: the span it shows, the step between its
@@ -93,10 +112,19 @@ type Scale struct {
 // zero, and a NaN is taken for zero, so the
 // scale's own arithmetic stays finite; a reading beyond it is drawn at the
 // axis's end, as any reading outside a scale is.
+//
+// A Log scale is rounded out to its ticks too, its room either side a
+// fiftieth of its span in powers of ten, and a span of nothing is opened
+// to half the reading below and half again above. Its lo must be above
+// zero: a lo that is not makes a scale Check refuses, saying so. It
+// reaches no lower than 1e-300.
 func NewScale(lo, hi float64, maxTicks int, kind Kind) Scale {
 	lo, hi = held(lo), held(hi)
 	if hi < lo {
 		lo, hi = hi, lo
+	}
+	if kind == Log {
+		return logScale(lo, hi, maxTicks)
 	}
 	nonNegative := lo >= 0
 	if hi-lo <= 0 {
@@ -129,6 +157,12 @@ func ExactScale(lo, hi float64, maxTicks int, kind Kind) Scale {
 	lo, hi = held(lo), held(hi)
 	if hi < lo {
 		lo, hi = hi, lo
+	}
+	if kind == Log {
+		if hi <= lo {
+			hi = lo * 10
+		}
+		return Scale{Min: lo, Max: hi, Step: logStep(math.Log10(hi)-math.Log10(lo), maxTicks), Kind: Log}
 	}
 	if hi <= lo {
 		// One past lo, or for a lo so large that one past it is lo itself
@@ -214,6 +248,9 @@ func (s Scale) Ticks() []float64 {
 	if s.Kind == Date {
 		return dateTicks(s.Min, s.Max, s.Step)
 	}
+	if s.Kind == Log {
+		return logTicks(s.Min, s.Max, s.Step)
+	}
 	return multiples(math.Ceil(s.Min/s.Step-1e-9), math.Floor(s.Max/s.Step+1e-9), s.Step)
 }
 
@@ -262,7 +299,14 @@ func (s Scale) Frac(v float64) (f float64, clipped bool) {
 	if math.IsNaN(v) {
 		return 0, true
 	}
-	f = (v - s.Min) / (s.Max - s.Min)
+	switch {
+	case s.Kind != Log:
+		f = (v - s.Min) / (s.Max - s.Min)
+	case v > 0:
+		f = (math.Log10(v) - math.Log10(s.Min)) / (math.Log10(s.Max) - math.Log10(s.Min))
+	default:
+		f = math.Inf(-1) // at or below zero: below every log scale
+	}
 	if math.IsNaN(f) {
 		// A scale of no span, or one whose ends are not numbers.
 		return 0, true
@@ -279,7 +323,8 @@ func (s Scale) Frac(v float64) (f float64, clipped bool) {
 // Label is v as the scale writes it: a number with as many decimals as its
 // step needs -- in thousands, millions or more, "250k", "4M", where the
 // step is a hundred thousand or more, and as a power of ten, "4.5e+17",
-// past a thousand trillion -- or a clock -- minutes and seconds, or hours and minutes on an
+// past a thousand trillion -- or on a Log scale as briefly as the tick allows,
+// "0.02", "500", "2k", "1e+18" -- or a clock -- minutes and seconds, or hours and minutes on an
 // axis that reaches an hour, with seconds where the step is under a minute
 // -- or a date, as briefly as the tick before it allows: "2 Mar", then
 // "6 Mar"; "Mar 2024", then "Apr"; the first tick of the axis in full.
@@ -290,6 +335,9 @@ func (s Scale) Label(v float64) string {
 	if s.Kind == Date {
 		ticks := s.Ticks()
 		return dateLabel(v, s.Step, len(ticks) > 0 && v == ticks[0])
+	}
+	if s.Kind == Log {
+		return logLabel(v)
 	}
 	if v == 0 {
 		v = 0 // no "-0"
@@ -336,4 +384,145 @@ func clockLabel(v float64, hours, seconds bool) string {
 		return fmt.Sprintf("%s%d:%02d", sign, h, m)
 	}
 	return fmt.Sprintf("%s%d:%02d", sign, total/60, sec)
+}
+
+// logScale is NewScale's scale of kind Log, for lo no greater than hi. Its
+// arithmetic is in powers of ten, so readings from 1e-300 to 1e300 have a
+// span of 600 rather than one that overflows.
+func logScale(lo, hi float64, maxTicks int) Scale {
+	if !(lo > 0) {
+		return Scale{Min: lo, Max: hi, Step: 1, Kind: Log} // which fault refuses
+	}
+	a, b := max(math.Log10(lo), logFloor), max(math.Log10(hi), logFloor)
+	if b <= a {
+		open := math.Log10(1.5)
+		a, b = a-open, b+open
+	}
+	pad := (b - a) / 50
+	a, b = a-pad, b+pad
+	step := logStep(b-a, maxTicks)
+	s := Scale{Step: step, Kind: Log}
+	if step >= 1 {
+		// Out to whole powers of ten, not to whole steps: readings from 1
+		// to 1e30 ticked every ten powers were drawn from 1e-10 to 1e40.
+		s.Min, s.Max = pow10(math.Floor(a)), pow10(math.Ceil(b))
+	} else {
+		s.Min, s.Max = below125(a), above125(b)
+	}
+	return s
+}
+
+// logFloor is the least power of ten a Log scale reaches down to, 1e-300:
+// a reading below it is drawn at the bottom, as one above limit is drawn
+// at the top. The float64s below 1e-308 hold fewer digits the smaller
+// they are, and at the least of them 1, 2 and 5 times a power of ten were
+// one number: a scale from 1e-323 to 1e-323.
+const logFloor = -300
+
+// pow10 is ten to the e, held within the float64s, past the largest at
+// the largest.
+func pow10(e float64) float64 {
+	return min(math.Pow(10, e), math.MaxFloat64)
+}
+
+// logStep is the Step of a Log scale powers powers of ten wide with at
+// most maxTicks ticks: 1, 2 and 5 times each power of ten where there is
+// room for three a power, otherwise every one, two, five or ten powers or
+// more.
+func logStep(powers float64, maxTicks int) float64 {
+	if powers*3 <= float64(max(maxTicks, 1)) {
+		return 1.0 / 3
+	}
+	return max(1, niceStep(powers/float64(max(maxTicks, 1)), Number))
+}
+
+// mantissas are the multiples of each power of ten a Log scale with a
+// Step below 1 ticks at.
+var mantissas = []float64{1, 2, 5}
+
+// below125 is the largest of 1, 2 or 5 times a power of ten no greater
+// than ten to the e, and above125 the least no less than it, each held as
+// pow10 holds.
+func below125(e float64) float64 {
+	p := math.Floor(e)
+	for i := len(mantissas) - 1; i >= 0; i-- {
+		if m := math.Log10(mantissas[i]); p+m <= e+1e-9 {
+			return pow10(p) * mantissas[i]
+		}
+	}
+	return pow10(p)
+}
+
+func above125(e float64) float64 {
+	p := math.Floor(e)
+	for _, m := range mantissas {
+		if p+math.Log10(m) >= e-1e-9 {
+			return min(pow10(p)*m, math.MaxFloat64)
+		}
+	}
+	return pow10(p + 1)
+}
+
+// logTicks are a Log scale's ticks from lo to hi: see Log. None where lo is
+// not above zero, or there would be more than maxTicks.
+func logTicks(lo, hi, step float64) []float64 {
+	if !(lo > 0) {
+		return nil
+	}
+	from, to := math.Log10(lo), math.Log10(hi)
+	if to-from > maxTicks {
+		return nil
+	}
+	var ticks []float64
+	if step >= 1 {
+		for k := math.Ceil(from/step - 1e-9); k <= math.Floor(to/step+1e-9); k++ {
+			ticks = append(ticks, math.Pow(10, k*step))
+		}
+		return ticks
+	}
+	for e := math.Floor(from); e <= math.Floor(to); e++ {
+		p := math.Pow(10, e)
+		for _, m := range mantissas {
+			if v := m * p; v >= lo*(1-1e-9) && v <= hi*(1+1e-9) {
+				ticks = append(ticks, v)
+			}
+		}
+	}
+	return ticks
+}
+
+// logLabel is v as a Log scale writes it: to three figures at the most,
+// in thousands, millions, billions or trillions -- "2k", "50M" -- from a
+// thousand, and as a power of ten from a thousand trillion, or below a
+// ten-thousandth, where the zeros are what make it long.
+func logLabel(v float64) string {
+	a := math.Abs(v)
+	switch {
+	case a == 0:
+		return "0"
+	case a >= 1e15 || a < 1e-4:
+		// To three figures, as the others: a tick near the largest
+		// float64, a power of ten times 5 a hair off, wrote all seventeen.
+		m, e, _ := strings.Cut(strconv.FormatFloat(v, 'e', 2, 64), "e")
+		if strings.Contains(m, ".") {
+			m = strings.TrimRight(strings.TrimRight(m, "0"), ".")
+		}
+		return m + "e" + e
+	}
+	for _, u := range []struct {
+		div    float64
+		suffix string
+	}{{1e12, "T"}, {1e9, "G"}, {1e6, "M"}, {1e3, "k"}} {
+		if a >= u.div {
+			return figures(v/u.div) + u.suffix
+		}
+	}
+	return figures(v)
+}
+
+// figures is v to three significant figures at the most, with no zeros at
+// its end: "2", "31.6", "0.05".
+func figures(v float64) string {
+	s, _ := strconv.ParseFloat(strconv.FormatFloat(v, 'g', 3, 64), 64)
+	return strconv.FormatFloat(s, 'f', -1, 64)
 }

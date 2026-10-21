@@ -132,6 +132,9 @@ func (c Chart) Check() error {
 	if err := c.X.fault(); err != nil {
 		return fmt.Errorf("chart: the X scale %w", err)
 	}
+	if c.X.Kind == Log {
+		return errors.New("chart: the X scale is Log, which is for a strip's Y scale: Bin divides the x axis evenly")
+	}
 	for i, s := range c.Strips {
 		if err := s.Y.fault(); err != nil {
 			return fmt.Errorf("chart: strip %d (%q): its Y scale %w", i+1, s.Title, err)
@@ -153,6 +156,8 @@ func (s Scale) fault() error {
 		return fmt.Errorf("runs from %v to %v, which are not both numbers", s.Min, s.Max)
 	case !(s.Max > s.Min):
 		return fmt.Errorf("runs from %v to %v: Max must be above Min (Inverted turns a scale round)", s.Min, s.Max)
+	case s.Kind == Log && !(s.Min > 0):
+		return fmt.Errorf("is Log and runs from %v: a log scale's Min must be above zero", s.Min)
 	}
 	return nil
 }
