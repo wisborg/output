@@ -6,6 +6,9 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/clipperhouse/uax29/v2/graphemes"
+	"github.com/mattn/go-runewidth"
 )
 
 // Chart is what a chart draws: one strip per metric, stacked, sharing the
@@ -150,8 +153,12 @@ func (s Scale) fault() error {
 	return nil
 }
 
-// cut is s made printable and cut to at most n runes, the measure the
-// drawing's gutter is counted in.
+// cut is s made printable and cut to at most n terminal columns, measured
+// by runewidth.StringWidth as table and progress measure theirs. It cuts
+// between characters -- grapheme clusters, measured whole -- and never
+// writes half of one: counted in runes, a title in CJK came out twice the
+// width asked for, and a family of emoji cut part way left a joiner
+// dangling.
 //
 // Printable: a character hidden has, or a byte that is not UTF-8, is
 // written as U+FFFD. A title, a strip's name and a band kind's are text someone
@@ -168,11 +175,20 @@ func cut(s string, n int) string {
 			return r
 		}, s)
 	}
-	if utf8.RuneCountInString(s) <= n {
+	if runewidth.StringWidth(s) <= n {
 		return s
 	}
-	r := []rune(s)
-	return string(r[:max(n, 0)])
+	used, end := 0, 0
+	g := graphemes.FromString(s)
+	for g.Next() {
+		w := runewidth.StringWidth(g.Value())
+		if used+w > n {
+			break
+		}
+		used += w
+		end = g.End()
+	}
+	return s[:end]
 }
 
 // hidden is whether r is written as U+FFFD: a control character, a line or

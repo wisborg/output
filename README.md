@@ -226,8 +226,9 @@ packages carries along:
   uses `golang.org/x/text` (BSD-3-Clause).
 
 `table` does not import the YAML library, so a program that only builds
-tables does not link it; `chart` imports nothing outside the standard library;
-`diagram` measures its labels with `go-runewidth`, as `table` does; and only
+tables does not link it; `chart` cuts its titles and `diagram` measures its
+labels with `go-runewidth`, as `table` does, and `chart/terminal` imports
+nothing outside the standard library; and only
 `chart/picture` and `diagram/picture` import `golang.org/x/image`, so a program
 that draws charts or diagrams in text, or as SVG, or not at all, does not link
 that. `make deps` checks all of this.

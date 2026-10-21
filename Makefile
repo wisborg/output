@@ -84,12 +84,13 @@ tidy:
 # import today. CLAUDE.md gives the reasons; this checks them, against what
 # each package actually compiles in:
 #
-#   chart, chart/terminal   the standard library only
+#   chart/terminal          the standard library only
+#   chart                   go-runewidth and uax29, to cut titles to columns
 #   diagram, diagram/dot,
 #   diagram/svg             go-runewidth and uax29, to measure labels
+#   internal/canvas         golang.org/x/image, and x/text beneath it
 #   chart/picture,
-#   internal/canvas         add golang.org/x/image, and x/text beneath it
-#   diagram/picture         x/image, and diagram's go-runewidth
+#   diagram/picture         x/image, and their model's go-runewidth
 #   table, progress         go-runewidth and uax29, and never YAML or x/image
 #   the root package        adds YAML, and never x/image
 #
@@ -116,10 +117,10 @@ deps:
 	    bad=$$(go list -deps $$1 | grep '^github.com/wisborg/output' | grep -vxE "$$2" || true); \
 	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$1 imports:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
 	  }; \
-	  check "./chart ./chart/terminal" ''; \
-	  check "./diagram ./diagram/dot ./diagram/svg" "$$rw"; \
-	  check "./chart/picture ./internal/canvas" "$$img"; \
-	  check "./diagram/picture" "$$rw|$$img"; \
+	  check "./chart/terminal" ''; \
+	  check "./chart ./diagram ./diagram/dot ./diagram/svg" "$$rw"; \
+	  check "./internal/canvas" "$$img"; \
+	  check "./chart/picture ./diagram/picture" "$$rw|$$img"; \
 	  check "./table ./progress" "$$rw"; \
 	  check "." "$$rw|go.yaml.in/yaml/v3"; \
 	  check "./cmd/plot ./cmd/diagram" "$$rw|$$img"; \
@@ -136,7 +137,7 @@ deps:
 	  own "./diagram/dot" "$$m/diagram/dot|$$m/diagram"; \
 	  own "./diagram/svg" "$$m/diagram/svg|$$m/diagram"; \
 	  own "./diagram/picture" "$$m/diagram/picture|$$m/diagram|$$m/internal/canvas"; \
-	  [ $$fail -eq 0 ] && echo "deps: chart is the standard library alone, diagram adds only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
+	  [ $$fail -eq 0 ] && echo "deps: chart/terminal is the standard library alone, chart and diagram add only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
 	  exit $$fail
 
 ## clean: remove bin/, and empty .scratch/

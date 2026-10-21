@@ -20,8 +20,10 @@
 // package draws it as an image, and the terminal package shows that image
 // in a terminal that can show one.
 //
-// The package imports only the standard library: a program that draws
-// charts in text links nothing else.
+// Beyond the standard library the package imports go-runewidth and the
+// grapheme clusters beneath it, as table and progress do, to cut a title
+// to the width in a terminal's columns: a program that draws charts in
+// text links nothing else.
 package chart
 
 import (

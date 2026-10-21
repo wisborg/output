@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // ramp is a chart of a reading rising from 0 to 100 over 100 s, a reading a
@@ -265,6 +267,38 @@ func TestBrailleWritesTitlesAsText(t *testing.T) {
 	for _, want := range []string{"t�]0;PWNED��[31m", "a�b��c�d", "k�[2J"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("no %q in:\n%s", want, text)
+		}
+	}
+}
+
+// A title, a strip's name and a band kind's are cut to the width in
+// terminal columns, as a table's cells are, and between characters: cut
+// by runes, a title in CJK came out twice the width, and a family of emoji
+// cut part way left a joiner dangling at the end.
+func TestBrailleCutsTitlesToColumns(t *testing.T) {
+	const width = 60
+	for _, long := range []string{strings.Repeat("日本", 50), strings.Repeat("👨‍👩‍👧", 40)} {
+		c := stack(1000, 1000)
+		c.Title = long
+		c.Strips[0].Title = long
+		c.BandKinds = []BandKind{{Name: long, Mark: '━'}}
+		c.Bands = []Band{{From: 10, To: 20}}
+		cut := 0
+		for _, line := range c.Braille(width, 24) {
+			first, _ := utf8.DecodeRuneInString(long)
+			if !strings.ContainsRune(line, first) {
+				continue
+			}
+			cut++
+			if w := runewidth.StringWidth(line); w > width || w < width-2 {
+				t.Errorf("%d columns, want %d or just short of it: %q", w, width, line)
+			}
+			if strings.HasSuffix(line, "\u200D") {
+				t.Errorf("a joiner dangling at the end: %q", line)
+			}
+		}
+		if cut != 3 {
+			t.Errorf("%d lines hold the title, want the title, the strip's and the legend", cut)
 		}
 	}
 }

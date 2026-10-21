@@ -31,8 +31,8 @@ so any new dependency fails until the target names it, and the packages the
 layering keeps apart are checked by import too. It once checked each group
 against a few modules it must not have, and let anything else through:
 x/text into `table`, or `table` into `progress`, passed. It fails if
-`chart` or `chart/terminal` compiles in
-anything outside the standard library, the diagram packages anything but
+`chart/terminal` compiles in
+anything outside the standard library, `chart` or the diagram packages anything but
 go-runewidth and uax29, `table` or `progress` YAML or x/image,
 or the root package x/image. A new dependency in any package is a visible
 edit to that target.
@@ -105,8 +105,13 @@ from reality is a test failure.
 - `cmd/diagram/` — the `diagram` command.
 
 `progress` imports neither the root package nor `table`, the same way `table`
-imports neither of the others. `chart` imports only the standard library, as
-does `chart/terminal`. `diagram`, `diagram/dot` and `diagram/svg` import
+imports neither of the others. `chart/terminal` imports only the standard
+library. `chart` imports go-runewidth and uax29 to cut a title, a strip's
+name and a band kind's to the width in columns, between grapheme clusters,
+as `table` cuts a cell: cut by runes, a CJK title came out twice the width.
+`plot` linked both already, through `table`, so the measure became the one
+`table` and `progress` use rather than a second, standard-library one that
+could disagree with it. `diagram`, `diagram/dot` and `diagram/svg` import
 go-runewidth and the grapheme clusters beneath it, and nothing else: a label
 is measured in a terminal's columns, as a table's cell is, because counting
 its runes overflowed a CJK label's box and pushed the boxes after it out of
