@@ -64,6 +64,19 @@ func (lay *Layout) Node(id string) (PlacedNode, bool) {
 type PlacedNode struct {
 	Node *Node
 	Rect Rect
+	// Fields are a record's fields, each where its label is written:
+	// inside the outline, between the dividers.
+	Fields []PlacedField
+	// Dividers are the lines between a record's fields, each from one end
+	// to the other in cells: on the outline, or on the divider it meets,
+	// so a drawing joins them.
+	Dividers [][2]Point
+}
+
+// PlacedField is a field of a record and the cells it takes.
+type PlacedField struct {
+	Field *Field
+	Rect  Rect
 }
 
 // PlacedGroup is a group and where it is drawn: a frame's outline, or a
@@ -96,9 +109,10 @@ type PlacedEdge struct {
 	Straight bool
 	Shift    float64
 	// SidesDropped says the edge asks for a side, by FromSide or ToSide,
-	// that its line does not leave or enter its box by: no line could
-	// without joining another's or passing through a box. The other end
-	// keeps the side it asks for where it can.
+	// or a record's field, by FromPort or ToPort, that its line does not
+	// leave or enter its box by: no line could without joining another's
+	// or passing through a box. The other end keeps what it asks for where
+	// it can.
 	SidesDropped bool
 	// pictureAt, where pictured, is where a picture writes the label: the
 	// picture of a diagram with straight edges draws other lines than the
@@ -129,8 +143,13 @@ func (e PlacedEdge) PictureLabelAt() Point {
 // size is the cells a node or a group takes.
 type size struct{ w, h int }
 
-// nodeSize is the cells n takes: its label's lines, inside its outline.
-func nodeSize(n *Node) size {
+// nodeSize is the cells n takes: its label's lines, inside its outline --
+// or a record's fields, in a row where row is true and a column where not.
+func nodeSize(n *Node, row bool) size {
+	if len(n.Record) > 0 {
+		s := fieldsSize(n.Record, row)
+		return size{s.w + 2, s.h + 2}
+	}
 	lines := strings.Split(n.label(), "\n")
 	w := 0
 	for _, l := range lines {
@@ -317,8 +336,7 @@ func (lay *Layout) move(dx, dy int) {
 	}
 	at := func(p *Point) { p.X, p.Y = p.X+dx, p.Y+dy }
 	for i := range lay.Nodes {
-		r := &lay.Nodes[i].Rect
-		r.X, r.Y = r.X+dx, r.Y+dy
+		lay.Nodes[i].move(dx, dy)
 		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]
 	}
 	for i := range lay.Groups {
@@ -413,7 +431,7 @@ func (l *layouter) plan(g *Group) (*plan, error) {
 			p.kids[i] = kid
 			p.sizes[i] = kid.outer()
 		} else {
-			p.sizes[i] = nodeSize(it.Node)
+			p.sizes[i] = nodeSize(it.Node, l.recordRow())
 		}
 	}
 	if g.Rows > 0 || g.Columns > 0 {
@@ -1029,9 +1047,16 @@ func (l *layouter) placeLayers(p *plan, inner Rect) {
 	}
 }
 
+// recordRow says a record's fields go in a row: where the layers run down
+// or up, as Graphviz lays them, and in a column where they run across.
+func (l *layouter) recordRow() bool { return !l.d.Direction.across() }
+
 func (l *layouter) placeNode(n *Node, x, y int, s size) {
 	r := Rect{x, y, s.w, s.h}
 	pn := PlacedNode{Node: n, Rect: r}
+	if len(n.Record) > 0 {
+		placeFields(&pn, n.Record, Rect{x + 1, y + 1, s.w - 2, s.h - 2}, l.recordRow())
+	}
 	l.out.Nodes = append(l.out.Nodes, pn)
 	l.out.nodeAt[n.ID] = pn
 	l.rect[n.ID] = r

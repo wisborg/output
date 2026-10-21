@@ -113,6 +113,26 @@ type Node struct {
 	// Invisible keeps the node's place and draws nothing, as DOT's
 	// style=invis: how a gap in a grid is kept.
 	Invisible bool
+	// Record divides the node into fields, as DOT's shape=record draws a
+	// struct, a table's columns or a class: side by side in a row where
+	// the diagram's layers run down or up, and one above another where
+	// they run across, as Graphviz lays them. Label is not drawn; Shape is
+	// the outline, a Box or a Rounded one. An edge may end at one field,
+	// by its port: see Edge.FromPort.
+	Record []Field
+}
+
+// Field is one field of a record.
+type Field struct {
+	// Port names the field to the edges, as Edge.FromPort and ToPort name
+	// it.
+	Port string
+	// Label is what the field says, a line to each "\n".
+	Label string
+	// Fields, where there are any, divide the field the other way from
+	// the fields it is one of -- a field of a row is a column of fields,
+	// and one of a column a row -- and its Label is not drawn.
+	Fields []Field
 }
 
 // Edge is a line from one node to another.
@@ -127,6 +147,14 @@ type Edge struct {
 	// out of that side blocked -- that end is drawn by any side, the other
 	// keeping its own where it can, and its PlacedEdge says so.
 	FromSide, ToSide Side
+	// FromPort and ToPort name a field of a record node the edge leaves
+	// From by and enters To by: it ends on the outline beside that field,
+	// on a side the field reaches, as far as FromSide and ToSide allow. An
+	// empty port, or one no field of the node has, is anywhere on the box.
+	// Like a side, a port steers the line and moves no box, and where no
+	// line can end by the field, the end is drawn elsewhere and its
+	// PlacedEdge says so.
+	FromPort, ToPort string
 	Line             Line
 	// Colour is the line's colour; nil is the palette's.
 	Colour color.Color

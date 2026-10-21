@@ -290,6 +290,21 @@ func (d drawer) node(pn diagram.PlacedNode) {
 	if text == nil {
 		text = d.pal.TextOn(filledBy(n))
 	}
+	if len(n.Record) > 0 {
+		// A record's dividers, in the outline's stroke, and each field's
+		// label in the middle of the field.
+		for _, div := range pn.Dividers {
+			d.stroke([]float64{d.s.X(div[0].X), d.s.X(div[1].X)}, []float64{d.s.Y(div[0].Y), d.s.Y(div[1].Y)}, n.Line, line)
+		}
+		for _, f := range pn.Fields {
+			fx0, _, fx1, _ := d.s.Box(f.Rect)
+			lines := strings.Split(f.Field.Label, "\n")
+			for i, l := range lines {
+				_ = d.cv.Text(l, (fx0+fx1)/2, d.s.Y(f.Rect.Y+(f.Rect.H-len(lines))/2+i), 0.5, textCentre, d.px, text)
+			}
+		}
+		return
+	}
 	label := n.Label
 	if label == "" {
 		label = n.ID

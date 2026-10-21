@@ -521,7 +521,9 @@ func arrow(c *textCanvas, from, to Point, col color.Color) {
 }
 
 // drawTextNode draws n's outline, over anything passing behind it, its
-// fill behind its inside, and its label in the middle.
+// fill behind its inside, and its label in the middle -- or a record's
+// dividers, joined to the outline, and each field's label in the middle of
+// the field.
 func drawTextNode(c *textCanvas, n PlacedNode, pal Palette) {
 	r, node := n.Rect, n.Node
 	// The lines of edges that end on the outline are kept, so the outline
@@ -587,6 +589,18 @@ func drawTextNode(c *textCanvas, n PlacedNode, pal Palette) {
 		}
 	} else {
 		top = r.Y
+	}
+	if len(node.Record) > 0 {
+		for _, d := range n.Dividers {
+			c.line(d[0], d[1], node.Line == Dashed || node.Line == Dotted, node.Colour)
+		}
+		for _, f := range n.Fields {
+			fl := strings.Split(f.Field.Label, "\n")
+			for i, line := range fl {
+				c.write(f.Rect.X+(f.Rect.W-Width(line))/2, f.Rect.Y+(f.Rect.H-len(fl))/2+i, line, ink)
+			}
+		}
+		return
 	}
 	for i, line := range lines {
 		c.write(r.X+(r.W-Width(line))/2, top+i, line, ink)

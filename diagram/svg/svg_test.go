@@ -73,6 +73,54 @@ func TestWriteIsWellFormed(t *testing.T) {
 	}
 }
 
+// A record's fields' words are each a text element, and its dividers are
+// drawn: the document is well-formed, with every field's words in it.
+func TestWriteRecord(t *testing.T) {
+	d := &diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{
+		{Node: &diagram.Node{ID: "r", Record: []diagram.Field{{Label: "one"}, {Fields: []diagram.Field{{Label: "two"}, {Label: "<three>"}}}}}},
+	}}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, lay, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	paths := 0
+	dec := xml.NewDecoder(&buf)
+	inText := false
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("not well-formed: %v", err)
+		}
+		switch tok := tok.(type) {
+		case xml.StartElement:
+			inText = tok.Name.Local == "text"
+			if tok.Name.Local == "path" {
+				paths++
+			}
+		case xml.CharData:
+			if inText {
+				texts = append(texts, string(tok))
+			}
+		case xml.EndElement:
+			inText = false
+		}
+	}
+	if got := strings.Join(texts, "|"); got != "one|two|<three>" {
+		t.Errorf("texts %q, want each field's words", got)
+	}
+	if paths != 2 {
+		t.Errorf("%d paths, want a divider for each of two", paths)
+	}
+}
+
 // A palette that sets some colours takes the rest from Light: one setting
 // its foreground alone wrote with a nil background, and panicked.
 func TestWritePartPalette(t *testing.T) {

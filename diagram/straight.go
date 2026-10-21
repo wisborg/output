@@ -23,13 +23,15 @@ func centre(r Rect) (x, y float64) {
 // other node. A loop keeps its loop, and an invisible edge is drawn
 // neither way.
 func (lay *Layout) straightens(e Edge) bool {
-	// Nor one that asks for a side: a straight line runs between the
-	// boxes' middles, out of whichever side it meets.
-	if e.From == e.To || e.Invisible || e.FromSide != 0 || e.ToSide != 0 {
-		return false
-	}
+	// Nor one that asks for a side or a record's field: a straight line
+	// runs between the boxes' middles, out of whichever side it meets.
 	a, _ := lay.Node(e.From)
 	b, _ := lay.Node(e.To)
+	_, fromField := a.field(e.FromPort)
+	_, toField := b.field(e.ToPort)
+	if e.From == e.To || e.Invisible || e.FromSide != 0 || e.ToSide != 0 || fromField || toField {
+		return false
+	}
 	return !lay.crossesBox(a, b)
 }
 
@@ -477,7 +479,7 @@ func (lay *Layout) shift(k int) {
 	}
 	lay.Height += k
 	for i := range lay.Nodes {
-		lay.Nodes[i].Rect.Y += k
+		lay.Nodes[i].move(0, k)
 		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]
 	}
 	for i := range lay.Groups {

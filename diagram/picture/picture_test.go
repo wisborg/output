@@ -167,3 +167,27 @@ func TestDrawRefusesNoPicture(t *testing.T) {
 		t.Errorf("TextPx 1e-300 drew %v", img.Bounds())
 	}
 }
+
+// A record's dividers are drawn in the outline's ink, from one side of it
+// to the other: the middle of each is not the background.
+func TestDrawRecordDividers(t *testing.T) {
+	d := &diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{
+		{Node: &diagram.Node{ID: "r", Record: []diagram.Field{{Label: "one"}, {Label: "two"}, {Label: "three"}}}},
+	}}}
+	lay := layout(t, d)
+	img, err := Draw(lay, Options{TextPx: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := diagram.ScaleFor(20)
+	r, _ := lay.Node("r")
+	if len(r.Dividers) != 2 {
+		t.Fatalf("%d dividers, want 2", len(r.Dividers))
+	}
+	for _, div := range r.Dividers {
+		x, y := s.X(div[0].X), (s.Y(div[0].Y)+s.Y(div[1].Y))/2
+		if got := img.RGBAAt(int(x), int(y)); got == diagram.Light.Background {
+			t.Errorf("the divider at %v is not drawn: the background at (%.0f, %.0f)", div, x, y)
+		}
+	}
+}

@@ -117,7 +117,7 @@ func (l *layouter) route() {
 		// by any side that joins no other line is taken over one by the
 		// side asked for that does, since a line read as another's
 		// misleads, and one by another side only looks other than asked.
-		sided := e.FromSide != 0 || e.ToSide != 0
+		sided := e.FromSide != 0 || e.ToSide != 0 || r.fields[i] != [2]Rect{}
 		var pts []Point
 		for _, try := range []struct{ strict, anySide bool }{{true, false}, {true, true}, {false, false}, {false, true}} {
 			if try.anySide && !sided {
@@ -141,7 +141,7 @@ func (l *layouter) route() {
 		// Said of the path drawn, not of the search that found it: one
 		// free to end anywhere may still have kept a side, and a plain
 		// path may happen to.
-		dropped[i] = sided && !keepsSides(pts, e.FromSide, e.ToSide)
+		dropped[i] = sided && !(keepsSides(pts, e.FromSide, e.ToSide) && keepsFields(pts, a, b, r.fields[i]))
 	}
 	for i := range l.d.Edges {
 		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i], SidesDropped: dropped[i]})
@@ -192,6 +192,13 @@ type router struct {
 	// anySide has find end a path at any side of its boxes, an end off
 	// the sides its edge asks for at missCost.
 	anySide bool
+	// fields are the cells of the record field each edge's From and To
+	// ports name, the zero Rect where it names none.
+	fields [][2]Rect
+	// joints are where a record's dividers meet its outline: no line ends
+	// there, as none ends at a corner, since one that did would read as
+	// running into the divider.
+	joints map[Point]bool
 }
 
 // oneWay is the node at the end of e with an arrowhead and the node at
@@ -223,18 +230,33 @@ func oneWay(e Edge) (arrow, bare string, ok bool) {
 // both ways, and an edge leaving its line at a fork could have come from
 // either end of it; an edge with none runs neither, and a fork joining
 // three lines reads as joining any two of them.
+//
+// And at the same port of that node: a line into one field of a record
+// and a line into the whole of it, merged, end beside the field, and the
+// second reads as joining it too.
 func meet(a, b Edge) (string, bool) {
 	aArrow, aBare, aOk := oneWay(a)
 	bArrow, bBare, bOk := oneWay(b)
+	at := ""
 	switch {
 	case !aOk || !bOk:
 		return "", false
 	case aArrow == bArrow && aBare != bBare:
-		return aArrow, true
+		at = aArrow
 	case aBare == bBare && aArrow != bArrow:
-		return aBare, true
+		at = aBare
+	default:
+		return "", false
 	}
-	return "", false
+	return at, portAt(a, at) == portAt(b, at)
+}
+
+// portAt is the port e names at its end at node: FromPort or ToPort.
+func portAt(e Edge, node string) string {
+	if e.To == node {
+		return e.ToPort
+	}
+	return e.FromPort
 }
 
 // sharing says edge i's line may run along edge j's: they meet, and are
@@ -309,7 +331,16 @@ func newRouter(l *layouter) *router {
 	// Room to go round the boxes at the right and the bottom, as the
 	// layout leaves room at the left and the top.
 	w, h = w+colGap, h+rowGap
-	r := &router{edges: l.d.Edges, w: w, h: h, bare: map[Rect]bool{}}
+	r := &router{edges: l.d.Edges, w: w, h: h, bare: map[Rect]bool{}, fields: make([][2]Rect, len(l.d.Edges)), joints: map[Point]bool{}}
+	for _, n := range l.out.Nodes {
+		for _, d := range n.Dividers {
+			r.joints[d[0]], r.joints[d[1]] = true, true
+		}
+	}
+	for i, e := range l.d.Edges {
+		r.fields[i][0], _ = l.out.nodeAt[e.From].field(e.FromPort)
+		r.fields[i][1], _ = l.out.nodeAt[e.To].field(e.ToPort)
+	}
 	for _, n := range l.out.Nodes {
 		if n.Node.Shape == Plain {
 			r.bare[n.Rect] = true
@@ -635,18 +666,40 @@ func keepsSides(pts []Point, from, to Side) bool {
 	return (from == 0 || from&sideOut(pts[0], pts[1]) != 0) && (to == 0 || to&sideOut(pts[n-1], pts[n-2]) != 0)
 }
 
+// keepsFields says the path pts leaves its first box, a, beside the field
+// fields[0] and enters its last, b, beside fields[1], each the zero Rect
+// for anywhere.
+func keepsFields(pts []Point, a, b Rect, fields [2]Rect) bool {
+	n := len(pts)
+	if n < 2 {
+		return fields == [2]Rect{}
+	}
+	way := func(s Side) int { // the way out of a box leaving by side s
+		for w, ws := range wayside {
+			if ws == s {
+				return w
+			}
+		}
+		return 0
+	}
+	return (fields[0] == Rect{} || besideField(a, fields[0], pts[0], way(sideOut(pts[0], pts[1])))) &&
+		(fields[1] == Rect{} || besideField(b, fields[1], pts[n-1], way(sideOut(pts[n-1], pts[n-2]))))
+}
+
 // outline is r's outline cells edge i may end at -- not its corners, nor
-// a cell another edge ends at but one it may share with -- each with the
-// way out of the box there, on sides alone where sides is not zero --
-// or, under anySide, on any side, those off sides at missCost. Where
-// strict is false, any but a corner, each with what ending there costs.
-func (rt *router) outline(r Rect, i int, strict bool, sides Side) (cells []Point, out, costs []int) {
+// where a record's divider meets it, nor a cell another edge ends at but
+// one it may share with -- each with the
+// way out of the box there, on sides alone where sides is not zero, and
+// beside field alone where it is not the zero Rect -- or, under anySide,
+// anywhere, those off them at missCost. Where strict is false, any but a
+// corner, each with what ending there costs.
+func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (cells []Point, out, costs []int) {
 	add := func(p Point, way int) {
-		if !rt.in(p.X, p.Y) {
+		if !rt.in(p.X, p.Y) || rt.joints[p] {
 			return
 		}
 		cost := 0
-		if sides != 0 && sides&wayside[way] == 0 {
+		if sides != 0 && sides&wayside[way] == 0 || field != (Rect{}) && !besideField(r, field, p, way) {
 			if !rt.anySide {
 				return
 			}
@@ -714,8 +767,8 @@ func offMiddle(p Point, r Rect, way int) int {
 // on it, ending beside another's end -- is allowed at joinCost a cell; one
 // through a box never is.
 func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
-	starts, outs, startCosts := rt.outline(a, i, strict, rt.edges[i].FromSide)
-	goals, ins, endCosts := rt.outline(b, i, strict, rt.edges[i].ToSide)
+	starts, outs, startCosts := rt.outline(a, i, strict, rt.edges[i].FromSide, rt.fields[i][0])
+	goals, ins, endCosts := rt.outline(b, i, strict, rt.edges[i].ToSide, rt.fields[i][1])
 	if len(starts) == 0 || len(goals) == 0 {
 		return nil
 	}

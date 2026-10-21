@@ -273,12 +273,29 @@ func (d *doc) node(pn diagram.PlacedNode) {
 	case diagram.Plain:
 		top = pn.Rect.Y
 	}
+	ink := or(n.Text, d.pal.TextOn(filledBy(n)))
+	if len(n.Record) > 0 {
+		// A record's dividers, in the outline's stroke, and each field's
+		// label in the middle of the field.
+		for _, div := range pn.Dividers {
+			fmt.Fprintf(&d.b, `<path d="%s" fill="none" %s/>`+"\n",
+				pathOf([]float64{d.s.X(div[0].X), d.s.X(div[1].X)}, []float64{d.s.Y(div[0].Y), d.s.Y(div[1].Y)}, false), stroke)
+		}
+		for _, f := range pn.Fields {
+			fx0, _, fx1, _ := d.s.Box(f.Rect)
+			lines := strings.Split(f.Field.Label, "\n")
+			for i, l := range lines {
+				d.text(l, (fx0+fx1)/2, d.s.Y(f.Rect.Y+(f.Rect.H-len(lines))/2+i), "middle", d.px, ink)
+			}
+		}
+		return
+	}
 	label := n.Label
 	if label == "" {
 		label = n.ID
 	}
 	for i, l := range strings.Split(label, "\n") {
-		d.text(l, (x0+x1)/2, d.s.Y(top+i), "middle", d.px, or(n.Text, d.pal.TextOn(filledBy(n))))
+		d.text(l, (x0+x1)/2, d.s.Y(top+i), "middle", d.px, ink)
 	}
 }
 
