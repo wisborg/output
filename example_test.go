@@ -132,7 +132,7 @@ func ExampleFormat_Set() {
 	}
 	// Output:
 	// yaml
-	// invalid value "xml" for flag -format: output: unknown format "xml" (accepted: text, csv, json, yaml, table, yml)
+	// invalid value "xml" for flag -format: output: unknown format "xml" (accepted: text, csv, json, yaml, markdown, table, yml, md)
 }
 
 // ExampleWriteJSON writes an object without a Document, for a program that

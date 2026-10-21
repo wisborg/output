@@ -1,7 +1,7 @@
 # output
 
 Go packages for producing program output in more than one shape: aligned
-text, CSV, JSON or YAML, chosen when the program runs — while the program
+text, CSV, JSON, YAML or a Markdown table, chosen when the program runs — while the program
 is still working, live progress on the terminal — and charts, drawn in the
 terminal in braille or as a picture, and diagrams of boxes and the lines
 between them. The `plot` command draws a chart from a CSV file, and `diagram`
@@ -53,6 +53,29 @@ apply, because that is you saying how the value should be written. Separators
 are skipped, and an empty table still writes its header, where the text
 renderer writes nothing: a program reading CSV usually needs that line.
 
+And a Markdown table, for a pull request, an issue or a CI job's summary:
+
+```go
+t.WriteMarkdown(os.Stdout, table.MarkdownStyle{})
+```
+
+```
+| clip     | offset | score |
+| -------- | -----: | ----: |
+| corner_1 | +2.70s | 0.821 |
+| corner_3 | +2.75s | 0.366 |
+```
+
+`Align` sets the row of dashes, and pads the cells so that the source lines up
+too. A cell is written as text: each of `` \ ` * _ [ ] < > | ~ & $ `` is
+escaped, so a name with stars or a pipe in it reads as it was written rather
+than as italics or a broken row, but an underscore inside a word, which is
+never emphasis, is left alone. A line break is `<br>`. `MaxWidth` does not
+apply, since a renderer wraps a long cell; separators are skipped, and an
+empty table writes nothing, as text does. `MarkdownStyle{Markup: true}` writes
+cells as Markdown of your own, links and all, escaping only a pipe. No escape
+stops GitHub making a link of a bare URL, or a mention of `@name` and `#12`.
+
 ## Choosing the format when the program runs
 
 The root package writes one result in whichever format was asked for. The
@@ -64,7 +87,7 @@ import "github.com/wisborg/output"
 
 doc := output.Document{
     Data:  results, // the object: for JSON and YAML
-    Table: summary, // the simplified table: for text and CSV
+    Table: summary, // the simplified table: for text, CSV and Markdown
 }
 if err := doc.Write(os.Stdout, format); err != nil {
     return err
@@ -87,19 +110,19 @@ any other failure either: whatever the format, the output is either empty or
 a whole document ending in a newline — exactly one, but where YAML's last
 value is a string ending in newlines of its own, which it keeps. A table with **no rows**
 is not a missing table: it is a supplied answer that happens to be empty, and
-it keeps `table`'s own rules, so text writes nothing and CSV writes its
-header.
+it keeps `table`'s own rules, so text and Markdown write nothing and CSV
+writes its header.
 
 `Format` is a `flag.Value`, so the flag is one line and an unknown name is
 refused where the user typed it rather than quietly falling back to text:
 
 ```go
 format := output.Text // the default; the zero Format is Text
-flag.Var(&format, "format", "output format: text, csv, json or yaml")
+flag.Var(&format, "format", "output format: text, csv, json, yaml or markdown")
 ```
 
-`text`, `csv`, `json` and `yaml`, case-insensitively, plus `table` for text
-and `yml` for YAML. `Format(99)`, from a cast or a decoded config file, is an
+`text`, `csv`, `json`, `yaml` and `markdown`, case-insensitively, plus `table`
+for text, `yml` for YAML and `md` for Markdown. `Format(99)`, from a cast or a decoded config file, is an
 error too: there is no `default:` arm falling through to text, because a
 program that prints a table when its caller asked for JSON has produced
 output that cannot be parsed and no message saying why.
@@ -191,7 +214,8 @@ means for them, so only the caller should say it.
 
 ## Status
 
-Text and CSV in `table`; text, CSV, JSON and YAML through `output.Document`;
+Text, CSV and Markdown in `table`; text, CSV, JSON, YAML and Markdown through
+`output.Document`;
 live progress bars in `progress`; charts in braille, as pictures and in the
 terminal's picture protocols in `chart` and its packages; diagrams from
 Graphviz's DOT, as text, PNG and SVG, in `diagram` and its packages; and the

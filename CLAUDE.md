@@ -1,9 +1,9 @@
 # output
 
 Go packages for producing program output in more than one shape. The root
-package `output` writes one result as text, CSV, JSON or YAML, chosen when
-the program runs; `table` is the tabular half of that — data rendered as
-aligned text or written as CSV; `progress` is the live half — bars pinned to
+package `output` writes one result as text, CSV, JSON, YAML or a Markdown
+table, chosen when the program runs; `table` is the tabular half of that —
+data rendered as aligned text, or written as CSV or Markdown; `progress` is the live half — bars pinned to
 the bottom of a terminal while ordinary output scrolls above them; `chart`
 draws series of readings, in braille or — through `chart/picture` — as an
 image, which `chart/terminal` shows in a terminal that can show one.
@@ -22,7 +22,7 @@ make deps                  # each package compiles in only what it is meant to
 make build                 # -> bin/plot, bin/diagram
 make run ARGS="--list data.csv"     # CMD=diagram for the other
 make bench COUNT=10        # time the layout on fixed diagrams; compare with benchstat
-make fuzz FUZZTIME=5m      # search for DOT and CSV that break a command
+make fuzz FUZZTIME=5m      # search for DOT, CSV and cells that break a writer
 make fuzz-replay           # every input a search kept, once: seconds
 make fuzz-save             # keep what searches found, in testdata/corpus/
 make clean                 # remove bin/, empty .scratch/
@@ -60,6 +60,8 @@ from reality is a test failure.
 - `table/render.go` — text rendering: `Style`, `Render`, `String`, and the
   unexported `layout` that resolves a table for one style.
 - `table/csv.go` — `CSVStyle` and `WriteCSV`, over the same rows.
+- `table/markdown.go` — `MarkdownStyle` and `WriteMarkdown`: a
+  GitHub-flavoured table, over the same rows, its cells escaped.
 - `progress/progress.go` — the package doc, `Display`, `Options`, `Mode`, and
   the redraw/erase/layout machinery.
 - `progress/bar.go` — `Bar`, `BarSpec`, and the rendering of one line: the
@@ -170,11 +172,34 @@ of pre-formatted strings, or a table with a column per struct field. This is
 why `table` has no row accessor: there is nothing for a converter to be built
 on, and that absence is deliberate.
 
+**A Markdown table is the text table's rules for a page, and its cells are
+text.** `WriteMarkdown` follows `Render` where a reader is the point --
+`Align` applies, as the row of dashes and as padding so the source lines up;
+an empty table writes nothing -- and departs where a renderer differs:
+`MaxWidth` does not apply, as a renderer wraps a long cell rather than running
+it off an edge, and a line break is `<br>`, as a newline would end the table.
+A cell is someone else's data as much in Markdown as on a terminal, and there
+its punctuation is markup: a name with stars in it would be set in italics,
+`[x](url)` would be a link, a pipe would end the cell and shift every cell
+after it. So each of `` \ ` * _ [ ] < > | ~ & $ `` is escaped -- an underscore
+inside a word excepted, which CommonMark never reads as emphasis, so
+snake_case stays readable in the source -- and other punctuation is left as it
+is, so numbers, dates and paths read in the source as they render.
+`MarkdownStyle.Markup` is the opt-in for a caller's own Markdown, escaping
+only a pipe, and not one escaped already, where a second backslash would let
+it end the cell. Escaping every ASCII punctuation character, which CommonMark
+allows, was considered and rejected: `1\.5` and `2024\-01\-02` in the source,
+for nothing a renderer does differently. What escaping cannot stop -- GitHub
+linking a bare URL, mentioning `@name`, linking `#12` -- is documented, not
+worked round. `TestWriteMarkdown_CellsNeverBreakTheTable` holds the shape:
+every line has a cell-ending pipe a column and one more, and every line is as
+wide as the first.
+
 **`nil` is not `empty`.** A nil `Data` or `Table` means "the program did not
 supply this", and asking for a format that needs it is an error wrapping
 `ErrNoData` or `ErrNoTable` with nothing written. A zero-row `Table` is a
 supplied answer that happens to be empty and keeps `table`'s own rules — text
-writes nothing, CSV writes its header. Collapsing the two would make a
+and Markdown write nothing, CSV writes its header. Collapsing the two would make a
 forgotten field indistinguishable from a genuine empty result.
 
 **`WriteJSON(w, nil, ...)` writes `null`, where a `Document` with a nil `Data`
@@ -600,11 +625,12 @@ The characteristic bug here is output that *looks* right, so a test asserting
   edges 130 ms, 200 edges a second and 300 edges three: about seven times
   the time for twice the edges, which is why dot's default limit is 300.
 - Input a stranger writes is fuzzed. `FuzzParse` (in `diagram/dot`) reads
-  DOT and draws it as text, braille, colour and SVG, and `FuzzPlot` (in
-  `cmd/plot`) charts a CSV and lists it; each checks no panic and the
-  promises a label carries -- no control character reaching a terminal,
-  UTF-8 throughout, well-formed SVG, a chart within its width -- not merely
-  "no error". `go test` replays the seeds and `testdata/fuzz/`, which holds
+  DOT and draws it as text, braille, colour and SVG, `FuzzPlot` (in
+  `cmd/plot`) charts a CSV and lists it, and `FuzzWriteMarkdown` (in
+  `table`) writes a cell as Markdown; each checks no panic and the promises
+  a label carries -- no control character reaching a terminal, UTF-8
+  throughout, well-formed SVG, a chart within its width, a Markdown row a
+  cell a column -- not merely "no error". `go test` replays the seeds and `testdata/fuzz/`, which holds
   only inputs that once broke a target, committed with the fix: under a
   second, so the everyday run stays quick. What a search keeps -- every
   input that reached new code, hundreds -- is committed apart, in

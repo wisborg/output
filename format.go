@@ -22,10 +22,14 @@ const (
 	JSON
 	// YAML is YAML, from the Document's Data.
 	YAML
+	// Markdown is a GitHub-flavoured Markdown table, from the Document's
+	// Table: for a pull request, an issue or a CI job's summary. It is
+	// last so that the formats before it keep their numbers.
+	Markdown
 )
 
-// String returns the format's canonical name: "text", "csv", "json" or
-// "yaml". These are the names ParseFormat accepts, so a value that survives
+// String returns the format's canonical name: "text", "csv", "json",
+// "yaml" or "markdown". These are the names ParseFormat accepts, so a value that survives
 // String and ParseFormat is unchanged, and a flag's default can be printed
 // with the same spelling the user has to type.
 //
@@ -42,6 +46,8 @@ func (f Format) String() string {
 		return "json"
 	case YAML:
 		return "yaml"
+	case Markdown:
+		return "markdown"
 	default:
 		return fmt.Sprintf("Format(%d)", int(f))
 	}
@@ -54,12 +60,13 @@ func (f Format) String() string {
 // Each call returns a fresh slice, so a caller may sort or filter it without
 // affecting anyone else.
 func Formats() []Format {
-	return []Format{Text, CSV, JSON, YAML}
+	return []Format{Text, CSV, JSON, YAML, Markdown}
 }
 
 // aliases are the spellings accepted in addition to the canonical names.
-// Both are names people reach for from other tools -- "table" for text
-// output, "yml" for YAML -- and refusing them buys nothing.
+// They are names people reach for from other tools -- "table" for text
+// output, "yml" for YAML, "md" for Markdown, as its files are named -- and
+// refusing them buys nothing.
 //
 // It is a slice rather than a map so that the order is the one written here:
 // this list is also the tail of the "accepted" list in an error message, and
@@ -70,6 +77,7 @@ var aliases = []struct {
 }{
 	{"table", Text},
 	{"yml", YAML},
+	{"md", Markdown},
 }
 
 // ParseFormat turns a format name into a Format. Surrounding space is
@@ -77,7 +85,7 @@ var aliases = []struct {
 // the name usually comes from a human typing a flag.
 //
 // The canonical names are those of Format.String; "table" is also accepted
-// for Text and "yml" for YAML.
+// for Text, "yml" for YAML and "md" for Markdown.
 //
 // An unrecognised name is an error wrapping ErrUnknownFormat. There is
 // deliberately no fallback to Text: a program that silently prints a table

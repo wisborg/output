@@ -1,13 +1,14 @@
 // Package output writes one result in whichever shape was asked for: aligned
-// text, CSV, JSON or YAML.
+// text, CSV, JSON, YAML or a Markdown table.
 //
 // The premise is that a program builds two representations of the same
 // result and lets the requested Format choose between them:
 //
 //   - a rich object, for JSON and YAML, where nesting, types and optional
 //     fields all survive; and
-//   - a deliberately simplified table, for text and CSV, where a person
-//     reading a terminal wants a handful of columns and not the object.
+//   - a deliberately simplified table, for text, CSV and Markdown, where a
+//     person reading a terminal or a page wants a handful of columns and not
+//     the object.
 //
 // The two are built independently, on purpose. The alternative -- deriving
 // the table from the object, or the object from the table -- forces the
@@ -77,13 +78,14 @@ type Document struct {
 	// write it; set such an interface to nil itself.
 	Data any
 
-	// Table is the table written by Text and CSV. nil means "not
+	// Table is the table written by Text, CSV and Markdown. nil means "not
 	// supplied", and asking for one of those formats is then an error
 	// wrapping ErrNoTable.
 	//
 	// A table with no rows is NOT the same thing: it is a supplied answer
 	// that happens to be empty, and it follows the table package's own
-	// rules -- text writes nothing at all, CSV still writes its header.
+	// rules -- text and Markdown write nothing at all, CSV still writes its
+	// header.
 	Table *table.Table
 
 	// TextStyle is the style Text is rendered in. The zero value is the
@@ -93,6 +95,10 @@ type Document struct {
 	// CSVStyle is the style CSV is written in. The zero value is ordinary
 	// comma-separated data with a header row.
 	CSVStyle table.CSVStyle
+
+	// MarkdownStyle is the style Markdown is written in. The zero value
+	// writes every cell as text, its markup escaped.
+	MarkdownStyle table.MarkdownStyle
 
 	// JSONStyle is the style JSON is written in. The zero value is
 	// indented, without HTML escaping.
@@ -105,8 +111,8 @@ type Document struct {
 
 // Write writes the document to w in format f.
 //
-// Only the representation f needs is required: JSON and YAML use Data, text
-// and CSV use Table. A missing one is an error wrapping ErrNoData or
+// Only the representation f needs is required: JSON and YAML use Data, text,
+// CSV and Markdown use Table. A missing one is an error wrapping ErrNoData or
 // ErrNoTable that names the format asked for, and nothing is written -- the
 // check happens before the first byte, so a caller that reports the error
 // and exits has not already put half a document on the terminal. The same
@@ -127,8 +133,8 @@ type Document struct {
 // its own, which a block scalar ("|+") keeps, as it must to read back as
 // the same string.
 //
-// An error from writing text or CSV says which, as JSON's and YAML's do,
-// and wraps what went wrong.
+// An error from writing text, CSV or Markdown says which, as JSON's and
+// YAML's do, and wraps what went wrong.
 func (d Document) Write(w io.Writer, f Format) error {
 	switch f {
 	case Text:
@@ -145,6 +151,14 @@ func (d Document) Write(w io.Writer, f Format) error {
 		}
 		if err := d.Table.WriteCSV(w, d.CSVStyle); err != nil {
 			return fmt.Errorf("output: writing CSV: %w", err)
+		}
+		return nil
+	case Markdown:
+		if d.Table == nil {
+			return missing(ErrNoTable, f)
+		}
+		if err := d.Table.WriteMarkdown(w, d.MarkdownStyle); err != nil {
+			return fmt.Errorf("output: writing Markdown: %w", err)
 		}
 		return nil
 	case JSON:

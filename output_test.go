@@ -52,6 +52,7 @@ func TestDocument_WriteUsesTheRepresentationTheFormatNeeds(t *testing.T) {
 	}{
 		{Text, tableMarker, objectMarker},
 		{CSV, tableMarker, objectMarker},
+		{Markdown, tableMarker, objectMarker},
 		{JSON, objectMarker, tableMarker},
 		{YAML, objectMarker, tableMarker},
 	} {
@@ -95,7 +96,7 @@ func TestDocument_WriteEndsInOneNewline(t *testing.T) {
 }
 
 func TestDocument_MissingTableIsAnError(t *testing.T) {
-	for _, f := range []Format{Text, CSV} {
+	for _, f := range []Format{Text, CSV, Markdown} {
 		var b strings.Builder
 		d := Document{Data: result{Clip: "c", Checksum: objectMarker}} // Table nil
 		err := d.Write(&b, f)
@@ -258,6 +259,19 @@ func TestDocument_StylesReachTheirFormat(t *testing.T) {
 			},
 		},
 		{
+			name: "MarkdownStyle.Markup",
+			doc: withStyle(sampleDocument(), func(d *Document) {
+				d.Table.MustAppend("[link](https://example.com)", "x")
+				d.MarkdownStyle = table.MarkdownStyle{Markup: true}
+			}),
+			format: Markdown,
+			check: func(t *testing.T, got string) {
+				if !strings.Contains(got, "| [link](https://example.com) |") {
+					t.Errorf("MarkdownStyle did not reach the writer; the link escaped in:\n%s", got)
+				}
+			},
+		},
+		{
 			name:   "JSONStyle.Compact",
 			doc:    withStyle(sampleDocument(), func(d *Document) { d.JSONStyle = JSONStyle{Compact: true} }),
 			format: JSON,
@@ -344,7 +358,7 @@ func TestDocument_TextAndCSVErrorsSayWhichFormat(t *testing.T) {
 	for _, c := range []struct {
 		f    Format
 		want string
-	}{{Text, "writing text"}, {CSV, "writing CSV"}, {JSON, "writing JSON"}, {YAML, "writing YAML"}} {
+	}{{Text, "writing text"}, {CSV, "writing CSV"}, {Markdown, "writing Markdown"}, {JSON, "writing JSON"}, {YAML, "writing YAML"}} {
 		err := sampleDocument().Write(&failWriter{n: 0}, c.f)
 		if !errors.Is(err, errWrite) || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v, want one wrapping the writer's error and saying %q", c.f, err, c.want)

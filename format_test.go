@@ -62,17 +62,19 @@ func TestParseFormat_RoundTrip(t *testing.T) {
 
 func TestParseFormat_CaseSpaceAndAliases(t *testing.T) {
 	for in, want := range map[string]Format{
-		"text":    Text,
-		"TEXT":    Text,
-		"  text ": Text,
-		"Table":   Text,
-		"csv":     CSV,
-		"CSV":     CSV,
-		"json":    JSON,
-		"Json":    JSON,
-		"yaml":    YAML,
-		"yml":     YAML,
-		"\tYML\n": YAML,
+		"text":     Text,
+		"TEXT":     Text,
+		"  text ":  Text,
+		"Table":    Text,
+		"csv":      CSV,
+		"CSV":      CSV,
+		"json":     JSON,
+		"Json":     JSON,
+		"yaml":     YAML,
+		"yml":      YAML,
+		"\tYML\n":  YAML,
+		"markdown": Markdown,
+		"MD":       Markdown,
 	} {
 		got, err := ParseFormat(in)
 		if err != nil {
@@ -180,7 +182,7 @@ func TestFormats_ContainsEveryDefinedFormat(t *testing.T) {
 		}
 		seen[f] = true
 	}
-	for _, f := range []Format{Text, CSV, JSON, YAML} {
+	for _, f := range []Format{Text, CSV, JSON, YAML, Markdown} {
 		if !seen[f] {
 			t.Errorf("Formats() omits %v", f)
 		}
