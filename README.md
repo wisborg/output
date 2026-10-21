@@ -537,6 +537,8 @@ laid out in layers from its edges, on whether to deploy on a Friday
 afternoon.
 [`examples/services.dot`](examples/services.dot) is a mesh of services
 drawn with straight edges.
+[`examples/schema.dot`](examples/schema.dot) is a shop's tables as records,
+each foreign key an edge from its column to the column it names.
 
 A group of nodes — a DOT subgraph whose name begins with `cluster` — places
 what it holds in one of two ways. Without anything more, in **layers**, as
@@ -633,14 +635,31 @@ box, that end is drawn by another side, the other end keeping its own
 where it can, and `diagram` says which edge.
 
 Shapes are boxes, rounded boxes, ellipses,
-cylinders and plain text; lines solid, dashed, dotted or bold; colours
+cylinders, plain text and records; lines solid, dashed, dotted or bold; colours
 Graphviz's, by `#rrggbb` or by the common X11 names.
+
+A **record** — `shape=record`, or `Mrecord` with rounded corners — is a box
+divided into fields, as Graphviz draws a struct, a table or a class: its label
+`"<id> id|name|{a|b}"` gives fields divided by `|`, a field divided the other
+way between braces, and a field's name to the edges in `<…>`. The fields run
+side by side where the layers run down, and one above another under
+`rankdir=LR`, as Graphviz lays them. `node:field`, or `node:field:s`, ends an
+edge on the outline beside that field, on a side the field reaches; as with a
+side, where no line can, it ends elsewhere and `diagram` says so. Two edges
+into one node share a line only where they name the same field of it. A field
+with other fields on every side has no outline of its own, so a line to it ends
+beside the fields next to it; Graphviz draws one through them to its middle,
+and a line here never runs through a box. An edge with no port ends anywhere on
+the outline, which beside a record reads as one of its fields: give it a port
+to say which. A record label that is not one — a brace not closed — is drawn
+as a box with its label as written, where Graphviz refuses it. Every line of a
+field is centred: `\l` and `\r` end a line, as everywhere here, without
+setting it left or right.
 
 Of DOT, the whole grammar is read, and the attributes that say what a
 diagram means; those about how Graphviz draws are ignored. HTML labels are
-read as their words, a port naming a record's field is read and not drawn,
-as a record shape is not; an edge ending at a
-cluster itself (Graphviz's `lhead` and `ltail`), record shapes and
+read as their words, and their ports are not; an edge ending at a
+cluster itself (Graphviz's `lhead` and `ltail`) and
 Graphviz's other layout engines are not supported.
 
 A DOT file is often someone else's, and a few bytes of it can ask for hours

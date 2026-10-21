@@ -1,0 +1,17 @@
+// A shop's tables and the keys between them: each table a record, a field
+// a column, and each foreign key an edge from its column to the column it
+// names. Laid out left to right, so each table's fields stack down, as a
+// table's columns are listed.
+digraph schema {
+    rankdir=LR
+    node [shape=record]
+
+    customers   [label="customers|<id> id|name|<email> email"]
+    orders      [label="orders|<id> id|<customer> customer_id|placed_at|status"]
+    order_lines [label="order_lines|<order> order_id|<product> product_id|quantity"]
+    products    [label="products|<id> id|name|price"]
+
+    orders:customer     -> customers:id
+    order_lines:order   -> orders:id
+    order_lines:product -> products:id
+}

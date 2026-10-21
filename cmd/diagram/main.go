@@ -415,7 +415,7 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 func sidesNote(errOut io.Writer, lay *diagram.Layout) {
 	for _, e := range lay.Edges {
 		if e.SidesDropped {
-			fmt.Fprintf(errOut, "diagram: the edge %q to %q is drawn by other sides than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To)
+			fmt.Fprintf(errOut, "diagram: the edge %q to %q is drawn by other sides, or beside other fields, than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To)
 		}
 	}
 }

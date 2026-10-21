@@ -112,8 +112,11 @@ from reality is a test failure.
   `placement.go` — the costs and the local search that choose orthogonal
   edges' label places together;
   `scale.go` — cells to a picture's units; `text.go` — the text drawing;
-  `width.go` — `Width`, the one measure of a label in cells.
-- `diagram/dot/` — the DOT lexer, parser and colours.
+  `width.go` — `Width`, the one measure of a label in cells; `record.go` —
+  a record's fields sized and placed, and which outline cells are beside a
+  field.
+- `diagram/dot/` — the DOT lexer, parser and colours; `record.go` reads a
+  record's label into its fields.
 - `diagram/picture/`, `diagram/svg/` — the PNG and the SVG of a layout.
 - `cmd/diagram/` — the `diagram` command.
 
@@ -539,6 +542,28 @@ a line through a box the worse one, since it reads as that box's own. Only
 where even that search finds nothing is the plain path drawn. A loop is
 searched for as any edge is, and shares no line with another; an invisible
 edge is not routed at all.
+
+**A record is fields in cells, and a field's port is a part of its
+outline.** A record is laid out as any node is -- in cells, once, every
+renderer drawing that -- its fields side by side where the layers run down
+and stacked under `rankdir=LR`, as Graphviz lays them, a field divided
+further running the other way, and the room a field is given past its own
+size shared among those beside it, so the dividers stay evenly spread. A
+divider runs a cell past its field at each end, onto the outline or the
+divider it meets, so the text drawing joins them as `┬` and `├` with no
+special case. `FromPort` and `ToPort` narrow the outline cells `outline`
+offers to those across from the field on the sides it reaches, by the same
+mechanism and the same `missCost` fallback as a side, and `SidesDropped`
+covers both. A field with fields on every side reaches none, and may end on
+any side across from it: a line here never runs through a box to a field's
+middle, as Graphviz's does. No line ends where a divider meets the outline,
+as none ends at a corner, since it reads as running into the divider -- in a
+record of two equal fields that is the middle of a side, where a line most
+wants to end. And two edges share a line at a node only where they name the
+same port of it (`meet`): a line into a field and one into the whole record,
+merged, end beside the field and the second reads as joining it.
+`TestRecordFields`, `TestRecordPorts` and `TestRecordPortsShareOnlyTheirOwn`
+hold these, on Graphviz's own example among others.
 
 **Straight edges are the pictures' alone, and only where clear.** With
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an

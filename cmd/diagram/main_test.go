@@ -371,6 +371,19 @@ func labelsOf(d *diagram.Diagram) []string {
 				if it.Node.Invisible {
 					continue
 				}
+				if len(it.Node.Record) > 0 {
+					// A record's words are its fields', its Label not
+					// drawn.
+					var fields func([]diagram.Field)
+					fields = func(fs []diagram.Field) {
+						for _, f := range fs {
+							add(f.Label)
+							fields(f.Fields)
+						}
+					}
+					fields(it.Node.Record)
+					continue
+				}
 				if it.Node.Label != "" {
 					add(it.Node.Label)
 				} else {
@@ -794,7 +807,7 @@ func TestDiagramSaysWhichPortsWereNotKept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(errOut, "drawn by other sides than its ports ask for") != 1 || !strings.Contains(errOut, `the edge "a\x1b]0;t\a" to "d" `) {
+	if strings.Count(errOut, "than its ports ask for") != 1 || !strings.Contains(errOut, `the edge "a\x1b]0;t\a" to "d" `) {
 		t.Errorf("stderr %q, want one note, for a to d", errOut)
 	}
 	if strings.ContainsAny(errOut, "\x1b\x07") {
