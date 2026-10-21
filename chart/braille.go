@@ -72,6 +72,10 @@ const brailleBlank = rune(0x2800)
 // column's mean is its dot, a line joins two columns only where Bin joined
 // them, and a column without a reading is left blank -- never dropped to
 // the bottom, which would read as a zero.
+//
+// It takes about BrailleBytesPerChar bytes a character of the drawing,
+// width times height, and sets no limit: a caller taking the size from a
+// user sets its own.
 func (c Chart) Braille(width, height int) []string {
 	n := len(c.Strips)
 	if n == 0 || c.Check() != nil {
@@ -152,6 +156,10 @@ func (s Scale) fault() error {
 	}
 	return nil
 }
+
+// BrailleBytesPerChar is about how much memory Braille takes, a character
+// of the drawing: measured from 100 by 24 characters to 10000 by 2400.
+const BrailleBytesPerChar = 25
 
 // cut is s made printable and cut to at most n terminal columns, measured
 // by runewidth.StringWidth as table and progress measure theirs. It cuts

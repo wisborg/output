@@ -1,6 +1,7 @@
 package picture
 
 import (
+	"errors"
 	"image/color"
 	"math"
 	"testing"
@@ -125,6 +126,33 @@ func TestDrawRefuses(t *testing.T) {
 	}
 	if _, err := Draw(nil, Options{}); err == nil {
 		t.Error("a nil layout drew")
+	}
+}
+
+// A picture of more than Options.MaxPixels is refused before a pixel is
+// allocated, with ErrTooLarge; the caller may raise it, as far as
+// math.MaxInt, and past what Go can allocate it is refused whatever it
+// says.
+func TestDrawMaxPixels(t *testing.T) {
+	lay, err := (&diagram.Diagram{Root: diagram.Group{Items: []diagram.Item{{Node: &diagram.Node{ID: "a"}}}}}).Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, h := diagram.ScaleFor(DefaultTextPx).Size(lay)
+	pixels := int(math.Ceil(w) * math.Ceil(h))
+	if _, err := Draw(lay, Options{MaxPixels: pixels / 2}); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("half the pixels it needs: %v, want ErrTooLarge", err)
+	}
+	if _, err := Draw(lay, Options{MaxPixels: pixels}); err != nil {
+		t.Errorf("the pixels it needs: %v", err)
+	}
+	// A text size making a picture of 2^41 pixels and more: checked
+	// first, since a test that drew one would ask for terabytes.
+	if w, h := diagram.ScaleFor(1e6).Size(lay); w*h < 1<<41 {
+		t.Fatalf("text 1e6 pixels is %v by %v pixels, short of 2^41", w, h)
+	}
+	if _, err := Draw(lay, Options{TextPx: 1e6, MaxPixels: math.MaxInt}); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("past what Go can allocate, with no limit set: %v, want ErrTooLarge", err)
 	}
 }
 

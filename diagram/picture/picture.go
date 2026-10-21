@@ -19,6 +19,7 @@ import (
 
 	"github.com/wisborg/output/diagram"
 	"github.com/wisborg/output/internal/canvas"
+	"github.com/wisborg/output/internal/memory"
 )
 
 // DefaultTextPx is the size a diagram's text is drawn at where Options do
@@ -35,16 +36,43 @@ type Options struct {
 	TextPx float64
 	// Fonts are fonts to fall back on for a letter Go Mono lacks.
 	Fonts []*opentype.Font
+	// MaxPixels is the most pixels the picture may have; zero is
+	// DefaultMaxPixels. Drawing takes about BytesPerPixel bytes a pixel,
+	// so a caller with the memory for a larger picture raises it, as far
+	// as math.MaxInt; past what any machine holds it is refused all the
+	// same.
+	MaxPixels int
 }
 
-// MaxPixels is the most pixels a picture Draw draws may have: 2^26, a
-// quarter of a gigabyte of RGBA, 8000 by 8000. A size asked for in a flag,
-// or a diagram drawn at a large text size, can come to terabytes: an error
-// saying so is better than a program that dies allocating them.
-const MaxPixels = 1 << 26
+// DefaultMaxPixels is Options.MaxPixels where it is not set: 2^26, 8000
+// by 8000, some 1.3 GB to draw. A size asked for in a flag, or a diagram
+// drawn at a large text size, can come to terabytes: an error saying so
+// is better than a program that dies allocating them.
+const DefaultMaxPixels = 1 << 26
+
+// MaxPixels is DefaultMaxPixels.
+//
+// Deprecated: the limit is Options.MaxPixels; its default is
+// DefaultMaxPixels.
+const MaxPixels = DefaultMaxPixels
+
+// BytesPerPixel is about how much memory drawing a picture takes, a
+// pixel: the RGBA image, the rasteriser's coverage beside it and the
+// text, measured from 266 by 670 to 746 by 1870. Encoding it as a PNG
+// takes more.
+const BytesPerPixel = 20
+
+// mostPixels is the most pixels a picture may have whatever
+// Options.MaxPixels says: 2^40, some twenty terabytes to draw, past which
+// the image's allocation is beyond what Go will make.
+const mostPixels = min(1<<40, math.MaxInt/32)
+
+// ErrTooLarge is what a picture of more than Options.MaxPixels is refused
+// with.
+var ErrTooLarge = errors.New("picture: too large to draw")
 
 // Draw draws lay. A TextPx that is not a number, or that makes a picture of
-// more than MaxPixels, is an error.
+// more than Options.MaxPixels (ErrTooLarge), is an error.
 func Draw(lay *diagram.Layout, opts Options) (*image.RGBA, error) {
 	if lay == nil {
 		return nil, errors.New("picture: no layout to draw")
@@ -64,8 +92,13 @@ func Draw(lay *diagram.Layout, opts Options) (*image.RGBA, error) {
 		// one-pixel PNG, written with exit 0, once.
 		return nil, fmt.Errorf("picture: %.2g by %.2g pixels, at text %v pixels, is no picture", w, h, px)
 	}
-	if w*h > MaxPixels {
-		return nil, fmt.Errorf("picture: %.0f by %.0f pixels is more than %d million", math.Ceil(w), math.Ceil(h), MaxPixels/1000000)
+	most := opts.MaxPixels
+	if most <= 0 {
+		most = DefaultMaxPixels
+	}
+	most = min(most, mostPixels)
+	if w*h > float64(most) {
+		return nil, fmt.Errorf("%w: %.0f by %.0f pixels, more than the %d million it may have, would take %s", ErrTooLarge, math.Ceil(w), math.Ceil(h), most/1000000, memory.About(w*h*BytesPerPixel))
 	}
 	img := image.NewRGBA(image.Rect(0, 0, int(math.Ceil(w)), int(math.Ceil(h))))
 	cv, err := canvas.New(img, opts.Fonts)

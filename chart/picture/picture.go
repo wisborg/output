@@ -27,6 +27,7 @@ import (
 
 	"github.com/wisborg/output/chart"
 	"github.com/wisborg/output/internal/canvas"
+	"github.com/wisborg/output/internal/memory"
 )
 
 // Palette is the colours a picture is drawn in.
@@ -68,17 +69,44 @@ type Options struct {
 	// Latin, Greek and Cyrillic -- is drawn from the first of these that
 	// has it.
 	Fonts []*opentype.Font
+	// MaxPixels is the most pixels the picture may have; zero is
+	// DefaultMaxPixels. Drawing takes about BytesPerPixel bytes a pixel,
+	// so a caller with the memory for a larger picture raises it, as far
+	// as math.MaxInt; past what any machine holds it is refused all the
+	// same.
+	MaxPixels int
 }
 
-// MaxPixels is the most pixels a picture Draw draws may have: 2^26, a
-// quarter of a gigabyte of RGBA, 8000 by 8000, as diagram/picture's. A size
-// is often a user's flag, and 100000 by 100000 would be forty gigabytes: an
+// DefaultMaxPixels is Options.MaxPixels where it is not set: 2^26, 8000
+// by 8000, some 650 MB to draw, as diagram/picture's. A size is often a
+// user's flag, and 100000 by 100000 would be a hundred gigabytes: an
 // error saying so is better than a program that swaps or dies.
-const MaxPixels = 1 << 26
+const DefaultMaxPixels = 1 << 26
+
+// MaxPixels is DefaultMaxPixels.
+//
+// Deprecated: the limit is Options.MaxPixels; its default is
+// DefaultMaxPixels.
+const MaxPixels = DefaultMaxPixels
+
+// BytesPerPixel is about how much memory drawing a picture takes, a
+// pixel: the RGBA image and the rasteriser's coverage beside it, measured
+// from 1000 by 600 to 8000 by 8000. Encoding it as a PNG takes more.
+const BytesPerPixel = 10
+
+// mostPixels is the most pixels a picture may have whatever
+// Options.MaxPixels says: 2^40, some ten terabytes to draw, past which
+// the image's allocation is beyond what Go will make.
+const mostPixels = min(1<<40, math.MaxInt/16)
+
+// ErrTooLarge is what a picture of more than Options.MaxPixels is refused
+// with.
+var ErrTooLarge = errors.New("picture: too large to draw")
 
 // Draw is c drawn as a picture width by height pixels. A chart without
 // strips, one chart.Chart.Check refuses, a picture too small to hold a
-// plot, and one of more than MaxPixels are each an error, never a nil
+// plot, and one of more than Options.MaxPixels (ErrTooLarge) are each an
+// error, never a nil
 // picture or an empty frame.
 //
 // Text is sized from the picture's width, and its height shared between
@@ -96,8 +124,13 @@ func Draw(c chart.Chart, width, height int, opts Options) (*image.RGBA, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("picture: %d by %d pixels is too small for a chart", width, height)
 	}
-	if float64(width)*float64(height) > MaxPixels {
-		return nil, fmt.Errorf("picture: %d by %d pixels is more than %d million", width, height, MaxPixels/1000000)
+	most := opts.MaxPixels
+	if most <= 0 {
+		most = DefaultMaxPixels
+	}
+	most = min(most, mostPixels)
+	if float64(width)*float64(height) > float64(most) {
+		return nil, fmt.Errorf("%w: %d by %d pixels, more than the %d million it may have, would take %s", ErrTooLarge, width, height, most/1000000, memory.About(float64(width)*float64(height)*BytesPerPixel))
 	}
 	pal := opts.Palette.filled()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))

@@ -84,7 +84,8 @@ tidy:
 # import today. CLAUDE.md gives the reasons; this checks them, against what
 # each package actually compiles in:
 #
-#   chart/terminal          the standard library only
+#   chart/terminal,
+#   internal/memory         the standard library only
 #   chart                   go-runewidth and uax29, to cut titles to columns
 #   diagram, diagram/dot,
 #   diagram/svg             go-runewidth and uax29, to measure labels
@@ -99,9 +100,10 @@ tidy:
 # target names it -- a list of modules each group must not have let any
 # other through, x/text into table, say. And every library package is
 # checked against an allowlist of the module's own packages it may
-# compile in: progress, table, chart and diagram none but their own; the
-# root package table; the picture packages their model and the canvas;
-# dot and svg the diagram. Checked by module alone, chart importing
+# compile in: progress, table and chart none but their own; diagram
+# internal/memory, which words a refusal's estimate of the memory it would
+# take; the root package table; the picture packages their model, the
+# canvas and internal/memory; dot and svg the diagram. Checked by module alone, chart importing
 # internal/cli, or diagram importing chart, passed: those are the same
 # module.
 ## deps: check each package compiles in only the modules it is meant to
@@ -117,7 +119,7 @@ deps:
 	    bad=$$(go list -deps $$1 | grep '^github.com/wisborg/output' | grep -vxE "$$2" || true); \
 	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$1 imports:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
 	  }; \
-	  check "./chart/terminal" ''; \
+	  check "./chart/terminal ./internal/memory" ''; \
 	  check "./chart ./diagram ./diagram/dot ./diagram/svg" "$$rw"; \
 	  check "./internal/canvas" "$$img"; \
 	  check "./chart/picture ./diagram/picture" "$$rw|$$img"; \
@@ -130,13 +132,14 @@ deps:
 	  own "./progress" "$$m/progress"; \
 	  own "./chart" "$$m/chart"; \
 	  own "./chart/terminal" "$$m/chart/terminal"; \
-	  own "./chart/picture" "$$m/chart/picture|$$m/chart|$$m/internal/canvas"; \
+	  own "./chart/picture" "$$m/chart/picture|$$m/chart|$$m/internal/canvas|$$m/internal/memory"; \
 	  own "./internal/canvas" "$$m/internal/canvas"; \
 	  own "./internal/cli" "$$m/internal/cli"; \
-	  own "./diagram" "$$m/diagram"; \
-	  own "./diagram/dot" "$$m/diagram/dot|$$m/diagram"; \
-	  own "./diagram/svg" "$$m/diagram/svg|$$m/diagram"; \
-	  own "./diagram/picture" "$$m/diagram/picture|$$m/diagram|$$m/internal/canvas"; \
+	  own "./internal/memory" "$$m/internal/memory"; \
+	  own "./diagram" "$$m/diagram|$$m/internal/memory"; \
+	  own "./diagram/dot" "$$m/diagram/dot|$$m/diagram|$$m/internal/memory"; \
+	  own "./diagram/svg" "$$m/diagram/svg|$$m/diagram|$$m/internal/memory"; \
+	  own "./diagram/picture" "$$m/diagram/picture|$$m/diagram|$$m/internal/canvas|$$m/internal/memory"; \
 	  [ $$fail -eq 0 ] && echo "deps: chart/terminal is the standard library alone, chart and diagram add only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
 	  exit $$fail
 

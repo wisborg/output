@@ -1,8 +1,10 @@
 package picture
 
 import (
+	"errors"
 	"image"
 	"image/color"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -255,16 +257,27 @@ func TestImageBands(t *testing.T) {
 	}
 }
 
-// A picture of more than MaxPixels is refused before a pixel is allocated,
-// as diagram/picture's is: a size from a flag once asked for forty
-// gigabytes.
+// A picture of more than Options.MaxPixels is refused before a pixel is
+// allocated, as diagram/picture's is: a size from a flag once asked for
+// forty gigabytes. The limit is the caller's to raise, as far as
+// math.MaxInt, and past what Go can allocate it is refused whatever it
+// says.
 func TestImageTooLarge(t *testing.T) {
 	img, err := Draw(ramp(1000, 1000), 100000, 100000, Options{})
-	if err == nil || img != nil || !strings.Contains(err.Error(), "million") {
-		t.Errorf("100000 by 100000: %v", err)
+	if !errors.Is(err, ErrTooLarge) || img != nil {
+		t.Errorf("100000 by 100000: %v, want ErrTooLarge", err)
 	}
 	if _, err := Draw(ramp(1000, 1000), 8000, 8000, Options{}); err != nil {
 		t.Errorf("8000 by 8000: %v", err)
+	}
+	if _, err := Draw(ramp(1000, 1000), 400, 300, Options{MaxPixels: 400*300 - 1}); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("400 by 300 at a pixel short of it: %v, want ErrTooLarge", err)
+	}
+	if _, err := Draw(ramp(1000, 1000), 400, 300, Options{MaxPixels: 400 * 300}); err != nil {
+		t.Errorf("400 by 300 at exactly its pixels: %v", err)
+	}
+	if _, err := Draw(ramp(1000, 1000), 1<<21, 1<<20, Options{MaxPixels: math.MaxInt}); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("2^41 pixels with no limit set: %v, want ErrTooLarge", err)
 	}
 }
 

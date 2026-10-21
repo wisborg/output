@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/wisborg/output/internal/memory"
 )
 
 // The spaces a layout leaves, in cells: between the columns of a grid or the
@@ -220,6 +222,12 @@ const MostCells = math.MaxInt32 / 8
 // reads comes near.
 const DefaultMaxCells = 1000 * 1000
 
+// BytesPerCell is about how much memory laying a page out takes, a cell:
+// the router's record of every cell and its searches over them, measured
+// on pages of ten thousand to a million cells. DefaultMaxCells is some
+// 200 MB.
+const BytesPerCell = 200
+
 // ErrTooLarge is what a diagram whose page would pass
 // LayoutOptions.MaxCells is refused with.
 var ErrTooLarge = errors.New("diagram: too large to lay out")
@@ -256,7 +264,7 @@ func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
 	// third. What no line takes of the margin is given back after routing,
 	// so a drawing that does not need it does not change.
 	if w, h := p.w+2*colGap, top+p.h+2*rowGap; w*h > o.MaxCells || w < 0 || h < 0 {
-		return nil, fmt.Errorf("%w: a page of %d by %d cells, more than the %d it may have -- its labels or its grid are that large", ErrTooLarge, w, h, o.MaxCells)
+		return nil, fmt.Errorf("%w: a page of %d by %d cells, more than the %d it may have, would take %s -- its labels or its grid are that large", ErrTooLarge, w, h, o.MaxCells, memory.About(float64(w)*float64(h)*BytesPerCell))
 	}
 	l.place(p, colGap, top+rowGap, p.w, p.h)
 	l.route()
