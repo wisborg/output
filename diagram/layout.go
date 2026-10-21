@@ -204,9 +204,16 @@ type LayoutOptions struct {
 	// searches them for each edge, so a page's cells are its memory and
 	// its time: one node labelled with four thousand lines of four
 	// thousand letters -- sixteen kilobytes of DOT -- was a page of sixteen
-	// million cells, and 1.4 gigabytes, for one box.
+	// million cells, and 1.4 gigabytes, for one box. Past MostCells it is
+	// held to MostCells.
 	MaxCells int
 }
+
+// MostCells is the most cells any page may have, whatever MaxCells says:
+// the router numbers each cell's eight search states in an int32, and a
+// page past it overflowed them. It is some two gigabytes of the router's
+// arrays, which a page reaches long after anyone could read it.
+const MostCells = math.MaxInt32 / 8
 
 // DefaultMaxCells is LayoutOptions.MaxCells where it is not set: a page a
 // thousand cells square, which no terminal or picture of a diagram anyone
@@ -222,6 +229,7 @@ func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
 	if o.MaxCells <= 0 {
 		o.MaxCells = DefaultMaxCells
 	}
+	o.MaxCells = min(o.MaxCells, MostCells)
 	l := &layouter{d: d, path: map[string][]*Group{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, rect: map[string]Rect{}}
 	if err := l.index(&d.Root, nil); err != nil {
 		return nil, err

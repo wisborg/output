@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image/color"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -648,6 +649,20 @@ func TestLayoutMaxCells(t *testing.T) {
 	}
 	if _, err := small.Layout(); err != nil {
 		t.Error(err)
+	}
+	// However high MaxCells is set, a page past MostCells is refused: the
+	// router numbers its states in an int32. Two boxes side by side, one
+	// a long line and one many short ones, make a page of 3e8 cells.
+	huge := &Diagram{Root: Group{Items: []Item{
+		{Node: &Node{ID: "wide", Label: strings.Repeat("x", 30000)}},
+		{Node: &Node{ID: "tall", Label: strings.Repeat("x\n", 10000)}},
+	}}}
+	_, err := huge.LayoutWith(LayoutOptions{MaxCells: math.MaxInt})
+	if !errors.Is(err, ErrTooLarge) || !strings.Contains(err.Error(), strconv.Itoa(MostCells)) {
+		t.Errorf("a page of 3e8 cells with MaxCells at its highest: %v, want ErrTooLarge naming %d", err, MostCells)
+	}
+	if _, err := small.LayoutWith(LayoutOptions{MaxCells: math.MaxInt}); err != nil {
+		t.Errorf("a small page with MaxCells at its highest: %v", err)
 	}
 }
 

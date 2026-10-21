@@ -591,7 +591,8 @@ of layout: one statement joining two sets of nodes makes an edge for every
 pair. So a file may make at most 300 edges, and a laid-out page have at most
 a million cells; `--max-edges` and `--max-cells` (`dot.Options` and
 `diagram.LayoutOptions` in the library) raise them for a genuine diagram past
-them.
+them. A page's cells are held to `diagram.MostCells`, some 268 million, however
+high `--max-cells` is set: the router numbers its search in 32 bits.
 
 ## Licence
 
