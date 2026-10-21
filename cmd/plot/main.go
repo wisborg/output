@@ -91,7 +91,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.terminal, "terminal", string(terminal.Auto), "how the chart is shown in the terminal: auto (a picture where the terminal shows one, braille otherwise), iterm, kitty or braille")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a PNG; the terminal's own in a terminal), light or dark")
 	fs.StringVar(&o.title, "title", "", "the chart's title (default: what is plotted against what)")
-	fs.IntVar(&o.smooth, "smooth", 0, "average each value with those of the rows either side of it, about this many rows in all, never across a gap")
+	fs.IntVar(&o.smooth, "smooth", 0, "average each value with those of the rows either side of it, this many rows in all -- the odd number after an even one -- never across a gap")
 	fs.BoolVar(&o.robust, "robust", false, "set each y axis from the middle 98% of its values, so a few outliers do not flatten the rest; those beyond are drawn at the edge")
 	fs.Func("font", "a TrueType or OpenType font for the letters the built-in font lacks, in a picture; repeat for several", func(s string) error {
 		o.fonts = append(o.fonts, s)

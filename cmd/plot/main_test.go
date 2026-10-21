@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -423,5 +425,31 @@ func TestPlotXDate(t *testing.T) {
 	var ue *cli.UsageError
 	if _, _, err := plot(t, "t,v\n1,2\n", "--x-date", "epoch"); !errors.As(err, &ue) {
 		t.Errorf("--x-date epoch: %v, want a UsageError", err)
+	}
+}
+
+// --smooth n averages each reading over n rows, the row and as many
+// either side, and says so: an even n is the odd number after it, which
+// it always averaged over, where the title said n.
+func TestSmoothSaysHowManyRows(t *testing.T) {
+	s := series{yNames: []string{"a"}}
+	for i := range 9 {
+		y := 0.0
+		if i == 4 {
+			y = 15
+		}
+		s.rows = append(s.rows, seriesRow{x: float64(i), ys: []float64{y}, ok: []bool{true}})
+	}
+	for _, c := range []struct{ smooth, rows int }{{2, 3}, {3, 3}, {4, 5}, {7, 7}} {
+		ch, err := buildChart(s, chartOptions{smooth: c.smooth}, 100, 4, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf("averaged over %d rows", c.rows); !strings.HasSuffix(ch.Title, want) {
+			t.Errorf("--smooth %d: title %q, want it to end %q", c.smooth, ch.Title, want)
+		}
+		if got, want := ch.Strips[0].Segments[0][4].Y, 15/float64(c.rows); math.Abs(got-want) > 1e-9 {
+			t.Errorf("--smooth %d: the spike of 15 averaged to %v, want 15 over %d rows, %v", c.smooth, got, c.rows, want)
+		}
 	}
 }

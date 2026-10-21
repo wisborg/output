@@ -71,7 +71,7 @@ func readSeries(t *table, x int, xcol column, ys []int, ycols []column) series {
 // chartOptions are the choices a chart is built with besides its data.
 type chartOptions struct {
 	title  string
-	smooth int  // rows to average each reading over; 0 or 1 is none
+	smooth int  // rows to average each reading over, as smoothRows has it; 0 or 1 is none
 	robust bool // scale y from the middle 98% of readings
 }
 
@@ -100,7 +100,9 @@ func buildChart(s series, opts chartOptions, resolution, xTicks, yTicks int) (ch
 		}
 		segs := chart.Segments(points, maxGap)
 		if opts.smooth > 1 {
-			segs = chart.Smooth(segs, time.Duration(opts.smooth)*time.Second)
+			// A row a second, so a window of rows-1 seconds is the row
+			// and (rows-1)/2 either side of it.
+			segs = chart.Smooth(segs, time.Duration(smoothRows(opts.smooth)-1)*time.Second)
 		}
 		ylo, yhi, ok := yRange(segs, opts.robust)
 		if !ok {
@@ -147,7 +149,13 @@ func defaultTitle(s series, smooth int) string {
 	}
 	title := names + " against " + x
 	if smooth > 1 {
-		title += fmt.Sprintf(", averaged over %d rows", smooth)
+		title += fmt.Sprintf(", averaged over %d rows", smoothRows(smooth))
 	}
 	return title
 }
+
+// smoothRows is how many rows --smooth n averages each reading over: n,
+// or for an even n the odd number after it. The mean is centred, the
+// row and as many either side, so it is always an odd number of rows;
+// --smooth 2 averaged three, and the title said two.
+func smoothRows(n int) int { return n/2*2 + 1 }
