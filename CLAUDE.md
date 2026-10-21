@@ -87,6 +87,9 @@ from reality is a test failure.
   does. The standard `flag` package reads
   `-out` and `--out` alike; pflag would list them the same but read `-out`
   as `-o -u -t`, breaking command lines already written.
+- `internal/memory/` — `About`, the words a refusal gives the memory a
+  drawing would take, "about 1.3 GB": shared by the packages that refuse a
+  drawing as too large and the commands.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
   writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
 - `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of text,
@@ -537,6 +540,23 @@ shred the line.
 **`plot`'s y axis spans every value; `--robust` is opt-in.** `RobustRange`
 suits a sensor whose spikes are dropouts; in someone's spreadsheet the
 outlier is as likely to be the point — the wettest day of the year.
+
+**A drawing too large is refused by default, and `--high-memory` draws it.**
+A size is usually a flag, and a digit too many once took 1.5 GB for a braille
+chart before a line was drawn. So each drawing whose memory grows with a size
+someone typed has a default limit -- a braille chart's million characters
+(`plot`'s alone: `Chart.Braille` sets none), a picture's
+`DefaultMaxPixels`, a page's `DefaultMaxCells` -- and its refusal says what
+the drawing would take, from a measured cost a unit (`BrailleBytesPerChar`,
+`BytesPerPixel`, `BytesPerCell`), and that `--high-memory` lifts it. Whether
+the machine has the memory is the user's to know, not the program's: there
+is no cap on what `--high-memory` may take, short of what Go will allocate
+or the router can number, which are refused with no flag named, since none
+would help. One flag in both commands rather than one per limit, so a user
+learns one word; it lifts limits on memory only -- `--max-edges` bounds
+time, and an SVG's `MaxSide` what viewers open. An explicit `--max-cells`
+outranks it. Re-measure the costs a unit when the drawing code changes much,
+since a refusal quoting them is only as true as they are.
 
 **A column is a column of numbers when most of its values are, not all.** A
 typed file holds the odd "n.d."; refusing the column for one would refuse the

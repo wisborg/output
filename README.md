@@ -447,12 +447,32 @@ CJK character taking two, as a table's cells are:
 `plot --terminal braille --width 50 examples/summer-weather.csv`.
 
 `--width` and `--height` in the terminal are taken as given, not held to the
-window. Braille is drawn whole before a line of it is written, and has no
-ceiling as a PNG has: its memory grows with the width, about 500 MB at a
-million characters, so a mistyped width can take the machine's memory
-before anything is drawn. A picture's pixels are held to a few thousand
-across, but the terminal is still asked to show it as many columns wide as
-`--width` says, past the window's edge if that is wider.
+window. A picture's pixels are held to a few thousand across, but the
+terminal is still asked to show it as many columns wide as `--width` says,
+past the window's edge if that is wider.
+
+### Memory
+
+A drawing's memory grows with its size, and a size is usually a flag, where
+a digit too many is likelier than a chart meant to be that large. So by
+default `plot` and `diagram` refuse a drawing past a size, saying what it
+would take; `--high-memory` lifts the limits, for a machine with the memory
+and a drawing that needs it. Measured, about:
+
+| Drawing | Memory | Refused past, by default |
+|---|---|---|
+| a braille chart | 25 bytes a character | a million characters, some 25 MB |
+| a chart as a PNG | 10 bytes a pixel | 67 million pixels, some 650 MB |
+| a diagram's layout | 200 bytes a cell | a million cells, some 200 MB |
+| a diagram as a PNG | 20 bytes a pixel | 67 million pixels, some 1.3 GB |
+
+Encoding a PNG takes more besides. Even with `--high-memory` a picture past
+2^40 pixels, a braille chart past 2^42 characters and a diagram's page past
+`diagram.MostCells` are refused: Go will not allocate the first two, and the
+router numbers its search in 32 bits. In the library the limits are
+`picture.Options.MaxPixels` and `diagram.LayoutOptions.MaxCells`, and the
+measures `picture.BytesPerPixel`, `diagram.BytesPerCell` and
+`chart.BrailleBytesPerChar`; `chart.Chart.Braille` sets no limit of its own.
 
 ## diagram
 
@@ -591,8 +611,11 @@ of layout: one statement joining two sets of nodes makes an edge for every
 pair. So a file may make at most 300 edges, and a laid-out page have at most
 a million cells; `--max-edges` and `--max-cells` (`dot.Options` and
 `diagram.LayoutOptions` in the library) raise them for a genuine diagram past
-them. A page's cells are held to `diagram.MostCells`, some 268 million, however
-high `--max-cells` is set: the router numbers its search in 32 bits.
+them, and `--high-memory` lifts the page's to `diagram.MostCells`, some 268
+million, past which the router cannot number its search (see
+[Memory](#memory)). `--high-memory` does not lift `--max-edges`, which bounds
+time rather than memory, nor an SVG's 100,000 pixels a side, past which
+viewers refuse it.
 
 ## Licence
 

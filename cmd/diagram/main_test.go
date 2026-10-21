@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -696,8 +697,40 @@ func TestDiagramLimits(t *testing.T) {
 		t.Errorf("30 edges with --max-edges 30: %v", err)
 	}
 	_, _, err = draw(t, `digraph{ a [label="`+strings.Repeat("x", 300)+`"] }`, "--terminal", "text", "--max-cells", "1000")
-	if err == nil || !strings.Contains(err.Error(), "--max-cells raises the limit") {
+	if err == nil || !strings.Contains(err.Error(), "--max-cells raises the limit") || strings.Contains(err.Error(), "--high-memory") {
 		t.Errorf("a 300-letter label with --max-cells 1000: %v", err)
+	}
+	_, _, err = draw(t, `digraph{ a [label="`+strings.Repeat("x", 300)+`"] }`, "--terminal", "text", "--max-cells", "1000", "--high-memory")
+	if err == nil || !strings.Contains(err.Error(), "--max-cells raises the limit") {
+		t.Errorf("--max-cells 1000 outranks --high-memory: %v", err)
+	}
+}
+
+// Past the default limits a refusal says what it would take and that
+// --high-memory lifts the limit; with it, a limit only Go's allocation
+// sets is refused with no flag named, since none would help.
+func TestDiagramHighMemory(t *testing.T) {
+	big := `digraph{ a [label="` + strings.Repeat(strings.Repeat("x", 1200)+`\n`, 1200) + `"] }`
+	_, _, err := draw(t, big, "--terminal", "text")
+	if err == nil || !strings.Contains(err.Error(), "--high-memory, or --max-cells, raises the limit") || !strings.Contains(err.Error(), "would take about") {
+		t.Errorf("a page of 1.4 million cells: %v", err)
+	}
+	// With --high-memory a page is held only to MostCells, past which
+	// no flag raises anything: one of 3e8 cells is refused for that.
+	huge := `digraph{ wide [label="` + strings.Repeat("x", 30000) + `"]; tall [label="` + strings.Repeat(`x\n`, 10000) + `"] }`
+	_, _, err = draw(t, huge, "--terminal", "text", "--high-memory")
+	if err == nil || !strings.Contains(err.Error(), strconv.Itoa(diagram.MostCells)) || strings.Contains(err.Error(), "raises the limit") {
+		t.Errorf("a page of 3e8 cells with --high-memory: %v", err)
+	}
+	png := filepath.Join(t.TempDir(), "d.png")
+	_, _, err = draw(t, "digraph{ a -> b }", "--out", png, "--text-size", "5000")
+	if err == nil || !strings.Contains(err.Error(), "--high-memory draws it") || !strings.Contains(err.Error(), "would take about") {
+		t.Errorf("a PNG past the default pixels: %v", err)
+	}
+	_, _, err = draw(t, "digraph{ a -> b }", "--out", png, "--text-size", "1e6", "--high-memory")
+	// Refused by the ceiling Go's allocation sets, not by the default.
+	if err == nil || strings.Contains(err.Error(), "--high-memory draws it") || strings.Contains(err.Error(), "the 67 million") {
+		t.Errorf("a PNG past what Go can allocate, with --high-memory: %v", err)
 	}
 }
 

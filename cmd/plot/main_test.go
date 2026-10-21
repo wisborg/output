@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 
@@ -451,5 +452,38 @@ func TestSmoothSaysHowManyRows(t *testing.T) {
 		if got, want := ch.Strips[0].Segments[0][4].Y, 15/float64(c.rows); math.Abs(got-want) > 1e-9 {
 			t.Errorf("--smooth %d: the spike of 15 averaged to %v, want 15 over %d rows, %v", c.smooth, got, c.rows, want)
 		}
+	}
+}
+
+// A braille chart of more than a million characters, or a PNG of more
+// than picture.DefaultMaxPixels, is refused with what it would take and
+// the flag that draws it; --high-memory does, as far as Go can allocate,
+// where a refusal names no flag, since none would help.
+func TestPlotHighMemory(t *testing.T) {
+	data := "x,a\n1,2\n2,3\n3,1\n"
+	_, _, err := plot(t, data, "--width", "50000", "--height", "24")
+	if err == nil || !strings.Contains(err.Error(), "--high-memory draws it") || !strings.Contains(err.Error(), "would take about 30 MB") {
+		t.Errorf("50000 by 24 characters: %v", err)
+	}
+	out, _, err := plot(t, data, "--width", "50000", "--height", "24", "--high-memory")
+	if err != nil {
+		t.Errorf("50000 by 24 characters with --high-memory: %v", err)
+	} else if lines := strings.Split(strings.TrimRight(out, "\n"), "\n"); len(lines) != 24 || utf8.RuneCountInString(lines[3]) != 50000 {
+		t.Errorf("50000 by 24 characters with --high-memory drew %d lines", len(lines))
+	}
+	_, _, err = plot(t, data, "--width", "1000000000", "--height", "1000000", "--high-memory")
+	if err == nil || strings.Contains(err.Error(), "--high-memory") {
+		t.Errorf("10^15 characters with --high-memory: %v", err)
+	}
+	png := filepath.Join(t.TempDir(), "c.png")
+	var stdout, stderr bytes.Buffer
+	err = run([]string{"--out", png, "--width", "100000", "--height", "100000"}, strings.NewReader(data), &stdout, &stderr, noEnv)
+	if !errors.Is(err, picture.ErrTooLarge) || !strings.Contains(err.Error(), "--high-memory draws it") {
+		t.Errorf("a PNG of 10^10 pixels: %v", err)
+	}
+	err = run([]string{"--out", png, "--width", "2097152", "--height", "1048576", "--high-memory"}, strings.NewReader(data), &stdout, &stderr, noEnv)
+	// Refused by the ceiling Go's allocation sets, not by the default.
+	if !errors.Is(err, picture.ErrTooLarge) || strings.Contains(err.Error(), "--high-memory") || strings.Contains(err.Error(), "the 67 million") {
+		t.Errorf("a PNG of 2^41 pixels with --high-memory: %v", err)
 	}
 }

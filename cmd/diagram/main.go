@@ -23,6 +23,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
 	"image/png"
 	"io"
 	"math"
@@ -83,6 +84,9 @@ type options struct {
 	maxEdges int
 	maxCells int
 	fonts    []string
+	// highMemory lifts DefaultMaxCells, where --max-cells does not say,
+	// and the picture's DefaultMaxPixels.
+	highMemory bool
 }
 
 // The size of a PNG or an SVG where neither --width, --height nor
@@ -114,6 +118,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.IntVar(&o.height, "height", 0, "the picture's greatest height: one that would be taller is drawn smaller to fit; in lines for a picture in the terminal (default: the terminal's, less one for the prompt); in pixels in a PNG or an SVG (default: none). The text drawing is as tall as the diagram, which no flag shortens")
 	fs.IntVar(&o.maxEdges, "max-edges", dot.DefaultMaxEdges, "the most edges a file may make: a guard against a few bytes of DOT asking for hours of layout; raise it for a genuine diagram past it")
 	fs.IntVar(&o.maxCells, "max-cells", diagram.DefaultMaxCells, "the most cells the laid-out page may have: a guard against labels or grids asking for gigabytes; raise it for a genuine diagram past it")
+	fs.BoolVar(&o.highMemory, "high-memory", false, "lay out and draw a diagram however much memory it takes: without it a page of more than "+strconv.Itoa(diagram.DefaultMaxCells/1000000)+" million cells (some 200 MB), unless --max-cells says otherwise, and a PNG of more than "+strconv.Itoa(picture.DefaultMaxPixels/1000000)+" million pixels (some 1.3 GB) are refused, as a size mistyped is likelier than one meant, and the refusal says what it would take; it does not lift --max-edges, which bounds time, nor an SVG's "+strconv.Itoa(svg.MaxSide)+" pixels a side, past which viewers refuse it")
 	fs.Float64Var(&o.textPx, "text-size", 0, "size a PNG or an SVG by its text instead, in pixels, everything else in proportion -- so several diagrams share a text size; not with --width or --height")
 	fs.Func("font", "a TrueType or OpenType font for the letters the built-in font lacks, in a PNG; repeat for several", func(s string) error {
 		o.fonts = append(o.fonts, s)
@@ -143,6 +148,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		if set[f.name] && !(f.v >= 0 && f.v <= math.MaxFloat64) {
 			return cli.Usagef("--%s %v: a size from 0, which is the default", f.name, f.v)
 		}
+	}
+	if o.highMemory && !set["max-cells"] {
+		o.maxCells = diagram.MostCells
 	}
 	if set["text-size"] && (set["width"] || set["height"]) {
 		return cli.Usagef("--text-size sizes the diagram by its text, --width and --height by its outline: give one or the other")
@@ -210,7 +218,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	lay, err := d.LayoutWith(diagram.LayoutOptions{MaxCells: o.maxCells})
 	if errors.Is(err, diagram.ErrTooLarge) {
-		return fmt.Errorf("%s: %w (--max-cells raises the limit)", name, err)
+		// --max-cells given outranks --high-memory, and past MostCells
+		// neither raises anything.
+		switch {
+		case !set["max-cells"] && !o.highMemory:
+			return fmt.Errorf("%s: %w (--high-memory, or --max-cells, raises the limit)", name, err)
+		case o.maxCells < diagram.MostCells:
+			return fmt.Errorf("%s: %w (--max-cells raises the limit)", name, err)
+		}
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
@@ -244,6 +260,19 @@ func palette(theme string, inTerminal bool, getenv func(string) string) (diagram
 	return diagram.Palette{}, cli.Usagef("--theme %q: use auto, light or dark", theme)
 }
 
+// drawPicture draws lay as picture.Draw does, held to its DefaultMaxPixels
+// unless --high-memory lifts it, and saying so where it refuses.
+func drawPicture(o options, lay *diagram.Layout, opts picture.Options) (*image.RGBA, error) {
+	if o.highMemory {
+		opts.MaxPixels = math.MaxInt
+	}
+	img, err := picture.Draw(lay, opts)
+	if errors.Is(err, picture.ErrTooLarge) && !o.highMemory {
+		return nil, fmt.Errorf("%w; --high-memory draws it", err)
+	}
+	return img, err
+}
+
 // writeFile writes the diagram to --out, in the format its name ends in.
 func writeFile(o options, lay *diagram.Layout, errOut io.Writer, getenv func(string) string) error {
 	ext := strings.ToLower(filepath.Ext(o.out))
@@ -269,7 +298,7 @@ func writeFile(o options, lay *diagram.Layout, errOut io.Writer, getenv func(str
 		if err != nil {
 			return err
 		}
-		img, err := picture.Draw(lay, picture.Options{Palette: pal, TextPx: px, Fonts: fonts})
+		img, err := drawPicture(o, lay, picture.Options{Palette: pal, TextPx: px, Fonts: fonts})
 		if err != nil {
 			return err
 		}
@@ -364,7 +393,7 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 		maxH = 2 * cellH * scale * float64(rows)
 	}
 	px := textPxFor(lay, perCol*float64(cols), maxH)
-	img, err := picture.Draw(lay, picture.Options{Palette: pal, TextPx: px, Fonts: fonts})
+	img, err := drawPicture(o, lay, picture.Options{Palette: pal, TextPx: px, Fonts: fonts})
 	if err != nil {
 		return err
 	}

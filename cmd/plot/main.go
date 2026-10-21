@@ -28,6 +28,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,9 +36,11 @@ import (
 
 	"golang.org/x/image/font/opentype"
 
+	"github.com/wisborg/output/chart"
 	"github.com/wisborg/output/chart/picture"
 	"github.com/wisborg/output/chart/terminal"
 	"github.com/wisborg/output/internal/cli"
+	"github.com/wisborg/output/internal/memory"
 	tbl "github.com/wisborg/output/table"
 )
 
@@ -67,6 +70,7 @@ type options struct {
 	smooth        int
 	robust        bool
 	fonts         []string
+	highMemory    bool
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) error {
@@ -92,6 +96,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a PNG; the terminal's own in a terminal), light or dark")
 	fs.StringVar(&o.title, "title", "", "the chart's title (default: what is plotted against what)")
 	fs.IntVar(&o.smooth, "smooth", 0, "average each value with those of the rows either side of it, this many rows in all -- the odd number after an even one -- never across a gap")
+	fs.BoolVar(&o.highMemory, "high-memory", false, "draw a chart however much memory it takes: without it a braille chart of more than a million characters (some 25 MB) and a picture of more than "+strconv.Itoa(picture.DefaultMaxPixels/1000000)+" million pixels (some 650 MB) are refused, as a size mistyped is likelier than one meant, and the refusal says what it would take")
 	fs.BoolVar(&o.robust, "robust", false, "set each y axis from the middle 98% of its values, so a few outliers do not flatten the rest; those beyond are drawn at the edge")
 	fs.Func("font", "a TrueType or OpenType font for the letters the built-in font lacks, in a picture; repeat for several", func(s string) error {
 		o.fonts = append(o.fonts, s)
@@ -227,7 +232,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if err != nil {
 		return err
 	}
-	d := drawing{series: s, opts: copts, fonts: fonts, theme: o.theme, getenv: getenv}
+	d := drawing{series: s, opts: copts, fonts: fonts, theme: o.theme, getenv: getenv, highMemory: o.highMemory}
 	if o.out != "" {
 		err = d.writePNG(o.out, o.width, o.height)
 	} else {
@@ -419,6 +424,29 @@ type drawing struct {
 	fonts  []*opentype.Font
 	theme  string
 	getenv func(string) string
+	// highMemory lifts maxBrailleChars and the pictures' DefaultMaxPixels.
+	highMemory bool
+}
+
+// maxBrailleChars is the most characters a braille chart may have without
+// --high-memory: a million, some 25 MB, as wide and tall as 2000 by 500,
+// which no terminal comes near. Braille sets no limit of its own, and a
+// width mistyped with a digit too many once took 1.5 GB before a line was
+// drawn.
+const maxBrailleChars = 1000 * 1000
+
+// mostBrailleChars is the most it may have with --high-memory: 2^42, some
+// hundred terabytes, past which the drawing's allocation is beyond what Go
+// will make.
+const mostBrailleChars = 1 << 42
+
+// tooLarge is the hint a refusal ends with where --high-memory would draw
+// what was refused, and nothing where it was given already.
+func (d drawing) tooLarge() string {
+	if d.highMemory {
+		return ""
+	}
+	return "; --high-memory draws it"
 }
 
 // palette is the picture's palette for --theme: for auto, light for a PNG,
@@ -458,7 +486,15 @@ func (d drawing) picture(width, height int, inTerminal bool) (*image.RGBA, error
 	if err != nil {
 		return nil, err
 	}
-	return picture.Draw(c, width, height, picture.Options{Palette: pal, Fonts: d.fonts})
+	opts := picture.Options{Palette: pal, Fonts: d.fonts}
+	if d.highMemory {
+		opts.MaxPixels = math.MaxInt
+	}
+	img, err := picture.Draw(c, width, height, opts)
+	if errors.Is(err, picture.ErrTooLarge) {
+		return nil, fmt.Errorf("%w%s", err, d.tooLarge())
+	}
+	return img, err
 }
 
 // writePNG writes the chart to path, width by height pixels or the default
@@ -551,6 +587,13 @@ func (d drawing) writeBraille(out io.Writer, width, height int) error {
 	// Each strip's rows, as Braille shares them out, ticked about every
 	// three, and the x axis about every fourteen characters: a date's
 	// label is longer than a number's.
+	most := maxBrailleChars
+	if d.highMemory {
+		most = mostBrailleChars
+	}
+	if chars := float64(width) * float64(height); chars > float64(most) {
+		return fmt.Errorf("a braille chart %d by %d characters, more than the %d characters in all it may have, would take %s%s", width, height, most, memory.About(chars*chart.BrailleBytesPerChar), d.tooLarge())
+	}
 	n := len(d.series.yNames)
 	rows := height - 3
 	if n > 1 {
