@@ -404,30 +404,6 @@ func TestLongLabelsKeepOffBoxes(t *testing.T) {
 	}
 }
 
-// BenchmarkLayoutFlow is a flow of a hundred boxes and two hundred edges:
-// its time is almost all the router's search.
-func BenchmarkLayoutFlow(b *testing.B) {
-	d := &Diagram{}
-	for i := range 100 {
-		d.Root.Items = append(d.Root.Items, node(fmt.Sprintf("n%d", i)))
-	}
-	x := uint64(1)
-	for range 200 {
-		x ^= x << 13
-		x ^= x >> 7
-		x ^= x << 17
-		a, c := int(x%100), int((x>>20)%100)
-		if a != c {
-			d.Edges = append(d.Edges, Edge{From: fmt.Sprintf("n%d", a), To: fmt.Sprintf("n%d", c), Head: true})
-		}
-	}
-	for b.Loop() {
-		if _, err := d.Layout(); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
 // No edge label is written over the title, nor in the blank row beneath it,
 // in the text drawing or a picture's straight edges: a label there reads as
 // part of the title. Labels too wide for their gaps once went to row 0,

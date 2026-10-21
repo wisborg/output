@@ -144,6 +144,17 @@ deps:
 	  [ $$fail -eq 0 ] && echo "deps: chart/terminal is the standard library alone, chart and diagram add only go-runewidth, x/image only in the picture packages, YAML only in the root package"; \
 	  exit $$fail
 
+# BENCH narrows `make bench`, and COUNT repeats it, e.g.
+#   make bench BENCH=Flow COUNT=10 > new.txt
+# Ten runs of each, before a change and after, are what benchstat
+# (golang.org/x/perf/cmd/benchstat) needs to tell a change from noise.
+BENCH ?= .
+COUNT ?= 1
+
+## bench: time the layout on fixed diagrams, e.g. BENCH=Flow COUNT=10
+bench:
+	go test -run '^$$' -bench '$(BENCH)' -benchmem -count $(COUNT) ./diagram/
+
 # FUZZTIME is how long `make fuzz` searches each target, e.g.
 #   make fuzz FUZZTIME=10m
 FUZZTIME ?= 1m
@@ -202,4 +213,4 @@ clean:
 	@find .scratch -mindepth 1 -maxdepth 1 ! -name env -exec rm -rf {} + 2>/dev/null || true
 	@echo "cleaned"
 
-.PHONY: help build install run gates test race cover tidy deps fuzz fuzz-replay fuzz-save fuzz-load clean
+.PHONY: help build install run gates test race cover tidy deps bench fuzz fuzz-replay fuzz-save fuzz-load clean
