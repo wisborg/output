@@ -644,9 +644,10 @@ divided into fields, as Graphviz draws a struct, a table or a class: its label
 way between braces, and a field's name to the edges in `<…>`. The fields run
 side by side where the layers run down, and one above another under
 `rankdir=LR`, as Graphviz lays them. `node:field`, or `node:field:s`, ends an
-edge on the outline beside that field, on a side the field reaches; as with a
+edge on the outline beside that field, on a side the field reaches — a field
+named `n` or `s` before the compass point, as in Graphviz; as with a
 side, where no line can, it ends elsewhere and `diagram` says so. Two edges
-into one node share a line only where they name the same field of it. A field
+into one node share a line only where they end at the same field of it. A field
 with other fields on every side has no outline of its own, so a line to it ends
 beside the fields next to it; Graphviz draws one through them to its middle,
 and a line here never runs through a box. An edge with no port ends anywhere on
@@ -654,7 +655,8 @@ the outline, which beside a record reads as one of its fields: give it a port
 to say which. A record label that is not one — a brace not closed — is drawn
 as a box with its label as written, where Graphviz refuses it. Every line of a
 field is centred: `\l` and `\r` end a line, as everywhere here, without
-setting it left or right.
+setting it left or right. `\ ` keeps a space at a field's either end, where
+other spaces are dropped.
 
 Of DOT, the whole grammar is read, and the attributes that say what a
 diagram means; those about how Graphviz draws are ignored. HTML labels are

@@ -573,7 +573,7 @@ func TestMayPassAnArrowheadOnlyToMerge(t *testing.T) {
 		{From: "a", To: "b", Head: true, Tail: true},
 		{From: "c", To: "b", Head: true, Line: Dashed},
 		{From: "x", To: "c", Head: true},
-	}}
+	}, fields: make([][2]Rect, 7)} // fields for the two edges added below too
 	for j, want := range []bool{1: true, 2: false, 3: false} {
 		if j == 0 {
 			continue

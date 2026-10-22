@@ -268,7 +268,7 @@ func (d drawer) node(pn diagram.PlacedNode) {
 	fill := or(n.Fill, d.pal.Background)
 	line := or(n.Colour, d.pal.Foreground)
 	top := pn.Rect.Y + 1
-	switch n.Shape {
+	switch n.Outline() {
 	case diagram.Box:
 		d.cv.Polygon(rect(x0, y0, x1, y1), fill)
 		d.outline(rect(x0, y0, x1, y1), n.Line, line)
@@ -298,9 +298,9 @@ func (d drawer) node(pn diagram.PlacedNode) {
 		}
 		for _, f := range pn.Fields {
 			fx0, _, fx1, _ := d.s.Box(f.Rect)
-			lines := strings.Split(f.Field.Label, "\n")
+			lines, ftop := f.Lines()
 			for i, l := range lines {
-				_ = d.cv.Text(l, (fx0+fx1)/2, d.s.Y(f.Rect.Y+(f.Rect.H-len(lines))/2+i), 0.5, textCentre, d.px, text)
+				_ = d.cv.Text(l, (fx0+fx1)/2, d.s.Y(ftop+i), 0.5, textCentre, d.px, text)
 			}
 		}
 		return
@@ -375,7 +375,7 @@ func (d drawer) patch(text string, x, y, px float64) {
 // filledBy is what fills n behind its label: its fill, unless it is plain
 // text, which is drawn on the background whatever its fill.
 func filledBy(n *diagram.Node) color.Color {
-	if n.Shape == diagram.Plain {
+	if n.Outline() == diagram.Plain {
 		return nil
 	}
 	return n.Fill

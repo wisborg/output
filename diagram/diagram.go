@@ -116,8 +116,8 @@ type Node struct {
 	// Record divides the node into fields, as DOT's shape=record draws a
 	// struct, a table's columns or a class: side by side in a row where
 	// the diagram's layers run down or up, and one above another where
-	// they run across, as Graphviz lays them. Label is not drawn; Shape is
-	// the outline, a Box or a Rounded one. An edge may end at one field,
+	// they run across, as Graphviz lays them. Label is not drawn, and a
+	// Shape but Rounded is drawn as a Box: see Outline. An edge may end at one field,
 	// by its port: see Edge.FromPort.
 	Record []Field
 }
@@ -259,6 +259,16 @@ const (
 	// Stroke is a short line, as an edge is drawn.
 	Stroke
 )
+
+// Outline is the shape n is drawn in: its Shape, but a record's is a Box,
+// or a Rounded one, as Graphviz draws a record and an Mrecord, since its
+// fields and dividers fill a box's inside and no other shape's.
+func (n *Node) Outline() Shape {
+	if len(n.Record) > 0 && n.Shape != Rounded {
+		return Box
+	}
+	return n.Shape
+}
 
 // label is the node's label, its ID where it has none.
 func (n *Node) label() string {

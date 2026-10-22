@@ -250,10 +250,10 @@ func (d *doc) node(pn diagram.PlacedNode) {
 	filled := fill(or(n.Fill, d.pal.Background))
 	stroke := d.stroke(n.Line, or(n.Colour, d.pal.Foreground))
 	top := pn.Rect.Y + 1
-	switch n.Shape {
+	switch n.Outline() {
 	case diagram.Box, diagram.Rounded:
 		rx := 0.0
-		if n.Shape == diagram.Rounded {
+		if n.Outline() == diagram.Rounded {
 			rx = math.Min(d.px*0.6, math.Min(x1-x0, y1-y0)/2)
 		}
 		fmt.Fprintf(&d.b, `<rect x="%s" y="%s" width="%s" height="%s" rx="%s" %s %s/>`+"\n",
@@ -283,9 +283,9 @@ func (d *doc) node(pn diagram.PlacedNode) {
 		}
 		for _, f := range pn.Fields {
 			fx0, _, fx1, _ := d.s.Box(f.Rect)
-			lines := strings.Split(f.Field.Label, "\n")
+			lines, ftop := f.Lines()
 			for i, l := range lines {
-				d.text(l, (fx0+fx1)/2, d.s.Y(f.Rect.Y+(f.Rect.H-len(lines))/2+i), "middle", d.px, ink)
+				d.text(l, (fx0+fx1)/2, d.s.Y(ftop+i), "middle", d.px, ink)
 			}
 		}
 		return
@@ -379,7 +379,7 @@ func xmlText(s string) string {
 // filledBy is what fills n behind its label: its fill, unless it is plain
 // text, which is drawn on the background whatever its fill.
 func filledBy(n *diagram.Node) color.Color {
-	if n.Shape == diagram.Plain {
+	if n.Outline() == diagram.Plain {
 		return nil
 	}
 	return n.Fill

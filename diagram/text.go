@@ -546,10 +546,9 @@ func drawTextNode(c *textCanvas, n PlacedNode, pal Palette) {
 	// Behind the box, its own background, as in a picture, so a group's
 	// fill does not show through a node without one.
 	c.clear(r, nil)
-	lines := strings.Split(node.label(), "\n")
 	top := r.Y + 1
 	ink := node.Text
-	if node.Shape != Plain {
+	if node.Outline() != Plain {
 		if node.Fill != nil {
 			fill := over(node.Fill, pal.Background)
 			c.fill(Rect{r.X + 1, r.Y + 1, r.W - 2, r.H - 2}, fill)
@@ -576,14 +575,14 @@ func drawTextNode(c *textCanvas, n PlacedNode, pal Palette) {
 			}
 			c.lines[p.Y][p.X] |= out
 		}
-		if node.Shape == Rounded || node.Shape == Ellipse || node.Shape == Cylinder {
+		if node.Outline() == Rounded || node.Outline() == Ellipse || node.Outline() == Cylinder {
 			x1, y1 := r.X+r.W-1, r.Y+r.H-1
 			c.set(r.X, r.Y, '╭', node.Colour)
 			c.set(x1, r.Y, '╮', node.Colour)
 			c.set(r.X, y1, '╰', node.Colour)
 			c.set(x1, y1, '╯', node.Colour)
 		}
-		if node.Shape == Cylinder {
+		if node.Outline() == Cylinder {
 			c.line(Point{r.X, r.Y + 1}, Point{r.X + r.W - 1, r.Y + 1}, false, node.Colour)
 			top++
 		}
@@ -595,14 +594,14 @@ func drawTextNode(c *textCanvas, n PlacedNode, pal Palette) {
 			c.line(d[0], d[1], node.Line == Dashed || node.Line == Dotted, node.Colour)
 		}
 		for _, f := range n.Fields {
-			fl := strings.Split(f.Field.Label, "\n")
+			fl, ftop := f.Lines()
 			for i, line := range fl {
-				c.write(f.Rect.X+(f.Rect.W-Width(line))/2, f.Rect.Y+(f.Rect.H-len(fl))/2+i, line, ink)
+				c.write(f.Rect.X+(f.Rect.W-Width(line))/2, ftop+i, line, ink)
 			}
 		}
 		return
 	}
-	for i, line := range lines {
+	for i, line := range strings.Split(node.label(), "\n") {
 		c.write(r.X+(r.W-Width(line))/2, top+i, line, ink)
 	}
 }

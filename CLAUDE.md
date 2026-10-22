@@ -559,9 +559,11 @@ any side across from it: a line here never runs through a box to a field's
 middle, as Graphviz's does. No line ends where a divider meets the outline,
 as none ends at a corner, since it reads as running into the divider -- in a
 record of two equal fields that is the middle of a side, where a line most
-wants to end. And two edges share a line at a node only where they name the
-same port of it (`meet`): a line into a field and one into the whole record,
-merged, end beside the field and the second reads as joining it.
+wants to end. And two edges share a line at a node only where they end beside
+the same field of it (`sharing`): a line into a field and one into the whole
+record, merged, end beside the field and the second reads as joining it. The
+field, not the port's name: a port no field has is anywhere on the box, and
+keeps no line apart.
 `TestRecordFields`, `TestRecordPorts` and `TestRecordPortsShareOnlyTheirOwn`
 hold these, on Graphviz's own example among others.
 

@@ -100,6 +100,15 @@ func placeFields(pn *PlacedNode, fields []Field, r Rect, row bool) {
 	}
 }
 
+// Lines is f's label, a line to each "\n", and the row the first is
+// written in, the lines centred in f top to bottom: the one place a
+// drawing finds where a field's words go, as a node's are found in the
+// layout, so the text drawing and the pictures put them in the same rows.
+func (f PlacedField) Lines() (lines []string, top int) {
+	lines = strings.Split(f.Field.Label, "\n")
+	return lines, f.Rect.Y + (f.Rect.H-len(lines))/2
+}
+
 // field is the cells of n's field named port, and whether it has one.
 func (n PlacedNode) field(port string) (Rect, bool) {
 	if port == "" {

@@ -73,7 +73,7 @@ func (s Scale) onOutline(n PlacedNode, x, y, fx, fy float64) (float64, float64) 
 	x0, y0, x1, y1 := s.Box(n.Rect)
 	cx, cy, rx, ry := (x0+x1)/2, (y0+y1)/2, (x1-x0)/2, (y1-y0)/2
 	vertical := x == fx
-	switch n.Node.Shape {
+	switch n.Node.Outline() {
 	case Ellipse:
 		if vertical {
 			d := ry * math.Sqrt(max(0, 1-sq((x-cx)/rx)))
@@ -143,7 +143,7 @@ func (s Scale) leave(n PlacedNode, x, y, tx, ty float64) (float64, float64) {
 	x0, y0, x1, y1 := s.Box(n.Rect)
 	dx, dy := tx-x, ty-y
 	cx, rx := (x0+x1)/2, (x1-x0)/2
-	switch n.Node.Shape {
+	switch n.Node.Outline() {
 	case Ellipse:
 		if t, ok := exitEllipse(x, y, dx, dy, cx, (y0+y1)/2, rx, (y1-y0)/2); ok {
 			return x + t*dx, y + t*dy

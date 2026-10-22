@@ -230,10 +230,6 @@ func oneWay(e Edge) (arrow, bare string, ok bool) {
 // both ways, and an edge leaving its line at a fork could have come from
 // either end of it; an edge with none runs neither, and a fork joining
 // three lines reads as joining any two of them.
-//
-// And at the same port of that node: a line into one field of a record
-// and a line into the whole of it, merged, end beside the field, and the
-// second reads as joining it too.
 func meet(a, b Edge) (string, bool) {
 	aArrow, aBare, aOk := oneWay(a)
 	bArrow, bBare, bOk := oneWay(b)
@@ -248,20 +244,27 @@ func meet(a, b Edge) (string, bool) {
 	default:
 		return "", false
 	}
-	return at, portAt(a, at) == portAt(b, at)
+	return at, true
 }
 
-// portAt is the port e names at its end at node: FromPort or ToPort.
-func portAt(e Edge, node string) string {
-	if e.To == node {
-		return e.ToPort
+// fieldAt is the record field edge i ends beside at node, the zero Rect
+// where its port there names none.
+func (rt *router) fieldAt(i int, node string) Rect {
+	if rt.edges[i].To == node {
+		return rt.fields[i][1]
 	}
-	return e.FromPort
+	return rt.fields[i][0]
 }
 
 // sharing says edge i's line may run along edge j's: they meet, and are
 // drawn alike -- a dashed line and a solid one merged into one would be
 // drawn as one or the other.
+//
+// And end beside the same field of the node they meet at, or both
+// anywhere on it: a line into one field of a record and a line into the
+// whole of it, merged, end beside the field, and the second reads as
+// joining it too. The field, not the port's name, as a port no field has
+// is anywhere on the box, as no port is.
 func (rt *router) sharing(i, j int) bool {
 	if j < 0 {
 		return false
@@ -272,8 +275,8 @@ func (rt *router) sharing(i, j int) bool {
 	if a.From == a.To || b.From == b.To {
 		return false
 	}
-	_, ok := meet(a, b)
-	return ok && a.Line == b.Line && same(a.Colour, b.Colour)
+	at, ok := meet(a, b)
+	return ok && rt.fieldAt(i, at) == rt.fieldAt(j, at) && a.Line == b.Line && same(a.Colour, b.Colour)
 }
 
 // mayEnd says edge i may pass a cell where the heads and the tails of
@@ -342,7 +345,7 @@ func newRouter(l *layouter) *router {
 		r.fields[i][1], _ = l.out.nodeAt[e.To].field(e.ToPort)
 	}
 	for _, n := range l.out.Nodes {
-		if n.Node.Shape == Plain {
+		if n.Node.Outline() == Plain {
 			r.bare[n.Rect] = true
 		}
 	}
@@ -644,16 +647,20 @@ var wayside = [4]Side{North, South, West, East}
 // on the box's outline, to its next, out of it. Every path starts so, the
 // plain ones too; read from its last point to the one before, it is the
 // side the path enters its other box by.
-func sideOut(p, q Point) Side {
+func sideOut(p, q Point) Side { return wayside[wayOut(p, q)] }
+
+// wayOut is the way out of its box a path leaves by, from p to q, as
+// sideOut's side.
+func wayOut(p, q Point) int {
 	switch {
 	case q.Y < p.Y:
-		return North
+		return 0
 	case q.Y > p.Y:
-		return South
+		return 1
 	case q.X < p.X:
-		return West
+		return 2
 	}
-	return East
+	return 3
 }
 
 // keepsSides says the path pts leaves its first box by one of from and
@@ -674,16 +681,8 @@ func keepsFields(pts []Point, a, b Rect, fields [2]Rect) bool {
 	if n < 2 {
 		return fields == [2]Rect{}
 	}
-	way := func(s Side) int { // the way out of a box leaving by side s
-		for w, ws := range wayside {
-			if ws == s {
-				return w
-			}
-		}
-		return 0
-	}
-	return (fields[0] == Rect{} || besideField(a, fields[0], pts[0], way(sideOut(pts[0], pts[1])))) &&
-		(fields[1] == Rect{} || besideField(b, fields[1], pts[n-1], way(sideOut(pts[n-1], pts[n-2]))))
+	return (fields[0] == Rect{} || besideField(a, fields[0], pts[0], wayOut(pts[0], pts[1]))) &&
+		(fields[1] == Rect{} || besideField(b, fields[1], pts[n-1], wayOut(pts[n-1], pts[n-2])))
 }
 
 // outline is r's outline cells edge i may end at -- not its corners, nor

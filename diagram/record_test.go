@@ -173,21 +173,69 @@ func TestRecordPorts(t *testing.T) {
 	}
 }
 
-// Two edges into one node share a line only where they name the same port
-// of it: a line into a field and one into the whole record, merged, end
-// beside the field, and the second reads as joining it.
+// Two edges at one node share a line only where they end beside the same
+// field of it, or both anywhere on it: a line into a field and one into
+// the whole record, merged, end beside the field, and the second reads as
+// joining it. A port no field has is anywhere on the box, as no port is,
+// and does not keep two lines apart -- a mistyped port, or one of a label
+// this package does not read.
 func TestRecordPortsShareOnlyTheirOwn(t *testing.T) {
-	a := Edge{From: "x", To: "r", ToPort: "p", Head: true}
-	if _, ok := meet(a, Edge{From: "y", To: "r", Head: true}); ok {
-		t.Error("an edge into r:p and one into r share a line")
+	r := &PlacedNode{Node: &Node{ID: "r", Record: []Field{{Port: "p", Label: "p"}, {Port: "q", Label: "q"}}}, Rect: Rect{10, 10, 9, 3}}
+	placeFields(r, r.Node.Record, Rect{11, 11, 7, 1}, true)
+	boxes := map[string]Rect{"r": r.Rect, "x": {0, 0, 3, 3}, "y": {20, 0, 3, 3}, "b": {0, 20, 3, 3}}
+	for _, c := range []struct {
+		a, b  Edge
+		share bool
+	}{
+		{Edge{From: "x", To: "r", ToPort: "p", Head: true}, Edge{From: "y", To: "r", Head: true}, false},
+		{Edge{From: "x", To: "r", ToPort: "p", Head: true}, Edge{From: "y", To: "r", ToPort: "q", Head: true}, false},
+		{Edge{From: "x", To: "r", ToPort: "p", Head: true}, Edge{From: "y", To: "r", ToPort: "p", Head: true}, true},
+		{Edge{From: "r", FromPort: "p", To: "x", Head: true}, Edge{From: "r", FromPort: "p", To: "y", Head: true}, true},
+		{Edge{From: "x", To: "r", ToPort: "nofield", Head: true}, Edge{From: "y", To: "r", Head: true}, true},
+		{Edge{From: "b", To: "x", Head: true}, Edge{From: "b", FromPort: "p1", To: "y", Head: true}, true},
+	} {
+		l := &layouter{d: &Diagram{Edges: []Edge{c.a, c.b}}, out: &Layout{nodeAt: map[string]PlacedNode{}}, rect: boxes}
+		for id, rc := range boxes {
+			pn := PlacedNode{Node: &Node{ID: id}, Rect: rc}
+			if id == "r" {
+				pn = *r
+			}
+			l.out.Nodes = append(l.out.Nodes, pn)
+			l.out.nodeAt[id] = pn
+		}
+		if got := newRouter(l).sharing(0, 1); got != c.share {
+			t.Errorf("%s:%s -> %s:%s and %s:%s -> %s:%s: share %v, want %v", c.a.From, c.a.FromPort, c.a.To, c.a.ToPort,
+				c.b.From, c.b.FromPort, c.b.To, c.b.ToPort, got, c.share)
+		}
 	}
-	if _, ok := meet(a, Edge{From: "y", To: "r", ToPort: "q", Head: true}); ok {
-		t.Error("edges into r:p and r:q share a line")
+}
+
+// A record is drawn in a box, or a rounded one, whatever other Shape it is
+// given: its fields fill a box's inside, and a cylinder's lid or an
+// ellipse's curve would cut through them.
+func TestRecordDrawnInABox(t *testing.T) {
+	for _, c := range []struct {
+		shape   Shape
+		rounded bool
+	}{{Box, false}, {Rounded, true}, {Ellipse, false}, {Cylinder, false}, {Plain, false}} {
+		n := &Node{ID: "r", Shape: c.shape, Record: []Field{{Label: "a"}, {Label: "b"}}}
+		lay, err := (&Diagram{Root: Group{Items: []Item{{Node: n}}}}).Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		recordsHold(t, lay)
+		text := lay.Text()
+		if got := strings.ContainsRune(text[0], '╭'); got != c.rounded || len(text) != 3 || !strings.ContainsRune(text[0], '┬') {
+			t.Errorf("shape %v: drawn\n%s", c.shape, strings.Join(text, "\n"))
+		}
 	}
-	if at, ok := meet(a, Edge{From: "y", To: "r", ToPort: "p", Head: true}); !ok || at != "r" {
-		t.Error("two edges into r:p do not share a line")
-	}
-	if _, ok := meet(Edge{From: "r", FromPort: "p", To: "x", Head: true}, Edge{From: "r", FromPort: "p", To: "y", Head: true}); !ok {
-		t.Error("two edges out of r:p do not fork from one stem")
+}
+
+// Lines is where every drawing writes a field's words: centred top to
+// bottom, the odd row below.
+func TestFieldLines(t *testing.T) {
+	f := PlacedField{Field: &Field{Label: "a\nb"}, Rect: Rect{0, 10, 3, 5}}
+	if lines, top := f.Lines(); len(lines) != 2 || top != 11 {
+		t.Errorf("two lines in five rows from 10: %q from row %d, want from 11", lines, top)
 	}
 }
