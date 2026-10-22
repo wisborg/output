@@ -233,23 +233,24 @@ func oneWay(e Edge) (arrow, bare string, ok bool) {
 func meet(a, b Edge) (string, bool) {
 	aArrow, aBare, aOk := oneWay(a)
 	bArrow, bBare, bOk := oneWay(b)
-	at := ""
 	switch {
 	case !aOk || !bOk:
 		return "", false
 	case aArrow == bArrow && aBare != bBare:
-		at = aArrow
+		return aArrow, true
 	case aBare == bBare && aArrow != bArrow:
-		at = aBare
-	default:
-		return "", false
+		return aBare, true
 	}
-	return at, true
+	return "", false
 }
 
 // fieldAt is the record field edge i ends beside at node, the zero Rect
-// where its port there names none.
+// where its port there names none -- or where the router was made with no
+// fields, as a test's may be.
 func (rt *router) fieldAt(i int, node string) Rect {
+	if i >= len(rt.fields) {
+		return Rect{}
+	}
 	if rt.edges[i].To == node {
 		return rt.fields[i][1]
 	}

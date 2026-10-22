@@ -25,11 +25,15 @@ func centre(r Rect) (x, y float64) {
 func (lay *Layout) straightens(e Edge) bool {
 	// Nor one that asks for a side or a record's field: a straight line
 	// runs between the boxes' middles, out of whichever side it meets.
+	if e.From == e.To || e.Invisible || e.FromSide != 0 || e.ToSide != 0 {
+		return false
+	}
 	a, _ := lay.Node(e.From)
 	b, _ := lay.Node(e.To)
-	_, fromField := a.field(e.FromPort)
-	_, toField := b.field(e.ToPort)
-	if e.From == e.To || e.Invisible || e.FromSide != 0 || e.ToSide != 0 || fromField || toField {
+	if _, ok := a.field(e.FromPort); ok {
+		return false
+	}
+	if _, ok := b.field(e.ToPort); ok {
 		return false
 	}
 	return !lay.crossesBox(a, b)
