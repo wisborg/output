@@ -2,6 +2,7 @@ package dot
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/wisborg/output/diagram"
@@ -32,6 +33,8 @@ func TestRecordLabels(t *testing.T) {
 		{"\t a \n|b", []diagram.Field{F("", "a"), F("", "b")}},
 		// A backslash at the end is itself, and the label still a record.
 		{`a|b\`, []diagram.Field{F("", "a"), F("", `b\`)}},
+		// As deep as subgraphs may nest is still a record.
+		{strings.Repeat("{", maxDepth) + "x" + strings.Repeat("}", maxDepth), []diagram.Field{nested(maxDepth, F("", "x"))}},
 	} {
 		got, ok := record(c.label, "n", "g")
 		if !ok || !reflect.DeepEqual(got, c.want) {
@@ -40,7 +43,8 @@ func TestRecordLabels(t *testing.T) {
 	}
 	// What is not a record label is none, and its node a box with its
 	// label as written, where Graphviz refuses to draw it.
-	for _, bad := range []string{"{a|b", "a}|b", "<p a", "a{b}", "a{b", "a>b", "<p><q> x"} {
+	deep := strings.Repeat("{", maxDepth+1) + "x" + strings.Repeat("}", maxDepth+1)
+	for _, bad := range []string{"{a|b", "a}|b", "<p a", "a{b}", "a{b", "a>b", "<p><q> x", "x <y> z", deep} {
 		if got, ok := record(bad, "n", "g"); ok {
 			t.Errorf("%q read as a record: %+v", bad, got)
 		}
@@ -75,24 +79,16 @@ func TestRecordNodesAndPorts(t *testing.T) {
 	if c := nodes["c"]; c.Record != nil || c.Label != "{broken" {
 		t.Errorf("c: record %+v, label %q", c.Record, c.Label)
 	}
+	// A compass point alone, b:s, is a side, as b has no field named s.
 	for i, want := range []struct {
-		from, to string
-		side     diagram.Side
-	}{{"y", "", 0}, {"", "x", diagram.North}, {"x", "", 0}} {
+		from, to         string
+		fromSide, toSide diagram.Side
+	}{{"y", "", 0, 0}, {"", "x", 0, diagram.North}, {"x", "", diagram.South, 0}, {"", "", 0, diagram.South}} {
 		e := d.Edges[i]
-		if e.FromPort != want.from || e.ToPort != want.to {
-			t.Errorf("edge %d: ports %q and %q, want %q and %q", i, e.FromPort, e.ToPort, want.from, want.to)
+		if e.FromPort != want.from || e.ToPort != want.to || e.FromSide != want.fromSide || e.ToSide != want.toSide {
+			t.Errorf("edge %d, %s to %s: ports %q %q, sides %v %v; want %q %q, %v %v", i, e.From, e.To,
+				e.FromPort, e.ToPort, e.FromSide, e.ToSide, want.from, want.to, want.fromSide, want.toSide)
 		}
-		if e.ToSide != want.side && i == 1 {
-			t.Errorf("edge %d: to side %v, want %v", i, e.ToSide, want.side)
-		}
-	}
-	if d.Edges[2].FromSide != diagram.South {
-		t.Errorf("tailport x:s: side %v, want South", d.Edges[2].FromSide)
-	}
-	// A compass point alone is a side, not a field named "s".
-	if e := d.Edges[3]; e.ToPort != "" || e.ToSide != diagram.South {
-		t.Errorf("b:s: port %q and side %v, want no port and South", e.ToPort, e.ToSide)
 	}
 }
 
@@ -116,5 +112,39 @@ func TestRecordFieldNamedLikeACompassPoint(t *testing.T) {
 			t.Errorf("edge %d, %s to %s: ports %q %q, sides %v %v; want %q %q, %v %v", i, e.From, e.To,
 				e.FromPort, e.ToPort, e.FromSide, e.ToSide, want.from, want.to, want.fromSide, want.toSide)
 		}
+	}
+}
+
+// nested is f inside depth fields, each of one field.
+func nested(depth int, f diagram.Field) diagram.Field {
+	for range depth {
+		f = diagram.Field{Fields: []diagram.Field{f}}
+	}
+	return f
+}
+
+// An HTML label on a record is the node's label, as Graphviz draws it, not
+// its fields: its "|" is a character of its words, and a "<" written in it
+// as &lt; no port. A label given over an HTML default reads as fields.
+func TestRecordHTMLLabel(t *testing.T) {
+	d := parse(t, `digraph {
+		node [shape=record]
+		a [label=<<b>left</b>|right>]
+		b [label=<x &lt;y&gt; z>]
+		subgraph { node [label=<p|q>]; c [label="r|s"]; e }
+	}`)
+	nodes := map[string]*diagram.Node{}
+	for _, it := range d.Root.Items {
+		if it.Node != nil {
+			nodes[it.Node.ID] = it.Node
+		}
+	}
+	for id, want := range map[string]string{"a": "left|right", "b": "x <y> z", "e": "p|q"} {
+		if n := nodes[id]; n == nil || n.Record != nil || n.Label != want {
+			t.Errorf("%s: %+v, want a box labelled %q", id, n, want)
+		}
+	}
+	if c := nodes["c"]; c == nil || len(c.Record) != 2 {
+		t.Errorf("c, labelled with a quoted string over an HTML default: %+v, want two fields", c)
 	}
 }

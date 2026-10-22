@@ -565,7 +565,12 @@ record, merged, end beside the field and the second reads as joining it. The
 field, not the port's name: a port no field has is anywhere on the box, and
 keeps no line apart.
 `TestRecordFields`, `TestRecordPorts` and `TestRecordPortsShareOnlyTheirOwn`
-hold these, on Graphviz's own example among others.
+hold these, on Graphviz's own example among others. The reader refuses a
+label whose braces nest more than `maxDepth` deep, as it refuses subgraphs
+so nested: reading and laying out a record recurse once a brace, in time
+growing with the square of the depth, and a 40 KB label of braces took
+seconds -- a few megabytes would overflow the stack, which Go cannot
+recover from.
 
 **Straight edges are the pictures' alone, and only where clear.** With
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an

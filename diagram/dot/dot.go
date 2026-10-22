@@ -11,6 +11,14 @@
 // FromSide and ToSide; quoted strings joined with +, HTML strings,
 // comments.
 //
+// shape=record and Mrecord are read as Graphviz reads them, the label's
+// fields -- "<id> id|name|{a|b}" -- becoming the node's diagram.Field
+// values, and a port naming one of them, a:id or a:id:s, an edge's
+// FromPort or ToPort. A port of one compass word names a field of that
+// name where the record has one, and is the side where it has none. A
+// label that is no record's -- an unclosed brace, say -- or an HTML label
+// leaves the node a box with its label.
+//
 // A subgraph whose name begins with "cluster" is a group, as Graphviz
 // draws one; any other subgraph only scopes defaults, and with rank=same
 // keeps its nodes in one layer.
@@ -754,6 +762,14 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 	return sub.nodes, nil
 }
 
+// htmlLabel is the attribute that says the label was an HTML string,
+// which a record does not read as fields: set beside every label, so that
+// it goes where the label goes, from a default to a node and over an
+// earlier one. A DOT file could name an attribute so only with a NUL
+// written in a quoted string, and would change only how its own label is
+// read.
+const htmlLabel = "\x00html label"
+
 // attrLists reads any number of [ a_list ]: the attributes, and the line
 // each is on.
 func (p *parser) attrLists() (map[string]string, map[string]int, error) {
@@ -770,7 +786,7 @@ func (p *parser) attrLists() (map[string]string, map[string]int, error) {
 			if err := p.advance(); err != nil {
 				return nil, nil, err
 			}
-			v := "true"
+			v, html := "true", false
 			if p.punct("=") {
 				if err := p.advance(); err != nil {
 					return nil, nil, err
@@ -778,12 +794,20 @@ func (p *parser) attrLists() (map[string]string, map[string]int, error) {
 				if p.tok.kind != tID {
 					return nil, nil, p.errorf("expected a value for %s, found %s", k, p.describe())
 				}
-				v = p.tok.text
+				v, html = p.tok.text, p.tok.html
 				if err := p.advance(); err != nil {
 					return nil, nil, err
 				}
 			}
 			attrs[k], lines[k] = v, line
+			if k == "label" {
+				// Set with every label, so a label given over a default
+				// or an earlier one takes its place here too.
+				attrs[htmlLabel] = ""
+				if html {
+					attrs[htmlLabel] = "true"
+				}
+			}
 			if p.punct(",") || p.punct(";") {
 				if err := p.advance(); err != nil {
 					return nil, nil, err
@@ -932,7 +956,8 @@ func (p *parser) applyNode(info *nodeInfo) error {
 		if !ok {
 			v = `\N` // a record of one field, the node's name
 		}
-		if fields, ok := record(v, n.ID, p.name); ok {
+		// An HTML label is the node's, as Graphviz draws it, not fields.
+		if fields, ok := record(v, n.ID, p.name); ok && attrs[htmlLabel] == "" {
 			n.Record = fields
 		}
 	}

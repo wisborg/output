@@ -232,6 +232,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	sidesNote(stderr, lay)
+	portsNote(stderr, lay)
 	if o.out != "" {
 		if err := writeFile(o, lay, stderr, getenv); err != nil {
 			return err
@@ -418,6 +419,36 @@ func sidesNote(errOut io.Writer, lay *diagram.Layout) {
 			fmt.Fprintf(errOut, "diagram: the edge %q to %q is drawn by other sides, or beside other fields, than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To)
 		}
 	}
+}
+
+// portsNote says on errOut which edges name a port no field of their
+// record has, as Graphviz warns of one: the line ends anywhere on the box,
+// which beside a record reads as one of its fields, and a mistyped port
+// would otherwise look as though it had been read. A port of a node that is
+// no record -- one with an HTML label, whose ports are not read -- is not
+// said, as nothing could be looked up in it. The names are quoted, as
+// sidesNote quotes them.
+func portsNote(errOut io.Writer, lay *diagram.Layout) {
+	for _, e := range lay.Edges {
+		for _, end := range []struct{ node, port string }{{e.Edge.From, e.Edge.FromPort}, {e.Edge.To, e.Edge.ToPort}} {
+			n, ok := lay.Node(end.node)
+			if end.port == "" || !ok || len(n.Node.Record) == 0 || hasPort(n.Node.Record, end.port) {
+				continue
+			}
+			fmt.Fprintf(errOut, "diagram: the edge %q to %q names the port %q, which no field of %q has: it ends anywhere on the box\n", e.Edge.From, e.Edge.To, end.port, end.node)
+		}
+	}
+}
+
+// hasPort says one of fields, or of the fields they are divided into, is
+// named port.
+func hasPort(fields []diagram.Field, port string) bool {
+	for _, f := range fields {
+		if f.Port == port || hasPort(f.Fields, port) {
+			return true
+		}
+	}
+	return false
 }
 
 // textSizeNote says on errOut where --width or --height asked for a text

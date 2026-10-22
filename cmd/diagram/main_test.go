@@ -814,3 +814,28 @@ func TestDiagramSaysWhichPortsWereNotKept(t *testing.T) {
 		t.Errorf("stderr %q holds the name's escape as it is", errOut)
 	}
 }
+
+// A port no field of its record has is said so, as Graphviz warns of one,
+// naming the port: its line ends anywhere on the box, and a mistyped port
+// would otherwise look as though it had been read. One a field has is not
+// mentioned, nor one of a node that is no record, whose ports this does not
+// read; and a field name with a colon in it is read as Graphviz reads it,
+// up to the colon.
+func TestDiagramSaysWhichPortsNameNoField(t *testing.T) {
+	_, errOut, err := draw(t, `digraph {
+		a [shape=record, label="<x> one|<a:b> two|{<in> three|four}"]
+		h [label=<<b>h</b>>]
+		c -> a:x; c -> a:in; c -> a:y; a:"a:b" -> h:p
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`the edge "c" to "a" names the port "y", which no field of "a" has`, `the edge "a" to "h" names the port "a", which no field of "a" has`} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr %q, want %q", errOut, want)
+		}
+	}
+	if n := strings.Count(errOut, "names the port"); n != 2 {
+		t.Errorf("stderr %q: %d notes of ports, want 2", errOut, n)
+	}
+}

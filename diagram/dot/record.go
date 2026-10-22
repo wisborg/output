@@ -12,9 +12,11 @@ import (
 // words. A backslash before "{", "}", "|", "<", ">" or a space writes that
 // character; DOT's other escapes, \n, \l and \N among them, are read as a
 // label's are, after. A field's words are taken without the spaces about
-// them, an escaped one excepted. A label that is not one -- a brace or a "<" not closed, a "{" in a
-// field's words -- is no record, false, and the node is drawn as a box
-// with its label as written, where Graphviz refuses to draw it.
+// them, an escaped one excepted. A label that is not one -- a brace or a
+// "<" not closed, a "{" in a field's words, a port after them, braces
+// nested more than maxDepth deep -- is no record, false, and the node is
+// drawn as a box with its label as written, where Graphviz refuses to
+// draw it.
 func record(v, name, graph string) ([]diagram.Field, bool) {
 	r := recordReader{s: v, name: name, graph: graph}
 	fields, ok := r.list()
@@ -28,6 +30,11 @@ type recordReader struct {
 	s           string
 	i           int
 	name, graph string
+	// depth is how many braces the reader is inside: a label of braces
+	// nested deeper than maxDepth, as subgraphs may nest, is no record,
+	// since reading and laying it out recurse once a brace and take time
+	// growing with its square.
+	depth int
 }
 
 // list reads fields divided by "|" up to a "}" or the end, and leaves the
@@ -54,8 +61,13 @@ func (r *recordReader) field() (diagram.Field, bool) {
 		r.i++
 	}
 	if r.i < len(r.s) && r.s[r.i] == '{' {
+		if r.depth >= maxDepth {
+			return diagram.Field{}, false
+		}
 		r.i++
+		r.depth++
 		fields, ok := r.list()
+		r.depth--
 		if !ok || r.i >= len(r.s) || r.s[r.i] != '}' {
 			return diagram.Field{}, false
 		}
@@ -87,7 +99,9 @@ func (r *recordReader) field() (diagram.Field, bool) {
 				}
 				end++
 			}
-			if end >= len(r.s) || f.Port != "" {
+			// One port, before the words: one after them would take a
+			// word out of the field's text, and Graphviz refuses both.
+			if end >= len(r.s) || f.Port != "" || text.Len() > 0 {
 				return f, false
 			}
 			f.Port = strings.TrimSpace(unescape(r.s[r.i+1 : end]))

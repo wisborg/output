@@ -25,7 +25,9 @@ type token struct {
 	// quoted says the ID was written in quotes or angle brackets, so it is
 	// never a keyword: "node" is a node called node.
 	quoted bool
-	line   int
+	// html says the ID was an HTML string, <...>, its text its words.
+	html bool
+	line int
 }
 
 // lexer splits DOT source into tokens.
@@ -92,7 +94,7 @@ func (l *lexer) next() (token, error) {
 		return token{kind: tID, text: s, quoted: true, line: line}, err
 	case c == '<':
 		s, err := l.html()
-		return token{kind: tID, text: s, quoted: true, line: line}, err
+		return token{kind: tID, text: s, quoted: true, html: true, line: line}, err
 	case c == '-' || c == '.' || c >= '0' && c <= '9':
 		n := l.number()
 		if n == "" {

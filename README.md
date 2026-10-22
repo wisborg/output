@@ -652,8 +652,13 @@ with other fields on every side has no outline of its own, so a line to it ends
 beside the fields next to it; Graphviz draws one through them to its middle,
 and a line here never runs through a box. An edge with no port ends anywhere on
 the outline, which beside a record reads as one of its fields: give it a port
-to say which. A record label that is not one — a brace not closed — is drawn
-as a box with its label as written, where Graphviz refuses it. Every line of a
+to say which. A port that names no field of its record is said so, as
+Graphviz warns of one; a field named with a `:` in it cannot be named by an
+edge, as in Graphviz, which reads `a:"x:y"` as the field `x` and the compass
+point `y`. A record label that is not one — a brace not closed, a `<port>`
+after a field's words, braces nested more than 100 deep — is drawn as a box
+with its label as written, where Graphviz refuses it, and an HTML label on a
+record is the node's label, not its fields, as in Graphviz. Every line of a
 field is centred: `\l` and `\r` end a line, as everywhere here, without
 setting it left or right. `\ ` keeps a space at a field's either end, where
 other spaces are dropped.
