@@ -144,8 +144,8 @@ type nodeInfo struct {
 	n     *diagram.Node
 	group *diagram.Group
 	attrs map[string]string
-	lines map[string]int // the line that set each attribute
-	line  int            // the line the node was made on
+	lines map[string]setAt // the line that set each attribute
+	line  int              // the line the node was made on
 }
 
 // scope is a graph's or a subgraph's: the defaults its statements start
@@ -154,7 +154,7 @@ type scope struct {
 	nodeAttrs, edgeAttrs map[string]string
 	graphAttrs           map[string]string
 	// The line that set each, for an error about it to name.
-	nodeLines, edgeLines, graphLines map[string]int
+	nodeLines, edgeLines, graphLines map[string]setAt
 	group                            *diagram.Group // the group its nodes are in: the innermost cluster
 	nodes                            []string       // the nodes it holds, in order and once each: an edge's end, rank=same
 	holds                            map[string]bool
@@ -176,7 +176,7 @@ func (s *scope) add(id string) {
 func (s *scope) child() *scope {
 	return &scope{
 		nodeAttrs: clone(s.nodeAttrs), edgeAttrs: clone(s.edgeAttrs), graphAttrs: map[string]string{},
-		nodeLines: clone(s.nodeLines), edgeLines: clone(s.edgeLines), graphLines: map[string]int{},
+		nodeLines: clone(s.nodeLines), edgeLines: clone(s.edgeLines), graphLines: map[string]setAt{},
 		group: s.group,
 	}
 }
@@ -190,7 +190,7 @@ func clone[V any](m map[string]V) map[string]V {
 }
 
 // merge sets each of from's attributes in to, and the line that set it.
-func merge(to map[string]string, toLines map[string]int, from map[string]string, fromLines map[string]int) {
+func merge(to map[string]string, toLines map[string]setAt, from map[string]string, fromLines map[string]setAt) {
 	for k, v := range from {
 		to[k] = v
 		toLines[k] = fromLines[k]
@@ -226,7 +226,7 @@ type clusterInfo struct {
 	g      *diagram.Group
 	parent *diagram.Group
 	attrs  map[string]string
-	lines  map[string]int
+	lines  map[string]setAt
 	line   int
 }
 
@@ -311,7 +311,7 @@ func (p *parser) graph() error {
 	p.d.Root.Style = diagram.Hidden
 	root := &scope{
 		nodeAttrs: map[string]string{}, edgeAttrs: map[string]string{}, graphAttrs: map[string]string{},
-		nodeLines: map[string]int{}, edgeLines: map[string]int{}, graphLines: map[string]int{},
+		nodeLines: map[string]setAt{}, edgeLines: map[string]setAt{}, graphLines: map[string]setAt{},
 		group: &p.d.Root,
 	}
 	if err := p.expect("{"); err != nil {
@@ -438,7 +438,7 @@ func (p *parser) stmt(s *scope) error {
 		if p.tok.kind != tID {
 			return p.errorf("expected a value for %s, found %s", id, p.describe())
 		}
-		s.graphAttrs[id], s.graphLines[id] = p.tok.text, p.tok.line
+		s.graphAttrs[id], s.graphLines[id] = p.tok.text, setAt{line: p.tok.line, html: p.tok.html}
 		return p.advance()
 	}
 	port, err := p.port()
@@ -517,23 +517,12 @@ func (p *parser) compassFields() {
 		for _, end := range ends {
 			word := p.edgeAttrs[k][end.attr]
 			info, ok := p.nodes[end.node]
-			if _, isCompass := compass(word); !isCompass || !ok || !hasPort(info.n.Record, word) {
+			if _, isCompass := compass(word); !isCompass || !ok || info.n.Field(word) == nil {
 				continue
 			}
 			*end.port, *end.side = word, 0
 		}
 	}
-}
-
-// hasPort says one of fields, or of the fields they are divided into, is
-// named port.
-func hasPort(fields []diagram.Field, port string) bool {
-	for _, f := range fields {
-		if f.Port == port || hasPort(f.Fields, port) {
-			return true
-		}
-	}
-	return false
 }
 
 // compass is the sides a DOT compass point names, and whether word is
@@ -714,7 +703,7 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 		// A cluster written twice is one cluster, as Graphviz draws it:
 		// its second statement adds to the first's nodes and attributes.
 		if cl = p.clusters[name]; cl == nil {
-			cl = &clusterInfo{g: &diagram.Group{ID: name}, parent: s.group, attrs: map[string]string{}, lines: map[string]int{}, line: line}
+			cl = &clusterInfo{g: &diagram.Group{ID: name}, parent: s.group, attrs: map[string]string{}, lines: map[string]setAt{}, line: line}
 			p.clusters[name] = cl
 			s.group.Items = append(s.group.Items, diagram.Item{Group: cl.g})
 		}
@@ -762,18 +751,20 @@ func (p *parser) subgraph(s *scope) ([]string, error) {
 	return sub.nodes, nil
 }
 
-// htmlLabel is the attribute that says the label was an HTML string,
-// which a record does not read as fields: set beside every label, so that
-// it goes where the label goes, from a default to a node and over an
-// earlier one. A DOT file could name an attribute so only with a NUL
-// written in a quoted string, and would change only how its own label is
-// read.
-const htmlLabel = "\x00html label"
+// setAt is where an attribute was set -- the line, for an error to name --
+// and whether its value was an HTML string, which a record's label must
+// not be read as fields from: kept beside each attribute's value, so it
+// goes where the value goes, from a default to a node and over an earlier
+// one.
+type setAt struct {
+	line int
+	html bool
+}
 
 // attrLists reads any number of [ a_list ]: the attributes, and the line
 // each is on.
-func (p *parser) attrLists() (map[string]string, map[string]int, error) {
-	attrs, lines := map[string]string{}, map[string]int{}
+func (p *parser) attrLists() (map[string]string, map[string]setAt, error) {
+	attrs, lines := map[string]string{}, map[string]setAt{}
 	for p.punct("[") {
 		if err := p.advance(); err != nil {
 			return nil, nil, err
@@ -799,15 +790,7 @@ func (p *parser) attrLists() (map[string]string, map[string]int, error) {
 					return nil, nil, err
 				}
 			}
-			attrs[k], lines[k] = v, line
-			if k == "label" {
-				// Set with every label, so a label given over a default
-				// or an earlier one takes its place here too.
-				attrs[htmlLabel] = ""
-				if html {
-					attrs[htmlLabel] = "true"
-				}
-			}
+			attrs[k], lines[k] = v, setAt{line: line, html: html}
 			if p.punct(",") || p.punct(";") {
 				if err := p.advance(); err != nil {
 					return nil, nil, err
@@ -874,7 +857,7 @@ func removeNode(g *diagram.Group, n *diagram.Node) {
 }
 
 // applyGraph reads the top graph's attributes.
-func (p *parser) applyGraph(attrs map[string]string, lines map[string]int) error {
+func (p *parser) applyGraph(attrs map[string]string, lines map[string]setAt) error {
 	d := p.d
 	d.Title = label(attrs["label"], "", p.name, "")
 	switch strings.ToLower(attrs["splines"]) {
@@ -891,17 +874,17 @@ func (p *parser) applyGraph(attrs map[string]string, lines map[string]int) error
 	}
 	var err error
 	if d.Root.Rows, err = count(attrs, "rows"); err != nil {
-		return &Error{Line: lines["rows"], Msg: err.Error()}
+		return &Error{Line: lines["rows"].line, Msg: err.Error()}
 	}
 	if d.Root.Columns, err = count(attrs, "columns"); err != nil {
-		return &Error{Line: lines["columns"], Msg: err.Error()}
+		return &Error{Line: lines["columns"].line, Msg: err.Error()}
 	}
 	return nil
 }
 
 // applyGroup reads a cluster's attributes; line is where it is written, for
 // an error about an attribute lines does not place.
-func (p *parser) applyGroup(g *diagram.Group, attrs map[string]string, lines map[string]int, line int) error {
+func (p *parser) applyGroup(g *diagram.Group, attrs map[string]string, lines map[string]setAt, line int) error {
 	g.Label = label(attrs["label"], g.ID, p.name, "")
 	styles := styleSet(attrs["style"])
 	switch {
@@ -957,7 +940,7 @@ func (p *parser) applyNode(info *nodeInfo) error {
 			v = `\N` // a record of one field, the node's name
 		}
 		// An HTML label is the node's, as Graphviz draws it, not fields.
-		if fields, ok := record(v, n.ID, p.name); ok && attrs[htmlLabel] == "" {
+		if fields, ok := record(v, n.ID, p.name); ok && !info.lines["label"].html {
 			n.Record = fields
 		}
 	}
@@ -996,7 +979,7 @@ func (p *parser) applyNode(info *nodeInfo) error {
 
 // applyEdge reads an edge's attributes into e; lines are where each was
 // set.
-func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string, lines map[string]int) error {
+func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string, lines map[string]setAt) error {
 	e.Label = label(attrs["label"], "", p.name, "")
 	st := styleSet(attrs["style"])
 	e.Line, e.Invisible = line(st), st["invis"]
@@ -1110,11 +1093,11 @@ type attrError struct {
 func (e *attrError) Error() string { return e.msg }
 
 // lineOf is the line that set the attribute err is about, or def.
-func lineOf(err error, lines map[string]int, def int) int {
+func lineOf(err error, lines map[string]setAt, def int) int {
 	var ae *attrError
 	if errors.As(err, &ae) {
-		if l, ok := lines[ae.name]; ok && l > 0 {
-			return l
+		if l, ok := lines[ae.name]; ok && l.line > 0 {
+			return l.line
 		}
 	}
 	return def

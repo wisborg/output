@@ -69,6 +69,7 @@ func (l *layouter) route() {
 	for i, e := range l.d.Edges {
 		straight[i] = l.d.Straight && l.out.straightens(e)
 	}
+	l.out.keepClearOfJoints(l.d.Edges, straight)
 	sort.SliceStable(order, func(i, j int) bool {
 		if straight[order[i]] != straight[order[j]] {
 			return !straight[order[i]]
@@ -135,6 +136,7 @@ func (l *layouter) route() {
 			} else {
 				pts = path(a, b, nth)
 			}
+			pts = r.offJoints(pts, a, b)
 		}
 		r.draw(pts, i)
 		paths[i] = pts
@@ -245,12 +247,8 @@ func meet(a, b Edge) (string, bool) {
 }
 
 // fieldAt is the record field edge i ends beside at node, the zero Rect
-// where its port there names none -- or where the router was made with no
-// fields, as a test's may be.
+// where its port there names none.
 func (rt *router) fieldAt(i int, node string) Rect {
-	if i >= len(rt.fields) {
-		return Rect{}
-	}
 	if rt.edges[i].To == node {
 		return rt.fields[i][1]
 	}
@@ -267,17 +265,24 @@ func (rt *router) fieldAt(i int, node string) Rect {
 // joining it too. The field, not the port's name, as a port no field has
 // is anywhere on the box, as no port is.
 func (rt *router) sharing(i, j int) bool {
+	_, ok := rt.sharingAt(i, j)
+	return ok
+}
+
+// sharingAt is sharing, and the node the two lines meet at where they may
+// share one.
+func (rt *router) sharingAt(i, j int) (string, bool) {
 	if j < 0 {
-		return false
+		return "", false
 	}
 	a, b := rt.edges[i], rt.edges[j]
 	// A loop shares with nothing: a loop and an edge out of its node
 	// merged into one stem read as one line forking to two nodes.
 	if a.From == a.To || b.From == b.To {
-		return false
+		return "", false
 	}
 	at, ok := meet(a, b)
-	return ok && rt.fieldAt(i, at) == rt.fieldAt(j, at) && a.Line == b.Line && same(a.Colour, b.Colour)
+	return at, ok && rt.fieldAt(i, at) == rt.fieldAt(j, at) && a.Line == b.Line && same(a.Colour, b.Colour)
 }
 
 // mayEnd says edge i may pass a cell where the heads and the tails of
@@ -304,8 +309,8 @@ func (rt *router) mayEnd(i int, heads, tails []int) bool {
 
 // meetsAt says edges i and j may share a line, and meet at node.
 func (rt *router) meetsAt(i, j int, node string) bool {
-	at, _ := meet(rt.edges[i], rt.edges[j])
-	return rt.sharing(i, j) && at == node
+	at, ok := rt.sharingAt(i, j)
+	return ok && at == node
 }
 
 // foreign and shared are the directions the lines in cell (x, y) leave
@@ -1004,6 +1009,54 @@ func path(a, b Rect, nth int) []Point {
 	}
 	mid := (from.X + to.X) / 2
 	return []Point{from, {mid, from.Y}, {mid, to.Y}, to}
+}
+
+// offJoints is the plain path pts from a to b with each end that lies
+// where a record's divider meets the outline moved a cell or a few along
+// the side, its first or last stretch with it, as the search never ends a
+// path there: on a record of two fields alike the plain path's end, the
+// middle of a side, is just there, and the line reads as the divider
+// running on. An end with nowhere to go, its side all joints and corners,
+// stays.
+func (rt *router) offJoints(pts []Point, a, b Rect) []Point {
+	n := len(pts)
+	if n < 2 {
+		return pts
+	}
+	// fine says end k of q is where the search could have ended it: on
+	// its box's outline, off the corners, and not at a joint.
+	fine := func(q []Point, k int) bool {
+		r := a
+		if k > 0 {
+			r = b
+		}
+		p := q[k]
+		x, y := p.X > r.X && p.X < r.X+r.W-1, p.Y > r.Y && p.Y < r.Y+r.H-1
+		return !rt.joints[p] && ((p.Y == r.Y || p.Y == r.Y+r.H-1) && x || (p.X == r.X || p.X == r.X+r.W-1) && y)
+	}
+	for _, end := range [][2]int{{0, 1}, {n - 1, n - 2}} {
+		k, next := end[0], end[1]
+		if !rt.joints[pts[k]] {
+			continue
+		}
+		for _, d := range []int{1, -1, 2, -2, 3, -3} {
+			// The end's stretch moved d cells across its way: where the
+			// path is that stretch alone, its other end with it.
+			q := append([]Point(nil), pts...)
+			for _, m := range []int{k, next} {
+				if pts[k].X == pts[next].X {
+					q[m].X += d
+				} else {
+					q[m].Y += d
+				}
+			}
+			if fine(q, k) && (n > 2 || fine(q, next)) {
+				pts = q
+				break
+			}
+		}
+	}
+	return pts
 }
 
 // loop is the path of an edge from a node to itself: out of its right side,

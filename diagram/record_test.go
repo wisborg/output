@@ -2,6 +2,7 @@ package diagram
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 )
@@ -237,5 +238,182 @@ func TestFieldLines(t *testing.T) {
 	f := PlacedField{Field: &Field{Label: "a\nb"}, Rect: Rect{0, 10, 3, 5}}
 	if lines, top := f.Lines(); len(lines) != 2 || top != 11 {
 		t.Errorf("two lines in five rows from 10: %q from row %d, want from 11", lines, top)
+	}
+}
+
+// Field finds a port among the fields not divided further, however deep:
+// a port set on a divided field is not one, as Graphviz has none, and the
+// layout ends an edge naming it anywhere on the box, as it does an edge
+// naming no field.
+func TestRecordFieldLookup(t *testing.T) {
+	n := &Node{ID: "r", Record: []Field{
+		{Port: "group", Fields: []Field{{Label: "x"}, {Fields: []Field{{Port: "deep", Label: "y"}}}}},
+		{Port: "top", Label: "z"},
+	}}
+	for port, want := range map[string]string{"deep": "y", "top": "z", "group": "(none)", "": "(none)", "none": "(none)"} {
+		got := "(none)"
+		if f := n.Field(port); f != nil {
+			got = f.Label
+		}
+		if got != want {
+			t.Errorf("Field(%q): %q, want %q", port, got, want)
+		}
+	}
+	d := &Diagram{Root: Group{Items: []Item{{Node: n}, node("a")}}, Edges: []Edge{{From: "a", To: "r", ToPort: "deep", Head: true}}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pn, _ := lay.Node("r")
+	if f, ok := pn.field("deep"); !ok || f.W == 0 {
+		t.Errorf("the placed field of r:deep: %v %v", f, ok)
+	}
+	if _, ok := pn.field("group"); ok {
+		t.Error("r:group, a divided field's port, placed as a field")
+	}
+}
+
+// A straight line never leaves a record where a divider meets its outline,
+// as a path along rows and columns never ends there: in a record of two
+// fields alike it would leave from the middle of a side, right under the
+// divider, and read as the divider running on. One leaving a record
+// clear of its dividers stays straight; and in braille, no line's stub
+// lies beside a divider's end.
+func TestStraightLinesMissRecordJoints(t *testing.T) {
+	d := &Diagram{Straight: true, Root: Group{Items: []Item{
+		{Node: &Node{ID: "even", Record: []Field{{Label: "ab"}, {Label: "cd"}}}},
+		{Node: &Node{ID: "odd", Record: []Field{{Label: "a"}, {Label: "a much wider field"}}}},
+		node("y"), node("z"),
+	}}, Edges: []Edge{{From: "even", To: "y", Head: true}, {From: "odd", To: "z", Head: true}}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range lay.Edges {
+		if want := e.Edge.From == "odd"; e.Straight != want {
+			t.Errorf("%s to %s: straight %v, want %v:\n%s", e.Edge.From, e.Edge.To, e.Straight, want, strings.Join(lay.Text(), "\n"))
+		}
+		if e.Straight {
+			continue
+		}
+		for _, end := range []Point{e.Points[0], e.Points[len(e.Points)-1]} {
+			n, _ := lay.Node(e.Edge.From)
+			for _, dv := range n.Dividers {
+				if end == dv[0] || end == dv[1] {
+					t.Errorf("%s to %s ends at a divider's end, %v", e.Edge.From, e.Edge.To, end)
+				}
+			}
+		}
+	}
+	noEndBesideJoints(t, lay, lay.Text(TextOptions{Braille: BrailleThin}))
+}
+
+// noEndBesideJoints checks text, a drawing of lay, has nothing in the cell
+// outside each record's outline across from where a divider meets it: no
+// arrowhead -- a braille line's stub carries one -- and no line running
+// straight on from it, which would each read as the divider running on. A
+// braille line's dots passing at a slant read as nothing of the kind.
+func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
+	t.Helper()
+	at := func(p Point) rune {
+		if p.Y < 0 || p.Y >= len(text) || p.X < 0 || p.X >= len([]rune(text[p.Y])) {
+			return ' '
+		}
+		return []rune(text[p.Y])[p.X]
+	}
+	for _, n := range lay.Nodes {
+		r := n.Rect
+		for _, dv := range n.Dividers {
+			for _, j := range dv {
+				// The cell across from it, and the line that would run on
+				// from the divider there.
+				out, on := Point{j.X, r.Y - 1}, "│┼┬┴"
+				switch {
+				case j.Y == r.Y+r.H-1:
+					out = Point{j.X, j.Y + 1}
+				case j.X == r.X:
+					out, on = Point{j.X - 1, j.Y}, "─┼├┤"
+				case j.X == r.X+r.W-1:
+					out, on = Point{j.X + 1, j.Y}, "─┼├┤"
+				}
+				if c := at(out); strings.ContainsRune("▲▼◀▶"+on, c) {
+					t.Errorf("%q beside %s's divider at %v:\n%s", c, n.Node.ID, j, strings.Join(text, "\n"))
+					return
+				}
+			}
+		}
+	}
+}
+
+// On diagrams of records and boxes made at random from fixed seeds, the
+// straight lines among them -- set apart where several join two nodes, and
+// drawn in braille with a stub into each box -- end beside no divider: the
+// rule holds of lines shifted, and of stubs that slide along a side for
+// want of room, not only of a lone line between two middles.
+func TestStraightLinesMissRecordJointsAtRandom(t *testing.T) {
+	for seed := int64(0); seed < 1000; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		d := &Diagram{Straight: true}
+		n := 3 + rnd.Intn(4)
+		for i := range n {
+			id := fmt.Sprint("n", i)
+			if rnd.Intn(2) == 0 {
+				d.Root.Items = append(d.Root.Items, Item{Node: &Node{ID: id, Record: []Field{
+					{Label: strings.Repeat("a", 1+rnd.Intn(4))}, {Label: strings.Repeat("b", 1+rnd.Intn(4))},
+				}}})
+			} else {
+				d.Root.Items = append(d.Root.Items, node(id))
+			}
+		}
+		for range n + rnd.Intn(4) {
+			if a, b := rnd.Intn(n), rnd.Intn(n); a != b {
+				d.Edges = append(d.Edges, Edge{From: fmt.Sprint("n", a), To: fmt.Sprint("n", b), Head: true, Tail: rnd.Intn(2) == 0})
+			}
+		}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range [][]string{lay.Text(), lay.Text(TextOptions{Braille: BrailleThin})} {
+			noEndBesideJoints(t, lay, text)
+		}
+		if t.Failed() {
+			t.Fatalf("seed %d", seed)
+		}
+	}
+}
+
+// The plain path drawn where every search fails ends where the search
+// could have, not where a divider meets the outline: between a record of
+// two fields alike and a box below it, the plain path runs down the middle,
+// right under the divider. Moved a cell along, it stays straight and on
+// both boxes' sides; and so does a loop's end.
+func TestPlainPathMissesJoints(t *testing.T) {
+	r := &PlacedNode{Node: &Node{ID: "r", Record: []Field{{Label: "ab"}, {Label: "cd"}}}, Rect: Rect{10, 10, 11, 3}}
+	placeFields(r, r.Node.Record, Rect{11, 11, 9, 1}, true)
+	below, narrow := Rect{10, 20, 11, 3}, Rect{13, 20, 4, 3}
+	l := &layouter{d: &Diagram{}, out: &Layout{Nodes: []PlacedNode{*r}, nodeAt: map[string]PlacedNode{"r": *r}}, rect: map[string]Rect{"r": r.Rect}}
+	rt := newRouter(l)
+	plain := path(r.Rect, below, 0)
+	if !rt.joints[plain[0]] {
+		t.Fatalf("the plain path starts at %v, no joint: the test no longer tests anything", plain[0])
+	}
+	for _, c := range []struct {
+		pts  []Point
+		a, b Rect
+	}{
+		{plain, r.Rect, below}, {path(below, r.Rect, 0), below, r.Rect},
+		// A box whose corner is a cell right of the joint: the end moves left.
+		{path(r.Rect, narrow, 0), r.Rect, narrow},
+	} {
+		got := rt.offJoints(c.pts, c.a, c.b)
+		first, last := got[0], got[len(got)-1]
+		between := func(p Point, box Rect) bool { return p.X > box.X && p.X < box.X+box.W-1 }
+		if rt.joints[first] || rt.joints[last] || first.X != last.X || !between(first, c.a) || !between(last, c.b) {
+			t.Errorf("%v moved off the joints: %v", c.pts, got)
+		}
+	}
+	if got := rt.offJoints(plain, r.Rect, below); abs(got[0].X-plain[0].X) != 1 {
+		t.Errorf("moved to %v, want a cell from %v", got[0], plain[0])
 	}
 }

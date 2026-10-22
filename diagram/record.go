@@ -12,9 +12,36 @@ import "strings"
 // fieldsSize is the cells fields take inside a record's outline, laid in a
 // row, or a column where row is false.
 func fieldsSize(fields []Field, row bool) size {
+	_, s := measure(fields, row)
+	return s
+}
+
+// measured is the cells a field takes, and those of the fields it is
+// divided into: worked out once, from the fields not divided up, so a
+// field is measured once however deep it lies, rather than again for each
+// field it is part of.
+type measured struct {
+	size   size
+	fields []measured
+}
+
+// measure measures fields, laid in a row or a column, and is each one's
+// cells and theirs all together, a divider of a cell between each two.
+func measure(fields []Field, row bool) ([]measured, size) {
+	ms := make([]measured, len(fields))
 	var s size
 	for i, f := range fields {
-		fs := fieldSize(f, row)
+		if len(f.Fields) > 0 {
+			ms[i].fields, ms[i].size = measure(f.Fields, !row)
+		} else {
+			lines := strings.Split(f.Label, "\n")
+			w := 0
+			for _, l := range lines {
+				w = max(w, Width(l))
+			}
+			ms[i].size = size{w + 2, len(lines)}
+		}
+		fs := ms[i].size
 		if row {
 			s.w += fs.w
 			s.h = max(s.h, fs.h)
@@ -30,20 +57,7 @@ func fieldsSize(fields []Field, row bool) size {
 			}
 		}
 	}
-	return size{max(s.w, 1), max(s.h, 1)}
-}
-
-// fieldSize is the cells f takes, as one of a row of fields or of a column.
-func fieldSize(f Field, row bool) size {
-	if len(f.Fields) > 0 {
-		return fieldsSize(f.Fields, !row)
-	}
-	lines := strings.Split(f.Label, "\n")
-	w := 0
-	for _, l := range lines {
-		w = max(w, Width(l))
-	}
-	return size{w + 2, len(lines)}
+	return ms, size{max(s.w, 1), max(s.h, 1)}
 }
 
 // placeFields places fields in r, the inside of a record's outline or of a
@@ -51,15 +65,20 @@ func fieldSize(f Field, row bool) size {
 // divider to pn. A divider runs a cell past r at either end, onto the
 // outline or the divider beside r, so a drawing joins it to them.
 func placeFields(pn *PlacedNode, fields []Field, r Rect, row bool) {
+	ms, _ := measure(fields, row)
+	place(pn, fields, ms, r, row)
+}
+
+// place is placeFields, with each field's cells measured already.
+func place(pn *PlacedNode, fields []Field, ms []measured, r Rect, row bool) {
 	n := len(fields)
 	sizes := make([]int, n)
 	total := n - 1 // the dividers
-	for i, f := range fields {
-		s := fieldSize(f, row)
+	for i := range fields {
 		if row {
-			sizes[i] = s.w
+			sizes[i] = ms[i].size.w
 		} else {
-			sizes[i] = s.h
+			sizes[i] = ms[i].size.h
 		}
 		total += sizes[i]
 	}
@@ -84,7 +103,7 @@ func placeFields(pn *PlacedNode, fields []Field, r Rect, row bool) {
 			fr = Rect{r.X, at, r.W, k}
 		}
 		if len(f.Fields) > 0 {
-			placeFields(pn, f.Fields, fr, !row)
+			place(pn, f.Fields, ms[i].fields, fr, !row)
 		} else {
 			pn.Fields = append(pn.Fields, PlacedField{Field: &fields[i], Rect: fr})
 		}
@@ -111,11 +130,12 @@ func (f PlacedField) Lines() (lines []string, top int) {
 
 // field is the cells of n's field named port, and whether it has one.
 func (n PlacedNode) field(port string) (Rect, bool) {
-	if port == "" {
+	if n.Node == nil {
 		return Rect{}, false
 	}
+	want := n.Node.Field(port)
 	for _, f := range n.Fields {
-		if f.Field.Port == port {
+		if want != nil && f.Field == want {
 			return f.Rect, true
 		}
 	}

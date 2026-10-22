@@ -432,23 +432,12 @@ func portsNote(errOut io.Writer, lay *diagram.Layout) {
 	for _, e := range lay.Edges {
 		for _, end := range []struct{ node, port string }{{e.Edge.From, e.Edge.FromPort}, {e.Edge.To, e.Edge.ToPort}} {
 			n, ok := lay.Node(end.node)
-			if end.port == "" || !ok || len(n.Node.Record) == 0 || hasPort(n.Node.Record, end.port) {
+			if end.port == "" || !ok || len(n.Node.Record) == 0 || n.Node.Field(end.port) != nil {
 				continue
 			}
 			fmt.Fprintf(errOut, "diagram: the edge %q to %q names the port %q, which no field of %q has: it ends anywhere on the box\n", e.Edge.From, e.Edge.To, end.port, end.node)
 		}
 	}
-}
-
-// hasPort says one of fields, or of the fields they are divided into, is
-// named port.
-func hasPort(fields []diagram.Field, port string) bool {
-	for _, f := range fields {
-		if f.Port == port || hasPort(f.Fields, port) {
-			return true
-		}
-	}
-	return false
 }
 
 // textSizeNote says on errOut where --width or --height asked for a text

@@ -567,13 +567,13 @@ func TestPlainPathsWhereSearchGivesUp(t *testing.T) {
 // Into the arrowhead of an edge with one at each end, or of a dashed one
 // where it is solid, it would cross the line there and cut the head off.
 func TestMayPassAnArrowheadOnlyToMerge(t *testing.T) {
-	rt := &router{edges: []Edge{
-		{From: "x", To: "b", Head: true},
-		{From: "a", To: "b", Head: true},
-		{From: "a", To: "b", Head: true, Tail: true},
-		{From: "c", To: "b", Head: true, Line: Dashed},
-		{From: "x", To: "c", Head: true},
-	}}
+	rt := edgesRouter(
+		Edge{From: "x", To: "b", Head: true},
+		Edge{From: "a", To: "b", Head: true},
+		Edge{From: "a", To: "b", Head: true, Tail: true},
+		Edge{From: "c", To: "b", Head: true, Line: Dashed},
+		Edge{From: "x", To: "c", Head: true},
+	)
 	for j, want := range []bool{1: true, 2: false, 3: false} {
 		if j == 0 {
 			continue
@@ -593,7 +593,7 @@ func TestMayPassAnArrowheadOnlyToMerge(t *testing.T) {
 	// The arrowhead of an edge written the other way round, dir=back, at
 	// its tail: x to b may pass it into b, the two merging, but not the
 	// bare tail of one out of b, which is a chain through b.
-	rt.edges = append(rt.edges, Edge{From: "b", To: "y", Tail: true}, Edge{From: "b", To: "y", Head: true})
+	rt = edgesRouter(append(rt.edges, Edge{From: "b", To: "y", Tail: true}, Edge{From: "b", To: "y", Head: true})...)
 	if !rt.mayEnd(0, nil, []int{5}) {
 		t.Errorf("x to b past the arrowhead of b to y, dir=back: refused, want a trunk merging")
 	}
@@ -729,4 +729,10 @@ func TestPortsAreNeverStraight(t *testing.T) {
 	if lay.Edges[0].Straight || !lay.Edges[1].Straight {
 		t.Errorf("straight: %v and %v, want false and true", lay.Edges[0].Straight, lay.Edges[1].Straight)
 	}
+}
+
+// edgesRouter is a router for edges alone, with no page, ending nowhere
+// beside a field: for the rules about which edges may share a line.
+func edgesRouter(edges ...Edge) *router {
+	return &router{edges: edges, fields: make([][2]Rect, len(edges))}
 }

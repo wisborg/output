@@ -39,27 +39,102 @@ func (lay *Layout) straightens(e Edge) bool {
 	return !lay.crossesBox(a, b)
 }
 
+// nearJoint says the line from (x, y), at n's middle, towards (tx, ty) leaves
+// n's outline less than a cell from where one of its dividers meets it.
+func nearJoint(n PlacedNode, x, y, tx, ty float64) bool {
+	if len(n.Dividers) == 0 {
+		return false
+	}
+	r := n.Rect
+	dx, dy := tx-x, ty-y
+	// The part of the way to (tx, ty) at which the line reaches each of
+	// the outline's columns and rows, the nearer of them where it leaves.
+	t := math.Inf(1)
+	if dx > 0 {
+		t = min(t, (float64(r.X+r.W-1)-x)/dx)
+	} else if dx < 0 {
+		t = min(t, (float64(r.X)-x)/dx)
+	}
+	if dy > 0 {
+		t = min(t, (float64(r.Y+r.H-1)-y)/dy)
+	} else if dy < 0 {
+		t = min(t, (float64(r.Y)-y)/dy)
+	}
+	if math.IsInf(t, 1) {
+		return false
+	}
+	ex, ey := x+t*dx, y+t*dy
+	for _, d := range n.Dividers {
+		for _, j := range d {
+			if math.Abs(ex-float64(j.X)) < 1 && math.Abs(ey-float64(j.Y)) < 1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // straighten sets the straight edges between the same two nodes apart,
 // and places the labels as the picture draws them.
 func (lay *Layout) straighten() {
+	edges, straight := make([]Edge, len(lay.Edges)), make([]bool, len(lay.Edges))
+	for i, e := range lay.Edges {
+		edges[i], straight[i] = *e.Edge, e.Straight
+	}
+	for i, d := range shifts(edges, straight) {
+		lay.Edges[i].Shift = d
+	}
+	lay.placeStraightLabels()
+}
+
+// shifts is how far to one side each of the straight edges is drawn,
+// those between the same two nodes set apart, as straighten sets them.
+func shifts(edges []Edge, straight []bool) []float64 {
 	pairs := map[[2]string][]int{}
-	for i := range lay.Edges {
-		e := &lay.Edges[i]
-		if !e.Straight {
+	for i, e := range edges {
+		if !straight[i] {
 			continue
 		}
-		key := [2]string{e.Edge.From, e.Edge.To}
+		key := [2]string{e.From, e.To}
 		if key[1] < key[0] {
 			key[0], key[1] = key[1], key[0]
 		}
 		pairs[key] = append(pairs[key], i)
 	}
-	for _, edges := range pairs {
-		for k, i := range edges {
-			lay.Edges[i].Shift = float64(k) - float64(len(edges)-1)/2
+	out := make([]float64, len(edges))
+	for _, is := range pairs {
+		for k, i := range is {
+			out[i] = float64(k) - float64(len(is)-1)/2
 		}
 	}
-	lay.placeStraightLabels()
+	return out
+}
+
+// keepClearOfJoints takes out of straight each edge whose line, set apart
+// from the others between its nodes, would leave a record where a divider
+// meets its outline, as a path along rows and columns never does: in a
+// record of two fields alike that is the middle of a side, where a line
+// between the boxes' middles leaves, and the line reads as the divider
+// running on. Each taken out sets the others between its nodes apart
+// differently, so it looks again until none is.
+func (lay *Layout) keepClearOfJoints(edges []Edge, straight []bool) {
+	for {
+		sh, changed := shifts(edges, straight), false
+		for i := range edges {
+			if !straight[i] {
+				continue
+			}
+			x0, y0, x1, y1 := lay.ends(PlacedEdge{Edge: &edges[i], Shift: sh[i]})
+			a, _ := lay.Node(edges[i].From)
+			b, _ := lay.Node(edges[i].To)
+			if nearJoint(a, x0, y0, x1, y1) || nearJoint(b, x1, y1, x0, y0) {
+				straight[i], changed = false, true
+			}
+		}
+		if !changed {
+			return
+		}
+	}
 }
 
 // crossesBox says the line between the middles of a and b passes through

@@ -559,7 +559,18 @@ any side across from it: a line here never runs through a box to a field's
 middle, as Graphviz's does. No line ends where a divider meets the outline,
 as none ends at a corner, since it reads as running into the divider -- in a
 record of two equal fields that is the middle of a side, where a line most
-wants to end. And two edges share a line at a node only where they end beside
+wants to end. That holds of every line, not only the search's: a straight
+one leaving a record by a joint -- the middle, or a cell from it once lines
+between the same two nodes are set apart -- is drawn along rows and columns
+instead (`keepClearOfJoints`, before routing, as the other lines are routed
+round the straight ones); a braille stub does not slide beside a joint; and
+the plain path drawn where every search fails is moved a cell along
+(`offJoints`). `TestStraightLinesMissRecordJointsAtRandom` found the set-apart
+and sliding cases that a lone line between two middles did not show.
+`Node.Field` is the one lookup of a port, which the layout, the DOT reader
+and `diagram`'s note of an unknown port all use: three lookups had come to
+disagree on a divided field's port, which Graphviz does not have and none
+now reads. And two edges share a line at a node only where they end beside
 the same field of it (`sharing`): a line into a field and one into the whole
 record, merged, end beside the field and the second reads as joining it. The
 field, not the port's name: a port no field has is anywhere on the box, and

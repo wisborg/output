@@ -652,7 +652,9 @@ with other fields on every side has no outline of its own, so a line to it ends
 beside the fields next to it; Graphviz draws one through them to its middle,
 and a line here never runs through a box. An edge with no port ends anywhere on
 the outline, which beside a record reads as one of its fields: give it a port
-to say which. A port that names no field of its record is said so, as
+to say which. No line ends where a divider meets the outline, where it would
+read as the divider running on — a straight edge that would is drawn along
+rows and columns instead. A port that names no field of its record is said so, as
 Graphviz warns of one; a field named with a `:` in it cannot be named by an
 edge, as in Graphviz, which reads `a:"x:y"` as the field `x` and the compass
 point `y`. A record label that is not one — a brace not closed, a `<port>`

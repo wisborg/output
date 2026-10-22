@@ -125,7 +125,9 @@ type Node struct {
 // Field is one field of a record.
 type Field struct {
 	// Port names the field to the edges, as Edge.FromPort and ToPort name
-	// it.
+	// it. A field divided further, by Fields, has no port of its own: one
+	// set is not read, as Graphviz has none, and an edge names one of the
+	// fields it is divided into.
 	Port string
 	// Label is what the field says, a line to each "\n".
 	Label string
@@ -268,6 +270,33 @@ func (n *Node) Outline() Shape {
 		return Box
 	}
 	return n.Shape
+}
+
+// Field is n's field named port, or nil where it has none: the one lookup
+// of a port, which the layout, a DOT reader and a program saying which
+// ports are unknown all use, so that they cannot disagree. Only a field
+// that is not divided further is looked at, as only one has words beside
+// the outline for a line to end at; Graphviz has no port on a divided field
+// either.
+func (n *Node) Field(port string) *Field {
+	if port == "" {
+		return nil
+	}
+	return fieldNamed(n.Record, port)
+}
+
+func fieldNamed(fields []Field, port string) *Field {
+	for i := range fields {
+		f := &fields[i]
+		if len(f.Fields) > 0 {
+			if g := fieldNamed(f.Fields, port); g != nil {
+				return g
+			}
+		} else if f.Port == port {
+			return f
+		}
+	}
+	return nil
 }
 
 // label is the node's label, its ID where it has none.
