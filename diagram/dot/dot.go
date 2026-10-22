@@ -320,6 +320,7 @@ func (p *parser) graph() error {
 			return err
 		}
 	}
+	p.compassFields()
 	if err := p.makeLegend(); err != nil {
 		return err
 	}
@@ -480,8 +481,9 @@ func portSide(parts []string) diagram.Side {
 }
 
 // portField is the record field a port names, its first part -- node:field
-// or node:field:s -- or "" where it names a compass point alone, node:s.
-// A field no record of that name has is any side, as layout reads it.
+// or node:field:s -- or "" where it names a compass point alone, node:s,
+// until compassFields finds the record has a field of that name. A field
+// no record of that name has is any side, as layout reads it.
 func portField(parts []string) string {
 	if len(parts) == 0 || parts[0] == "" {
 		return ""
@@ -490,6 +492,40 @@ func portField(parts []string) string {
 		return ""
 	}
 	return parts[0]
+}
+
+// compassFields reads a port of one compass word, a:n, as the field of
+// that name where the record has one, as Graphviz does, and as the side
+// only where it has none. An edge is read before the nodes' records are,
+// so its port is first taken for the side, and settled here.
+func (p *parser) compassFields() {
+	for k := range p.d.Edges {
+		e := &p.d.Edges[k]
+		ends := []struct {
+			node, attr string
+			port       *string
+			side       *diagram.Side
+		}{{e.From, "tailport", &e.FromPort, &e.FromSide}, {e.To, "headport", &e.ToPort, &e.ToSide}}
+		for _, end := range ends {
+			word := p.edgeAttrs[k][end.attr]
+			info, ok := p.nodes[end.node]
+			if _, isCompass := compass(word); !isCompass || !ok || !hasPort(info.n.Record, word) {
+				continue
+			}
+			*end.port, *end.side = word, 0
+		}
+	}
+}
+
+// hasPort says one of fields, or of the fields they are divided into, is
+// named port.
+func hasPort(fields []diagram.Field, port string) bool {
+	for _, f := range fields {
+		if f.Port == port || hasPort(f.Fields, port) {
+			return true
+		}
+	}
+	return false
 }
 
 // compass is the sides a DOT compass point names, and whether word is

@@ -12,7 +12,7 @@ import (
 // words. A backslash before "{", "}", "|", "<", ">" or a space writes that
 // character; DOT's other escapes, \n, \l and \N among them, are read as a
 // label's are, after. A field's words are taken without the spaces about
-// them. A label that is not one -- a brace or a "<" not closed, a "{" in a
+// them, an escaped one excepted. A label that is not one -- a brace or a "<" not closed, a "{" in a
 // field's words -- is no record, false, and the node is drawn as a box
 // with its label as written, where Graphviz refuses to draw it.
 func record(v, name, graph string) ([]diagram.Field, bool) {
@@ -66,12 +66,16 @@ func (r *recordReader) field() (diagram.Field, bool) {
 		return diagram.Field{Fields: fields}, true
 	}
 	var f diagram.Field
+	// text is the field's words, and end how much of it is left once the
+	// spaces after them are taken off: not an escaped one, which is how
+	// Graphviz's labels keep a space at either end.
 	var text strings.Builder
+	end := 0
 	for r.i < len(r.s) {
 		c := r.s[r.i]
 		switch c {
 		case '|', '}':
-			f.Label = label(strings.TrimSpace(text.String()), r.name, r.graph, "")
+			f.Label = label(text.String()[:end], r.name, r.graph, "")
 			return f, true
 		case '{', '>':
 			return f, false
@@ -90,21 +94,33 @@ func (r *recordReader) field() (diagram.Field, bool) {
 			r.i = end + 1
 			continue
 		case '\\':
-			if r.i+1 < len(r.s) && strings.IndexByte("{}|<> ", r.s[r.i+1]) >= 0 {
+			switch {
+			case r.i+1 >= len(r.s):
+				// A backslash at the end is itself.
+				text.WriteByte(c)
+				r.i++
+			case strings.IndexByte("{}|<> ", r.s[r.i+1]) >= 0:
 				text.WriteByte(r.s[r.i+1])
-			} else if r.i+1 < len(r.s) {
+				r.i += 2
+			default:
 				// \n, \l, \N and the rest, kept for label to read.
 				text.WriteString(r.s[r.i : r.i+2])
-			} else {
+				r.i += 2
+			}
+			end = text.Len()
+			continue
+		case ' ', '\t', '\n', '\r':
+			r.i++
+			if text.Len() > 0 { // a space before the words is none of them
 				text.WriteByte(c)
 			}
-			r.i += 2
 			continue
 		}
 		text.WriteByte(c)
+		end = text.Len()
 		r.i++
 	}
-	f.Label = label(strings.TrimSpace(text.String()), r.name, r.graph, "")
+	f.Label = label(text.String()[:end], r.name, r.graph, "")
 	return f, true
 }
 

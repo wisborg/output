@@ -25,6 +25,13 @@ func TestRecordLabels(t *testing.T) {
 		{"<p>|", []diagram.Field{F("p", ""), F("", "")}},
 		{`\N`, []diagram.Field{F("", "n")}},
 		{"{a|b}", []diagram.Field{G(F("", "a"), F("", "b"))}},
+		// An escaped space is kept at either end, as Graphviz keeps it to
+		// pad a field; the others there are not.
+		{`<p> \ \ pad\  | q `, []diagram.Field{F("p", "  pad "), F("", "q")}},
+		{`x|\ y\ `, []diagram.Field{F("", "x"), F("", " y ")}},
+		{"\t a \n|b", []diagram.Field{F("", "a"), F("", "b")}},
+		// A backslash at the end is itself, and the label still a record.
+		{`a|b\`, []diagram.Field{F("", "a"), F("", `b\`)}},
 	} {
 		got, ok := record(c.label, "n", "g")
 		if !ok || !reflect.DeepEqual(got, c.want) {
@@ -86,5 +93,28 @@ func TestRecordNodesAndPorts(t *testing.T) {
 	// A compass point alone is a side, not a field named "s".
 	if e := d.Edges[3]; e.ToPort != "" || e.ToSide != diagram.South {
 		t.Errorf("b:s: port %q and side %v, want no port and South", e.ToPort, e.ToSide)
+	}
+}
+
+// A port of one compass word names the record's field of that name where
+// it has one, as Graphviz reads it, whichever is written first, the node
+// or the edge; where the record has none it is the side.
+func TestRecordFieldNamedLikeACompassPoint(t *testing.T) {
+	d := parse(t, `digraph {
+		c -> a:n
+		a [shape=record, label="<n> north|<s> south"]
+		b -> a:s
+		a -> c [tailport=e]
+		c -> b:n
+	}`)
+	for i, want := range []struct {
+		from, to         string
+		fromSide, toSide diagram.Side
+	}{{"", "n", 0, 0}, {"", "s", 0, 0}, {"", "", diagram.East, 0}, {"", "", 0, diagram.North}} {
+		e := d.Edges[i]
+		if e.FromPort != want.from || e.ToPort != want.to || e.FromSide != want.fromSide || e.ToSide != want.toSide {
+			t.Errorf("edge %d, %s to %s: ports %q %q, sides %v %v; want %q %q, %v %v", i, e.From, e.To,
+				e.FromPort, e.ToPort, e.FromSide, e.ToSide, want.from, want.to, want.fromSide, want.toSide)
+		}
 	}
 }
