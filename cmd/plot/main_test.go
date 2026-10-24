@@ -570,6 +570,13 @@ func TestPlotJSONLines(t *testing.T) {
 	// With --input jsonl typed, the refusal does not send the reader to
 	// --input csv, and comes before the input is read: a stream from a
 	// program still running was read to its end first.
+	// A flag mistyped is said before a file is opened: with the file
+	// mistyped too, the missing file was said, exit 1, not the flag.
+	for _, args := range [][]string{{"--input", "jsn"}, {"--decimal", "dot"}, {"--header", "maybe"}} {
+		if _, _, err := plot(t, "", append(args, filepath.Join(t.TempDir(), "nosuch.jsonl"))...); !errors.As(err, &ue) {
+			t.Errorf("%q and a file missing: %v, want a UsageError", args, err)
+		}
+	}
 	var out2, errOut2 bytes.Buffer
 	err = run([]string{"--input", "jsonl", "--delimiter", ","}, unreadable{t}, &out2, &errOut2, noEnv)
 	if !errors.As(err, &ue) || strings.Contains(err.Error(), "--input csv") {
@@ -627,9 +634,6 @@ func TestPlotJSONLinesAsWritten(t *testing.T) {
 	}
 	if tb, err = readJSONLines([]byte(comma), decimalPoint); err != nil || tb.cell(0, 1) != "1,250" {
 		t.Errorf("--decimal point: %v, %q", err, tb.cell(0, 1))
-	}
-	if _, err := readJSONLines([]byte("{\"v\":\"0,5\"}\n{\"v\":\"1.5\"}\n"), decimalAuto); err == nil || !strings.Contains(err.Error(), "on line 2") {
-		t.Errorf("strings written both ways: %v, want the line named", err)
 	}
 
 	// And through the command: --decimal point reads "1,5" as no number.

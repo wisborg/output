@@ -691,10 +691,27 @@ took every column, losing the keys after it. `NaN` and `Infinity`, which
 encoding/json refuses and Python writes, are quoted before decoding
 (`allowNonFinite`) where a value stands, never a key, so they read as the
 words a CSV's cell would be, and lose no line. A JSON number has a point,
-but a string may hold `"1,5"`, so the strings the rows hold go to
-`decideDecimal` and `--decimal` applies; a number is never rewritten, as
-`commaToPoint` would make `1.250` 1250, and whether a cell is a string is
-its last value's to say, where a key is written twice. `--input auto`
+but a string may hold `"1,5"`. **The decimal mark of JSON Lines' strings
+is decided from the columns plotted alone, not the file** -- the one place
+plot departs from deciding it for the file, as a CSV's is. A CSV's cells
+were written by one program in one place; a log's strings are fields of
+their own, ids, tags, versions, and decided for the file, a `"3,4"` among
+the ids made `"1.234"` in the column plotted 1234 without a word, while a
+`"2.5"` in one field and a `"1,2"` in another refused a log plotting
+neither. Each column's evidence is kept as it is read (`table.seen`, a
+`marks` a column), the strings kept as written and rewritten as read
+(`table.text`, by `readMark`), and once `--x` and `--y` are settled,
+`settleMarks` decides it for those columns together. A point in one and a
+comma in another, or both in one, are refused, naming each, rather than
+guessed between -- the user's decision, as `"1.234"` read wrongly is a
+chart a thousand times out; where they show neither, a point. Until then,
+and for `--list`, each column is read by its own strings. A column read
+with another mark than its own strings showed is not typed again: its
+strings showed none, so each is a number either way or neither, and only
+its value changes. `--decimal` applies to every string column, and a
+number is never rewritten, as `commaToPoint` would make `1.250` 1250;
+whether a cell is a string is its last value's to say, where a key is
+written twice. `--input auto`
 takes a file for JSON Lines where at least half its first 20 lines are
 whole objects, not where its first byte is a brace: a log read from its
 middle begins with the end of a line, and was read as CSV of fragments. No

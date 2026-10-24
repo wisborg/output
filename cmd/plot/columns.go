@@ -68,16 +68,95 @@ func commaToPoint(cell string) string {
 	return strings.Replace(strings.ReplaceAll(cell, ".", ""), ",", ".", 1)
 }
 
-// sighting is a cell that says something of the file's decimal mark, and
-// the row it is on, counting from 1, to name it by.
+// sighting is a cell that says something of the decimal mark, the row it
+// is on, counting from 1, and in JSON Lines the key it is under, to name
+// it by.
 type sighting struct {
-	cell string
-	row  int
+	cell, col string
+	row       int
 }
 
-// decideDecimal is the decimal mark the file of records is written with:
-// mark where the caller gave one; else the mark its cells show; else
-// fallback, the guess: for a CSV, a comma where it is delimited by
+// marks is what cells have said of the decimal mark, cell by cell: the
+// first that reads as a number only with a point, the first only with a
+// comma, and the first that reads as two different numbers. unit is what
+// a row is called in a message: a CSV's row, a JSON Lines file's line.
+type marks struct {
+	point, comma, either *sighting
+	unit                 string
+}
+
+// see adds cell, on row row and under the key col, to what m has seen.
+func (m *marks) see(cell string, row int, col string) {
+	if missing(cell) {
+		return
+	}
+	p, pok := asPoint(cell)
+	c, cok := asComma(cell)
+	switch {
+	case pok && !cok && m.point == nil:
+		m.point = &sighting{cell, col, row}
+	case cok && !pok && m.comma == nil:
+		m.comma = &sighting{cell, col, row}
+	case pok && cok && p != c && m.either == nil:
+		m.either = &sighting{cell, col, row}
+	}
+}
+
+// add is what m and o have seen together, the first of each kind m's.
+func (m marks) add(o marks) marks {
+	if m.point == nil {
+		m.point = o.point
+	}
+	if m.comma == nil {
+		m.comma = o.comma
+	}
+	if m.either == nil {
+		m.either = o.either
+	}
+	return m
+}
+
+// where names s in a message: "on row 3", or "in "v" on line 3".
+func (m marks) where(s *sighting) string {
+	if s.col != "" {
+		return fmt.Sprintf("in %q on %s %d", s.col, m.unit, s.row)
+	}
+	return fmt.Sprintf("on %s %d", m.unit, s.row)
+}
+
+// decide is the decimal mark the cells m has seen are written with: the
+// mark they show; else fallback, the guess. Cells that show both marks
+// are at odds, which is refused rather than read half and half. Where
+// nothing showed it and a cell read as two different numbers -- "1,234"
+// -- the guess is said in note, with the flag that reads it the other way.
+func (m marks) decide(fallback decimalMark) (decided decimalMark, note string, err error) {
+	switch {
+	case m.point != nil && m.comma != nil:
+		return "", "", fmt.Errorf("the numbers are written both ways: %q %s with a decimal point, %q %s with a decimal comma; say --decimal point or --decimal comma",
+			m.point.cell, m.where(m.point), m.comma.cell, m.where(m.comma))
+	case m.point != nil:
+		return decimalPoint, "", nil
+	case m.comma != nil:
+		return decimalComma, "", nil
+	}
+	decided, other := fallback, decimalComma
+	if fallback == decimalComma {
+		other = decimalPoint
+	}
+	if m.either != nil {
+		v, _ := asPoint(m.either.cell)
+		if decided == decimalComma {
+			v, _ = asComma(m.either.cell)
+		}
+		note = fmt.Sprintf("%q %s read as %s, with a decimal %s; --decimal %s reads it the other way",
+			m.either.cell, m.where(m.either), strconv.FormatFloat(v, 'f', -1, 64), decided, other)
+	}
+	return decided, note, nil
+}
+
+// decideDecimal is the decimal mark a CSV of records is written with:
+// mark where the caller gave one; else the mark its cells show, as decide
+// has it; else fallback, the guess: a comma where it is delimited by
 // semicolons -- the delimiter of the places that write one -- and a point
 // otherwise.
 //
@@ -86,56 +165,19 @@ type sighting struct {
 // while "1,234" beside it was one point two three four. A cell shows the
 // mark where it reads as a number only one way: "1,5", "0,25", "1.234,5",
 // "1.234.567" only with a comma; "1.5", "1,234,567", "1,234.5" only with a
-// point. Cells that show both marks are a file at odds with itself, which
-// is refused rather than read half and half. Where nothing showed it and a
-// cell read as two different numbers -- "1,234" -- the guess is said in
-// note, with the flag that reads it the other way. unit is what a record
-// is called in a message: a CSV's row, a JSON Lines file's line.
-func decideDecimal(records [][]string, fallback, mark decimalMark, unit string) (decided decimalMark, note string, err error) {
+// point. (JSON Lines decides it from the columns plotted alone, as
+// table.settleMarks says why.)
+func decideDecimal(records [][]string, fallback, mark decimalMark) (decided decimalMark, note string, err error) {
 	if mark != decimalAuto {
 		return mark, "", nil
 	}
-	var point, comma, either *sighting
+	m := marks{unit: "row"}
 	for i, rec := range records {
 		for _, cell := range rec {
-			if missing(cell) {
-				continue
-			}
-			p, pok := asPoint(cell)
-			c, cok := asComma(cell)
-			seen := &sighting{cell, i + 1}
-			switch {
-			case pok && !cok && point == nil:
-				point = seen
-			case cok && !pok && comma == nil:
-				comma = seen
-			case pok && cok && p != c && either == nil:
-				either = seen
-			}
+			m.see(cell, i+1, "")
 		}
 	}
-	switch {
-	case point != nil && comma != nil:
-		return "", "", fmt.Errorf("the numbers are written both ways: %q on %s %d with a decimal point, %q on %s %d with a decimal comma; say --decimal point or --decimal comma",
-			point.cell, unit, point.row, comma.cell, unit, comma.row)
-	case point != nil:
-		return decimalPoint, "", nil
-	case comma != nil:
-		return decimalComma, "", nil
-	}
-	decided, other := fallback, decimalComma
-	if fallback == decimalComma {
-		other = decimalPoint
-	}
-	if either != nil {
-		v, _ := asPoint(either.cell)
-		if decided == decimalComma {
-			v, _ = asComma(either.cell)
-		}
-		note = fmt.Sprintf("%q read as %s, with a decimal %s; --decimal %s reads it the other way",
-			either.cell, strconv.FormatFloat(v, 'f', -1, 64), decided, other)
-	}
-	return decided, note, nil
+	return m.decide(fallback)
 }
 
 // parseNumber is cell as a number: as Go reads a float -- "12", "-0.5",

@@ -98,11 +98,51 @@ func TestReadJSONLinesStringsAsLeft(t *testing.T) {
 	if tb, err := readJSONLines([]byte(`{"n":1.5,"s":"0,5"}`+"\n"), decimalAuto); err != nil || tb.cell(0, 1) != "0.5" {
 		t.Errorf("a number and a string with a comma: %v, want the string read with it", err)
 	}
-	// Where the strings cannot say, a point is taken, as JSON's own, and
-	// the guess said.
-	tb, err = readJSONLines([]byte(`{"v":"1,234"}`+"\n"), decimalAuto)
-	if err != nil || tb.cell(0, 0) != "1,234" || len(tb.notes) != 1 || !strings.Contains(tb.notes[0], "1234") {
-		t.Errorf("1,234 alone: %v, %q, notes %q, want it read as 1234 and said", err, tb.cell(0, 0), tb.notes)
+}
+
+// The decimal mark of a JSON Lines file's strings is the columns plotted's
+// to say, and theirs alone: a "3,4" among the ids made "1.234" 1234, and a
+// "2.5" in one field with a "1,2" in another refused a log plotting
+// neither. Among the columns plotted, a point in one and a comma in
+// another, or both in one, are refused, naming each; where nothing says,
+// a point, and a string that reads two ways said.
+func TestSettleMarks(t *testing.T) {
+	for _, c := range []struct {
+		name, data string
+		args       []string
+		want, err  string // in standard error, or the error
+	}{
+		{"ids do not decide", `{"t":1,"d":"1.234","ids":"3,4"}` + "\n" + `{"t":2,"d":"2.468","ids":"5"}`, []string{"--y", "d"}, `"1.234" in "d" on line 1 read as 1.234, with a decimal point`, ""},
+		{"fields not plotted", `{"a":1,"tags":"1,2"}` + "\n" + `{"a":2,"ver":"2.5"}`, []string{"--y", "a"}, "", ""},
+		{"plotted fields at odds", `{"t":1,"a":"1,5","b":"2.5"}` + "\n" + `{"t":2,"a":"2,5","b":"3.5"}`, []string{"--y", "a,b"}, "", `"2.5" in "b" on line 1 with a decimal point, "1,5" in "a" on line 1 with a decimal comma`},
+		{"one field at odds", `{"t":1,"v":"0,5"}` + "\n" + `{"t":2,"v":"1.5"}` + "\n" + `{"t":3,"v":"2.5"}`, []string{"--y", "v"}, "", `in "v" on line 2`},
+		{"told", `{"t":1,"v":"0,5"}` + "\n" + `{"t":2,"v":"1.5"}` + "\n" + `{"t":3,"v":"2.5"}`, []string{"--y", "v", "--decimal", "point"}, "", ""},
+		{"a key that was empty", `{"t":1,"":"0,5","b":"1.5"}` + "\n" + `{"t":2,"":"1,5","b":"2.5"}`, []string{"--y", "column 2,b"}, "", `in "column 2" on line 1 with a decimal comma`},
+		{"x decides too", `{"x":"0,5","v":"1.234"}` + "\n" + `{"x":"1,5","v":"2.345"}`, []string{"--x", "x", "--y", "v"}, "", ""},
+	} {
+		_, errOut, err := plot(t, c.data, c.args...)
+		switch {
+		case c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)):
+			t.Errorf("%s: %v, want an error holding %q", c.name, err, c.err)
+		case c.err == "" && err != nil:
+			t.Errorf("%s: %v", c.name, err)
+		case c.want != "" && !strings.Contains(errOut, c.want):
+			t.Errorf("%s: stderr %q, want %q", c.name, errOut, c.want)
+		case c.want == "" && c.err == "" && strings.Contains(errOut, "decimal"):
+			t.Errorf("%s: stderr %q, want no word of the decimal mark", c.name, errOut)
+		}
+	}
+	// With x's comma deciding, v's "1.234" is 1234: plotted, its axis
+	// reaches a thousand.
+	out, _, err := plot(t, `{"x":"0,5","v":"1.234"}`+"\n"+`{"x":"1,5","v":"2.345"}`, "--x", "x", "--y", "v")
+	if err != nil || !strings.Contains(out, "2000┤") {
+		t.Errorf("v read with x's comma: %v, want its axis in thousands:\n%s", err, out)
+	}
+	// And --list, reading each column by its own strings, says the one at
+	// odds rather than refusing.
+	_, errOut, err := plot(t, `{"v":"0,5"}`+"\n"+`{"v":"1.5"}`+"\n", "--list")
+	if err != nil || !strings.Contains(errOut, `"v": numbers written both ways`) {
+		t.Errorf("--list of a column at odds: %v, stderr %q", err, errOut)
 	}
 }
 
@@ -209,6 +249,7 @@ func TestSniffInput(t *testing.T) {
 		{"a brace and JSON after", "{\n\"a\": 1\n} x\n", inputCSV},
 		{"NaN in most lines", "{\"v\":NaN}\n{\"v\":NaN}\n{\"v\":1}\n", inputJSONL},
 		{"one bracketed line", "[a]\n", inputCSV},
+		{"an array and CSV after", "[1],b\n1,2\n", inputCSV},
 		{"objects too deep", strings.Repeat(strings.Repeat(`{"a":`, maxJSONDepth+1)+"1"+strings.Repeat("}", maxJSONDepth+1)+"\n", 3), inputJSONL},
 	} {
 		got, err := sniffInput([]byte(c.data))
@@ -272,6 +313,11 @@ func TestNameColumns(t *testing.T) {
 	names := []string{"t", "", "column 2", ""}
 	nameColumns(names)
 	if want := []string{"t", "column 2, unnamed", "column 2", "column 4"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("%q, want %q", names, want)
+	}
+	names = []string{"", "column 1", "column 1, unnamed"}
+	nameColumns(names)
+	if want := []string{"column 1, unnamed 2", "column 1", "column 1, unnamed"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("%q, want %q", names, want)
 	}
 }
@@ -341,6 +387,21 @@ func TestReadJSONLinesSaysOneLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := []string{fmt.Sprintf("line 2: \"s\" cut to its first %d elements", maxJSONArray)}; !reflect.DeepEqual(tb.notes, want) {
+		t.Errorf("notes %q, want %q", tb.notes, want)
+	}
+}
+
+// One key past the columns kept is "1 key", not "1 keys".
+func TestReadJSONLinesOneKeyLeftOut(t *testing.T) {
+	var b strings.Builder
+	for i := range maxJSONColumns + 1 {
+		fmt.Fprintf(&b, "{\"k%d\":1}\n", i)
+	}
+	tb, err := readJSONLines([]byte(b.String()), decimalAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{fmt.Sprintf("1 key past the first %d left out, \"k%d\"", maxJSONColumns, maxJSONColumns)}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
 }

@@ -488,8 +488,13 @@ string as a CSV's cell is, so `"12.5"` is a number and
 `"2024-03-05T14:30:00Z"` a date; `NaN` and `Infinity`, which Python writes
 though JSON has no word for them, are read as those words, so `NaN` is a gap.
 JSON writes its numbers with a point, but a string may hold `"1,5"`: the
-strings alone decide the file's decimal mark, as a CSV's numbers do, or
-`--decimal` says it. A line that is not one object — cut short
+strings of the columns plotted decide the decimal mark, or `--decimal` says
+it. Only those columns, since a log's other strings are fields of their own
+— a list of ids, `"3,4"`, is no decimal comma — and among them a point in
+one and a comma in another are refused, naming both, rather than guessed
+between: `"1.234"` is 1.234 or 1234 by which. Where they show neither, it is
+a point, as JSON's own numbers have. `--list` reads each column by its own
+strings, and says one written both ways. A line that is not one object — cut short
 where a log was rotated mid-write, a line of text among them — is left out,
 and `plot` says how many and the first. So is a column given two values in
 one line — a key written twice, or `"a.b"` beside an `"a"` holding `"b"` —

@@ -80,9 +80,12 @@ func sniffInput(data []byte) (inputMode, error) {
 	}
 	trimmed := bytes.TrimSpace(data)
 	switch {
-	case bytes.HasPrefix(trimmed, []byte("[")) && json.Valid(trimmed):
-		var elems []json.RawMessage
-		if json.Unmarshal(trimmed, &elems) == nil && len(elems) > 0 && allObjects(elems) {
+	case bytes.HasPrefix(trimmed, []byte("[")):
+		objects, ok := oneArray(trimmed)
+		switch {
+		case !ok:
+			return inputCSV, nil
+		case objects:
 			return "", errors.New("one JSON array: plot reads JSON Lines, an object a line, which jq -c '.[]' writes of it")
 		}
 		return "", errors.New("one JSON array: plot reads JSON Lines, an object a line")
@@ -107,6 +110,60 @@ func sniffInput(data []byte) (inputMode, error) {
 	return inputCSV, nil
 }
 
+// oneArray says data is one JSON array and nothing after it, and whether
+// its first elements, up to three, are objects. It reads a token at a
+// time, holding none of it: validated, then decoded into elements to see
+// the first, a file of one array was held twice to choose a message.
+func oneArray(data []byte) (objects, ok bool) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('[') {
+		return false, false
+	}
+	objects = true
+	for i := 0; dec.More(); i++ {
+		first, err := skipValue(dec)
+		if err != nil {
+			return false, false
+		}
+		if i < 3 && first != json.Delim('{') {
+			objects = false
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return false, false
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return false, false
+	}
+	return objects, true
+}
+
+// skipValue reads one value from dec, of whatever depth, and is its first
+// token.
+func skipValue(dec *json.Decoder) (json.Token, error) {
+	first, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	depth := 0
+	if d, ok := first.(json.Delim); ok && (d == '{' || d == '[') {
+		depth = 1
+	}
+	for depth > 0 {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch tok {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+	}
+	return first, nil
+}
+
 // allObjects says each of vs is a JSON object.
 func allObjects(vs []json.RawMessage) bool {
 	for _, v := range vs {
@@ -127,9 +184,10 @@ func allObjects(vs []json.RawMessage) bool {
 // anyway, are read as those words, as a CSV's cell is.
 //
 // A JSON number has a decimal point, never a comma, but a string may hold
-// a number as a person in any place writes one, "1,5", so the strings
-// alone decide the file's mark, as decideDecimal decides a CSV's, or mark
-// says it; the numbers JSON writes are left as they are.
+// a number as a person in any place writes one, "1,5". The strings are
+// kept as written, and what each column's say of the mark is kept in
+// t.seen: the columns plotted decide it, through settleMarks, or mark
+// says it. The numbers JSON writes are left as they are.
 //
 // The rows are sparse, t.sparse: each holds only the cells its line has
 // keys for, as table says why. Past maxJSONColumns, keys are left out, and
@@ -145,32 +203,30 @@ func allObjects(vs []json.RawMessage) bool {
 func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 	t := &table{sparse: [][]sparseCell{}, dropped: map[string]bool{}}
 	index := map[string]int{}
-	var bad, deep, twice, cut []int
+	var bad, deep, twice, cut lineTally
 	var firstDropped, firstCut string
-	var stamp []int     // the line each column last had a value in
-	var at []int        // where in its line's row each column's cell is
-	var strs [][]string // each line's strings as its row holds them, for decideDecimal
+	var stamp []int // the line each column last had a value in
+	var at []int    // where in its line's row each column's cell is
 	n := 0
 	for line := range bytes.Lines(data) {
 		n++
-		strs = append(strs, nil)
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
 		}
 		w, err := walkLine(line)
 		if errors.Is(err, errTooDeep) {
-			deep = append(deep, n)
+			deep.add(n)
 			continue
 		} else if err != nil {
-			bad = append(bad, n)
+			bad.add(n)
 			continue
 		}
 		if w.cut != "" {
-			if len(cut) == 0 {
+			if cut.n == 0 {
 				firstCut = w.cut
 			}
-			cut = append(cut, n)
+			cut.add(n)
 		}
 		// Made the size of the line's fields, which it is unless keys
 		// repeat or are left out: grown by append, a row of six cells
@@ -192,6 +248,7 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 				j = len(t.names)
 				index[f.name] = j
 				t.names = append(t.names, f.name)
+				t.seen = append(t.seen, marks{unit: "line"})
 				stamp, at = append(stamp, 0), append(at, 0)
 			}
 			// Written twice in the line, the last value wins, and with it
@@ -207,71 +264,101 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 			row = append(row, c)
 		}
 		if again {
-			twice = append(twice, n)
+			twice.add(n)
 		}
 		slices.SortFunc(row, func(a, b sparseCell) int { return cmp.Compare(a.col, b.col) })
+		// What the strings the row keeps say of the decimal mark, each
+		// column's apart, for settleMarks; JSON's own numbers say
+		// nothing, having a point whatever the file's strings do.
 		for _, c := range row {
 			if c.str {
-				strs[n-1] = append(strs[n-1], c.value)
+				t.seen[c.col].see(c.value, n, t.names[c.col])
 			}
 		}
 		t.sparse = append(t.sparse, row)
 	}
 	if len(t.sparse) == 0 {
 		switch {
-		case len(deep) > 0 && (len(bad) == 0 || deep[0] < bad[0]):
-			return nil, fmt.Errorf("line %d: nested past %d deep, and no line is a JSON object to read", deep[0], maxJSONDepth)
-		case len(bad) > 0:
-			return nil, fmt.Errorf("line %d: not a JSON object, and no line is one", bad[0])
+		case deep.n > 0 && (bad.n == 0 || deep.first < bad.first):
+			return nil, fmt.Errorf("line %d: nested past %d deep, and no line is a JSON object to read", deep.first, maxJSONDepth)
+		case bad.n > 0:
+			return nil, fmt.Errorf("line %d: not a JSON object, and no line is one", bad.first)
 		}
 		return nil, errors.New("no rows to plot")
 	}
-	// A JSON number has a point; only where nothing in the strings says,
-	// is the mark a guess, and then a point, as JSON's own.
-	decided, note, err := decideDecimal(strs, decimalPoint, mark, "line")
-	if err != nil {
-		return nil, err
-	}
-	if note != "" {
-		t.notes = append(t.notes, note)
-	}
-	if decided == decimalComma {
-		for _, row := range t.sparse {
-			for k := range row {
-				if row[k].str {
-					row[k].value = commaToPoint(row[k].value)
-				}
+	// Until settleMarks decides it for the columns plotted, each column is
+	// read by what its own strings say -- with a point where they say
+	// nothing, or both -- which is how --list shows it, and how the
+	// columns plotted by default are chosen.
+	t.readMark = make([]decimalMark, len(t.names))
+	for j := range t.readMark {
+		t.readMark[j] = mark
+		if mark == decimalAuto {
+			if d, _, err := t.seen[j].decide(decimalPoint); err == nil {
+				t.readMark[j] = d
+			} else {
+				t.readMark[j] = decimalPoint
 			}
 		}
 	}
 	nameColumns(t.names)
-	t.notes = appendLineNote(t.notes, bad, "not a JSON object, left out", "not a JSON object, left out")
+	// t.names[j] is named now: the key "" is "column 2", and seen's
+	// sightings name it so too.
+	for j := range t.seen {
+		for _, s := range []*sighting{t.seen[j].point, t.seen[j].comma, t.seen[j].either} {
+			if s != nil {
+				s.col = t.names[j]
+			}
+		}
+	}
+	t.notes = bad.note(t.notes, "not a JSON object, left out", "")
 	// Apart from the lines that are no object: a valid one said to be
 	// none sends the reader looking for a fault that is not there.
-	t.notes = appendLineNote(t.notes, deep, fmt.Sprintf("nested past %d deep, left out", maxJSONDepth), fmt.Sprintf("nested past %d deep, left out", maxJSONDepth))
-	if len(t.dropped) > 0 {
+	t.notes = deep.note(t.notes, fmt.Sprintf("nested past %d deep, left out", maxJSONDepth), "")
+	switch len(t.dropped) {
+	case 0:
+	case 1:
+		t.notes = append(t.notes, fmt.Sprintf("1 key past the first %d left out, %q", maxJSONColumns, firstDropped))
+	default:
 		t.notes = append(t.notes, fmt.Sprintf("%d keys past the first %d left out, the first %q", len(t.dropped), maxJSONColumns, firstDropped))
 	}
-	t.notes = appendLineNote(t.notes, cut, fmt.Sprintf("%q cut to its first %d elements", firstCut, maxJSONArray), fmt.Sprintf("an array cut to its first %d elements, the first %q", maxJSONArray, firstCut))
-	t.notes = appendLineNote(t.notes, twice, "a column given two values, the last kept", "a column given two values, the last kept")
+	t.notes = cut.note(t.notes, fmt.Sprintf("%q cut to its first %d elements", firstCut, maxJSONArray), fmt.Sprintf("an array cut to its first %d elements, the first %q", maxJSONArray, firstCut))
+	t.notes = twice.note(t.notes, "a column given two values, the last kept", "")
 	return t, nil
 }
 
-// appendLineNote is notes and, where lines holds any, a note of them, in
-// one wording for all of plot's notes of lines: "line 3: one" for a line,
-// "4 lines: many; the first line 3" for more.
-func appendLineNote(notes []string, lines []int, one, many string) []string {
-	switch len(lines) {
+// lineTally is how many lines something was said of, and the first: all a
+// note of them says, where a list of every one grew with a log of
+// millions of such lines.
+type lineTally struct{ n, first int }
+
+// add counts line.
+func (l *lineTally) add(line int) {
+	if l.n == 0 {
+		l.first = line
+	}
+	l.n++
+}
+
+// note is notes and, where l counted any line, a note of them, in one
+// wording for all of plot's notes of lines: "line 3: one" for a line, "4
+// lines: many; the first line 3" for more -- many being one where it is
+// empty.
+func (l lineTally) note(notes []string, one, many string) []string {
+	if many == "" {
+		many = one
+	}
+	switch l.n {
 	case 0:
 		return notes
 	case 1:
-		return append(notes, fmt.Sprintf("line %d: %s", lines[0], one))
+		return append(notes, fmt.Sprintf("line %d: %s", l.first, one))
 	}
-	return append(notes, fmt.Sprintf("%d lines: %s; the first line %d", len(lines), many, lines[0]))
+	return append(notes, fmt.Sprintf("%d lines: %s; the first line %d", l.n, many, l.first))
 }
 
 // field is one value of a JSON object, named by its path in it; str says
-// it was a string, whose decimal mark the file's strings decide.
+// it was a string, whose decimal mark the columns plotted decide.
 type field struct {
 	name, value string
 	str         bool

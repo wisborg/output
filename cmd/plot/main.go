@@ -95,7 +95,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.header, "header", string(headerAuto), "whether the first row names the columns: auto, yes or no")
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
 	fs.StringVar(&o.xDate, "x-date", "", "read the x column as dates written as numbers: unix (seconds since 1970), unix-ms (milliseconds) or yyyymmdd (20240305), which a number alone cannot say it is")
-	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise; in JSON Lines, its strings alone, as JSON writes its numbers with a point")
+	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise; in JSON Lines, the strings of the columns plotted, as JSON writes its numbers with a point, and those at odds are refused")
 	fs.StringVar(&o.out, "out", "", "write the chart to this PNG rather than drawing it in the terminal")
 	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default, or 0: the terminal's, or 100); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageWidth)+")")
 	fs.IntVar(&o.height, "height", 0, "the chart's height: in lines in the terminal (default, or 0: 24, and 10 more for each further column, held to the terminal's); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageHeight)+", and 300 more for each further column)")
@@ -146,15 +146,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		}
 	}
 
-	in, name := stdin, "standard input"
-	if len(files) == 1 && files[0] != "-" {
-		f, err := os.Open(files[0])
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		in, name = f, files[0]
-	}
 	mode := inputMode(o.input)
 	if mode != inputAuto && mode != inputCSV && mode != inputJSONL {
 		return cli.Usagef("--input %q: use auto, csv or jsonl", o.input)
@@ -175,12 +166,28 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if mark != decimalAuto && mark != decimalPoint && mark != decimalComma {
 		return cli.Usagef("--decimal %q: use auto, point or comma", o.decimal)
 	}
+	// The flags are checked before the file is opened: --input jsn with a
+	// file mistyped too said the file was missing, exit 1, not the flag's
+	// mistake, exit 2.
+	in, name := stdin, "standard input"
+	fromFile := len(files) == 1 && files[0] != "-"
+	if fromFile {
+		name = files[0]
+	}
 	// Before reading, where --input says JSON Lines: a stream from a
 	// long-running program was read to its end before the refusal.
 	if mode == inputJSONL {
 		if err := csvOnly(o, name, false); err != nil {
 			return err
 		}
+	}
+	if fromFile {
+		f, err := os.Open(name)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		in = f
 	}
 	data, err := io.ReadAll(in)
 	if err != nil {
@@ -222,7 +229,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		if err := writeColumns(stdout, t, cols); err != nil {
 			return err
 		}
-		for _, n := range t.notes {
+		for _, n := range append(t.notes, t.markNotes()...) {
 			fmt.Fprintln(stderr, n)
 		}
 		return nil
@@ -253,6 +260,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return err
 	}
 	notes := t.notes
+	// A JSON Lines file's decimal mark is the columns plotted's to say,
+	// now they are known.
+	used := ys
+	if x >= 0 {
+		used = append([]int{x}, ys...)
+	}
+	note, err := t.settleMarks(used, mark)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if note != "" {
+		notes = append(notes, note)
+	}
 	if x >= 0 && cols[x].ambiguous {
 		return fmt.Errorf("the dates in %q read as well with the day first as the month: say --dates dmy or --dates mdy", t.names[x])
 	}

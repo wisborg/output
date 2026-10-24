@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/wisborg/output/internal/cli"
@@ -25,6 +26,11 @@ type table struct {
 	rows   [][]string
 	sparse [][]sparseCell // JSON Lines' rows, in place of rows; each by column
 	notes  []string       // what reading it guessed or left out, for plot to say
+	// A JSON Lines file's strings are kept as written, and each column's
+	// are read with readMark[j]: by what its own strings say of the mark,
+	// seen[j], until settleMarks decides it for the columns plotted.
+	seen     []marks
+	readMark []decimalMark
 	// dropped are the keys a JSON Lines file has past maxJSONColumns,
 	// which are no column, so that asking for one can say so, and the
 	// note can count them.
@@ -40,8 +46,9 @@ type table struct {
 
 // nameColumns names each of names that is empty "column N", N its place
 // from 1 -- or, where a column has that name already, as a JSON key may,
-// "column N, unnamed": two columns named alike, the second could not be
-// asked for by name.
+// "column N, unnamed", and "column N, unnamed 2" and on where that is
+// taken too: two columns named alike, the second could not be asked for
+// by name.
 func nameColumns(names []string) {
 	taken := map[string]bool{}
 	for _, n := range names {
@@ -52,8 +59,11 @@ func nameColumns(names []string) {
 			continue
 		}
 		name := fmt.Sprintf("column %d", j+1)
-		if taken[name] {
-			name += ", unnamed"
+		for k := 1; taken[name]; k++ {
+			name = fmt.Sprintf("column %d, unnamed", j+1)
+			if k > 1 {
+				name += " " + strconv.Itoa(k)
+			}
 		}
 		names[j], taken[name] = name, true
 	}
@@ -83,7 +93,7 @@ func (t *table) cell(i, j int) string {
 	if t.sparse != nil {
 		row := t.sparse[i]
 		if k, ok := slices.BinarySearchFunc(row, int32(j), func(c sparseCell, j int32) int { return cmp.Compare(c.col, j) }); ok {
-			return row[k].value
+			return t.text(row[k])
 		}
 		return ""
 	}
@@ -91,6 +101,66 @@ func (t *table) cell(i, j int) string {
 		return row[j]
 	}
 	return ""
+}
+
+// text is c as a column reads it: a string written with a decimal comma
+// rewritten with a point where its column is read with one, and JSON's own
+// numbers, which have a point, as they are.
+func (t *table) text(c sparseCell) string {
+	if c.str && t.readMark[c.col] == decimalComma {
+		return commaToPoint(c.value)
+	}
+	return c.value
+}
+
+// settleMarks decides the decimal mark of a JSON Lines file's strings
+// from the columns used alone, and reads each of them with it. mark is
+// --decimal, which where given has decided it already.
+//
+// A column's kind and counts, from classify, stand: one read now with
+// another mark than its own strings' had strings that showed none, so each
+// is a number read either way or neither, and only its value changes,
+// which cell gives.
+//
+// From the columns used alone, not the file: a log's strings are fields
+// of their own, ids, tags, versions, and a "3,4" among a line's ids made
+// every string a decimal comma's, its "1.234" 1234 without a word, while
+// a "2.5" in one field and a "1,2" in another refused a log plotting
+// neither. Among the columns used, a point in one and a comma in another
+// -- or both in one -- are refused rather than guessed between: "1.234"
+// is 1.234 or 1234 by which, and a chart a thousand times out is worse
+// than none. Where they show no mark, it is a point, as JSON's own
+// numbers have, and a string that reads as two numbers is said.
+func (t *table) settleMarks(used []int, mark decimalMark) (note string, err error) {
+	if t.sparse == nil || mark != decimalAuto {
+		return "", nil
+	}
+	m := marks{unit: "line"}
+	for _, j := range used {
+		m = m.add(t.seen[j])
+	}
+	decided, note, err := m.decide(decimalPoint)
+	if err != nil {
+		return "", err
+	}
+	for _, j := range used {
+		t.readMark[j] = decided
+	}
+	return note, nil
+}
+
+// markNotes are notes of a JSON Lines file's columns whose strings are
+// written with both a decimal point and a comma: --list reads each with a
+// point, and says so, as plotted it would be refused.
+func (t *table) markNotes() []string {
+	var notes []string
+	for j, m := range t.seen {
+		if m.point != nil && m.comma != nil {
+			notes = append(notes, fmt.Sprintf("%q: numbers written both ways, %q %s with a decimal point and %q %s with a comma; listed with a point, and plotted only once --decimal says which",
+				t.names[j], m.point.cell, m.where(m.point), m.comma.cell, m.where(m.comma)))
+		}
+	}
+	return notes
 }
 
 // eachColumn calls f with each column and the cells of it that are not
@@ -118,7 +188,7 @@ func (t *table) eachColumn(f func(j int, cells []string)) {
 		for _, row := range t.sparse {
 			for _, c := range row {
 				if c.value != "" {
-					cols[c.col] = append(cols[c.col], c.value)
+					cols[c.col] = append(cols[c.col], t.text(c))
 				}
 			}
 		}
@@ -301,7 +371,7 @@ func readTable(data []byte, delim rune, header headerMode, dates dateOrder, mark
 		}
 		records[i] = rec
 	}
-	decided, note, err := decideDecimal(records, csvDecimal(delim), mark, "row")
+	decided, note, err := decideDecimal(records, csvDecimal(delim), mark)
 	if err != nil {
 		return nil, err
 	}
