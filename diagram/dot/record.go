@@ -11,9 +11,10 @@ import (
 // "}", and a field named to the edges by a port, "<name>", before its
 // words. A backslash before "{", "}", "|", "<", ">" or a space writes that
 // character; DOT's other escapes, \n, \l and \N among them, are read as a
-// label's are, after. A field's words are taken without the spaces about
-// them, an escaped one excepted. A label that is not one -- a brace or a
-// "<" not closed, a "{" in a field's words, a port after them, braces
+// label's are, after, so a node "x|y" with no label of its own is one
+// field, as in Graphviz. A field's words are taken without the spaces
+// about them, an escaped one excepted. A label that is not one -- a brace
+// or a "<" not closed, a "{" in a field's words, a port after them, braces
 // nested more than maxDepth deep -- is no record, false, and the node is
 // drawn as a box with its label as written, where Graphviz refuses to
 // draw it.
@@ -92,20 +93,20 @@ func (r *recordReader) field() (diagram.Field, bool) {
 		case '{', '>':
 			return f, false
 		case '<':
-			end := r.i + 1
-			for end < len(r.s) && r.s[end] != '>' {
-				if r.s[end] == '\\' {
-					end++
+			gt := r.i + 1
+			for gt < len(r.s) && r.s[gt] != '>' {
+				if r.s[gt] == '\\' {
+					gt++
 				}
-				end++
+				gt++
 			}
 			// One port, before the words: one after them would take a
 			// word out of the field's text, and Graphviz refuses both.
-			if end >= len(r.s) || f.Port != "" || text.Len() > 0 {
+			if gt >= len(r.s) || f.Port != "" || text.Len() > 0 {
 				return f, false
 			}
-			f.Port = strings.TrimSpace(unescape(r.s[r.i+1 : end]))
-			r.i = end + 1
+			f.Port = strings.TrimSpace(unescape(r.s[r.i+1 : gt]))
+			r.i = gt + 1
 			continue
 		case '\\':
 			switch {
@@ -136,6 +137,22 @@ func (r *recordReader) field() (diagram.Field, bool) {
 	}
 	f.Label = label(text.String()[:end], r.name, r.graph, "")
 	return f, true
+}
+
+// fieldsText is the words of fields, in the order written, a space apart:
+// a record's label for where its fields are not drawn.
+func fieldsText(fields []diagram.Field) string {
+	var words []string
+	for _, f := range fields {
+		w := f.Label
+		if len(f.Fields) > 0 {
+			w = fieldsText(f.Fields)
+		}
+		if w = strings.TrimSpace(w); w != "" {
+			words = append(words, w)
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // unescape is s with a backslash before any character taken off.

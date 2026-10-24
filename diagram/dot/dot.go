@@ -355,7 +355,12 @@ func (p *parser) makeLegend() error {
 		in[n.ID] = true
 		// An entry without a label is named by its node's name, as a node
 		// is: one left blank had a swatch and nothing beside it.
+		// A record's entry is its fields' words: its Label is their
+		// markup, which no drawing shows.
 		e := diagram.LegendEntry{Label: n.Label, Fill: n.Fill, Colour: n.Colour, Line: n.Line}
+		if len(n.Record) > 0 {
+			e.Label = fieldsText(n.Record)
+		}
 		if e.Label == "" {
 			e.Label = n.ID
 		}
@@ -940,8 +945,10 @@ func (p *parser) applyNode(info *nodeInfo) error {
 			v = `\N` // a record of one field, the node's name
 		}
 		// An HTML label is the node's, as Graphviz draws it, not fields.
-		if fields, ok := record(v, n.ID, p.name); ok && !info.lines["label"].html {
-			n.Record = fields
+		if !info.lines["label"].html {
+			if fields, ok := record(v, n.ID, p.name); ok {
+				n.Record = fields
+			}
 		}
 	}
 	st := styleSet(attrs["style"])

@@ -863,14 +863,11 @@ func straightHeads(c *textCanvas, e PlacedEdge, cells []Point, dx, dy float64) {
 	}
 }
 
-// besideJoint says p is next to a cell where one of n's dividers meets its
-// outline, across or up and down.
+// besideJoint says p is next to one of n's joints, across or up and down.
 func besideJoint(n PlacedNode, p Point) bool {
-	for _, d := range n.Dividers {
-		for _, j := range d {
-			if abs(p.X-j.X)+abs(p.Y-j.Y) == 1 {
-				return true
-			}
+	for _, j := range n.joints() {
+		if abs(p.X-j.X)+abs(p.Y-j.Y) == 1 {
+			return true
 		}
 	}
 	return false

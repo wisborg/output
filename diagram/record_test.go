@@ -3,6 +3,7 @@ package diagram
 import (
 	"fmt"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -351,9 +352,11 @@ func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
 // rule holds of lines shifted, and of stubs that slide along a side for
 // want of room, not only of a lone line between two middles.
 func TestStraightLinesMissRecordJointsAtRandom(t *testing.T) {
-	for seed := int64(0); seed < 1000; seed++ {
+	for seed := int64(0); seed < 2000; seed++ {
 		rnd := rand.New(rand.NewSource(seed))
-		d := &Diagram{Straight: true}
+		// Down, the joints on a record's top and bottom; across, its fields
+		// stacked, on its left and right.
+		d := &Diagram{Straight: true, Direction: []Direction{Down, Right}[seed%2]}
 		n := 3 + rnd.Intn(4)
 		for i := range n {
 			id := fmt.Sprint("n", i)
@@ -380,6 +383,20 @@ func TestStraightLinesMissRecordJointsAtRandom(t *testing.T) {
 		if t.Failed() {
 			t.Fatalf("seed %d", seed)
 		}
+	}
+}
+
+// A record's joints are where its dividers meet its outline, on whichever
+// sides they do, and not where a field divided further has its dividers
+// meet the one beside it, inside the box.
+func TestRecordJoints(t *testing.T) {
+	r := &PlacedNode{Node: &Node{ID: "r", Record: []Field{{Label: "a"}, {Fields: []Field{{Label: "b"}, {Label: "c"}}}}}, Rect: Rect{10, 10, 9, 5}}
+	placeFields(r, r.Node.Record, Rect{11, 11, 7, 3}, true)
+	// a | b over c: the divider down the middle meets the top and the
+	// bottom, the one between b and c the right and the first divider.
+	want := []Point{{14, 10}, {14, 14}, {18, 12}}
+	if got := r.joints(); !reflect.DeepEqual(got, want) {
+		t.Errorf("joints %v, want %v; dividers %v", got, want, r.Dividers)
 	}
 }
 

@@ -148,3 +148,36 @@ func TestRecordHTMLLabel(t *testing.T) {
 		t.Errorf("c, labelled with a quoted string over an HTML default: %+v, want two fields", c)
 	}
 }
+
+// A record's name is put into its label once its fields are read, as
+// Graphviz does, so a "|" in the name divides nothing: Graphviz draws "x|y"
+// as one field and warns that no port y is there.
+func TestRecordNameIsNoMarkup(t *testing.T) {
+	d := parse(t, `digraph { node [shape=record]; "x|y"; "a|b" [label="<p> \N|z"] }`)
+	want := map[string][]diagram.Field{
+		"x|y": {{Label: "x|y"}},
+		"a|b": {{Port: "p", Label: "a|b"}, {Label: "z"}},
+	}
+	for _, it := range d.Root.Items {
+		if n := it.Node; n != nil && !reflect.DeepEqual(n.Record, want[n.ID]) {
+			t.Errorf("%s: fields %+v, want %+v", n.ID, n.Record, want[n.ID])
+		}
+	}
+}
+
+// A record in the legend is named by its fields' words: its Label is their
+// markup, which no drawing shows, port names and dividers among it.
+func TestRecordInLegend(t *testing.T) {
+	d := parse(t, `digraph {
+		subgraph cluster_k { style=legend; k [shape=record, label="<p> key|{value|\{x\}}"]; n [shape=record] }
+		a
+	}`)
+	if d.Legend == nil || len(d.Legend.Entries) != 2 {
+		t.Fatalf("legend %+v, want two entries", d.Legend)
+	}
+	for i, want := range []string{"key value {x}", "n"} {
+		if got := d.Legend.Entries[i].Label; got != want {
+			t.Errorf("entry %d: %q, want %q", i, got, want)
+		}
+	}
+}

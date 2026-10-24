@@ -9,13 +9,6 @@ import "strings"
 // shares with the fields beside it, so their dividers stay where the
 // eye expects them, spread evenly, rather than one field taking the rest.
 
-// fieldsSize is the cells fields take inside a record's outline, laid in a
-// row, or a column where row is false.
-func fieldsSize(fields []Field, row bool) size {
-	_, s := measure(fields, row)
-	return s
-}
-
 // measured is the cells a field takes, and those of the fields it is
 // divided into: worked out once, from the fields not divided up, so a
 // field is measured once however deep it lies, rather than again for each
@@ -126,6 +119,23 @@ func place(pn *PlacedNode, fields []Field, ms []measured, r Rect, row bool) {
 func (f PlacedField) Lines() (lines []string, top int) {
 	lines = strings.Split(f.Field.Label, "\n")
 	return lines, f.Rect.Y + (f.Rect.H-len(lines))/2
+}
+
+// joints is where n's dividers meet its outline: the cells no line ends
+// at, nor beside, as it reads as running into the divider. The one answer
+// to it, which the router, the straight lines and the text drawing's stubs
+// all ask; a divider's end inside the box, on another divider, is none.
+func (n PlacedNode) joints() []Point {
+	r := n.Rect
+	var js []Point
+	for _, d := range n.Dividers {
+		for _, p := range d {
+			if p.X == r.X || p.X == r.X+r.W-1 || p.Y == r.Y || p.Y == r.Y+r.H-1 {
+				js = append(js, p)
+			}
+		}
+	}
+	return js
 }
 
 // field is the cells of n's field named port, and whether it has one.

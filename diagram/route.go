@@ -342,18 +342,16 @@ func newRouter(l *layouter) *router {
 	w, h = w+colGap, h+rowGap
 	r := &router{edges: l.d.Edges, w: w, h: h, bare: map[Rect]bool{}, fields: make([][2]Rect, len(l.d.Edges)), joints: map[Point]bool{}}
 	for _, n := range l.out.Nodes {
-		for _, d := range n.Dividers {
-			r.joints[d[0]], r.joints[d[1]] = true, true
+		for _, j := range n.joints() {
+			r.joints[j] = true
+		}
+		if n.Node.Outline() == Plain {
+			r.bare[n.Rect] = true
 		}
 	}
 	for i, e := range l.d.Edges {
 		r.fields[i][0], _ = l.out.nodeAt[e.From].field(e.FromPort)
 		r.fields[i][1], _ = l.out.nodeAt[e.To].field(e.ToPort)
-	}
-	for _, n := range l.out.Nodes {
-		if n.Node.Outline() == Plain {
-			r.bare[n.Rect] = true
-		}
 	}
 	grid := func() [][]bool {
 		g := make([][]bool, h)

@@ -144,10 +144,12 @@ func (e PlacedEdge) PictureLabelAt() Point {
 type size struct{ w, h int }
 
 // nodeSize is the cells n takes: its label's lines, inside its outline --
-// or a record's fields, in a row where row is true and a column where not.
-func nodeSize(n *Node, row bool) size {
+// or a record's fields, in a row or a column as recordRow says, kept in
+// l.fields for placeNode to place without measuring them again.
+func (l *layouter) nodeSize(n *Node) size {
 	if len(n.Record) > 0 {
-		s := fieldsSize(n.Record, row)
+		ms, s := measure(n.Record, l.recordRow())
+		l.fields[n] = ms
 		return size{s.w + 2, s.h + 2}
 	}
 	lines := strings.Split(n.label(), "\n")
@@ -209,6 +211,8 @@ type layouter struct {
 	path map[string][]*Group
 	out  *Layout
 	rect map[string]Rect
+	// fields is each record's fields as nodeSize measured them.
+	fields map[*Node][]measured
 }
 
 // Layout lays the diagram out, held to the default LayoutOptions. An edge
@@ -257,7 +261,7 @@ func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
 		o.MaxCells = DefaultMaxCells
 	}
 	o.MaxCells = min(o.MaxCells, MostCells)
-	l := &layouter{d: d, path: map[string][]*Group{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, rect: map[string]Rect{}}
+	l := &layouter{d: d, path: map[string][]*Group{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, rect: map[string]Rect{}, fields: map[*Node][]measured{}}
 	if err := l.index(&d.Root, nil); err != nil {
 		return nil, err
 	}
@@ -431,7 +435,7 @@ func (l *layouter) plan(g *Group) (*plan, error) {
 			p.kids[i] = kid
 			p.sizes[i] = kid.outer()
 		} else {
-			p.sizes[i] = nodeSize(it.Node, l.recordRow())
+			p.sizes[i] = l.nodeSize(it.Node)
 		}
 	}
 	if g.Rows > 0 || g.Columns > 0 {
@@ -1055,7 +1059,7 @@ func (l *layouter) placeNode(n *Node, x, y int, s size) {
 	r := Rect{x, y, s.w, s.h}
 	pn := PlacedNode{Node: n, Rect: r}
 	if len(n.Record) > 0 {
-		placeFields(&pn, n.Record, Rect{x + 1, y + 1, s.w - 2, s.h - 2}, l.recordRow())
+		place(&pn, n.Record, l.fields[n], Rect{x + 1, y + 1, s.w - 2, s.h - 2}, l.recordRow())
 	}
 	l.out.Nodes = append(l.out.Nodes, pn)
 	l.out.nodeAt[n.ID] = pn

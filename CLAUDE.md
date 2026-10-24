@@ -566,7 +566,11 @@ instead (`keepClearOfJoints`, before routing, as the other lines are routed
 round the straight ones); a braille stub does not slide beside a joint; and
 the plain path drawn where every search fails is moved a cell along
 (`offJoints`). `TestStraightLinesMissRecordJointsAtRandom` found the set-apart
-and sliding cases that a lone line between two middles did not show.
+and sliding cases that a lone line between two middles did not show; it runs
+down and across, so the joints on a record's left and right are held as well
+as those on its top and bottom. `PlacedNode.joints` is the one answer to
+where the joints are, which the router, the straight lines and the stubs all
+ask.
 `Node.Field` is the one lookup of a port, which the layout, the DOT reader
 and `diagram`'s note of an unknown port all use: three lookups had come to
 disagree on a divided field's port, which Graphviz does not have and none

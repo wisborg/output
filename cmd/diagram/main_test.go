@@ -825,17 +825,21 @@ func TestDiagramSaysWhichPortsNameNoField(t *testing.T) {
 	_, errOut, err := draw(t, `digraph {
 		a [shape=record, label="<x> one|<a:b> two|{<in> three|four}"]
 		h [label=<<b>h</b>>]
-		c -> a:x; c -> a:in; c -> a:y; a:"a:b" -> h:p
+		c -> a:x; c -> a:in; c -> a:y; a:"a:b" -> h:p; c -> a:nope:s
 	}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`the edge "c" to "a" names the port "y", which no field of "a" has`, `the edge "a" to "h" names the port "a", which no field of "a" has`} {
+	for _, want := range []string{
+		`the edge "c" to "a" names the port "y", which no field of "a" has: it ends anywhere on the box`,
+		`the edge "a" to "h" names the port "a", which no field of "a" has`,
+		`the edge "c" to "a" names the port "nope", which no field of "a" has: it ends anywhere on the side its compass point names`,
+	} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr %q, want %q", errOut, want)
 		}
 	}
-	if n := strings.Count(errOut, "names the port"); n != 2 {
-		t.Errorf("stderr %q: %d notes of ports, want 2", errOut, n)
+	if n := strings.Count(errOut, "names the port"); n != 3 {
+		t.Errorf("stderr %q: %d notes of ports, want 3", errOut, n)
 	}
 }

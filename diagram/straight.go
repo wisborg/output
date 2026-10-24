@@ -40,9 +40,10 @@ func (lay *Layout) straightens(e Edge) bool {
 }
 
 // nearJoint says the line from (x, y), at n's middle, towards (tx, ty) leaves
-// n's outline less than a cell from where one of its dividers meets it.
+// n's outline less than a cell from one of its joints.
 func nearJoint(n PlacedNode, x, y, tx, ty float64) bool {
-	if len(n.Dividers) == 0 {
+	js := n.joints()
+	if len(js) == 0 {
 		return false
 	}
 	r := n.Rect
@@ -64,11 +65,9 @@ func nearJoint(n PlacedNode, x, y, tx, ty float64) bool {
 		return false
 	}
 	ex, ey := x+t*dx, y+t*dy
-	for _, d := range n.Dividers {
-		for _, j := range d {
-			if math.Abs(ex-float64(j.X)) < 1 && math.Abs(ey-float64(j.Y)) < 1 {
-				return true
-			}
+	for _, j := range js {
+		if math.Abs(ex-float64(j.X)) < 1 && math.Abs(ey-float64(j.Y)) < 1 {
+			return true
 		}
 	}
 	return false
