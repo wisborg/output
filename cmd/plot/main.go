@@ -273,6 +273,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if note != "" {
 		notes = append(notes, note)
 	}
+	// x chosen for being in order was chosen read by its own strings,
+	// which showed no mark; read with the one the columns plotted show,
+	// "1,234" and "2,000" are 1.234 and 2, and it may be in order no
+	// longer. Refused rather than plotted against: choosing x and settling
+	// the mark wait on each other, and a guess between them is a chart
+	// against an x its rule would not have chosen.
+	if o.x == "" && x >= 0 && cols[x].kind == numberColumn && !ordered(t, x, cols[x]) {
+		return fmt.Errorf("%s: %q is in order read with a decimal point, as its own strings show no mark, but not with the decimal comma the columns plotted show: say --x, or --decimal", name, t.names[x])
+	}
 	if x >= 0 && cols[x].ambiguous {
 		return fmt.Errorf("the dates in %q read as well with the day first as the month: say --dates dmy or --dates mdy", t.names[x])
 	}

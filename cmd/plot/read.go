@@ -135,7 +135,7 @@ func (t *table) settleMarks(used []int, mark decimalMark) (note string, err erro
 	if t.sparse == nil || mark != decimalAuto {
 		return "", nil
 	}
-	m := marks{unit: "line"}
+	m := marks{unit: "line", names: t.names}
 	for _, j := range used {
 		m = m.add(t.seen[j])
 	}
@@ -151,7 +151,10 @@ func (t *table) settleMarks(used []int, mark decimalMark) (note string, err erro
 
 // markNotes are notes of a JSON Lines file's columns whose strings are
 // written with both a decimal point and a comma: --list reads each with a
-// point, and says so, as plotted it would be refused.
+// point, and says so, as plotted it would be refused. Where --decimal says
+// the mark, there are none: t.seen is not kept, and a note that the
+// column waits for --decimal would be untrue. Each names its column once,
+// at its head, and its cells by their lines alone.
 func (t *table) markNotes() []string {
 	var notes []string
 	for j, m := range t.seen {

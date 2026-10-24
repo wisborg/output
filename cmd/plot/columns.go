@@ -69,24 +69,29 @@ func commaToPoint(cell string) string {
 }
 
 // sighting is a cell that says something of the decimal mark, the row it
-// is on, counting from 1, and in JSON Lines the key it is under, to name
-// it by.
+// is on, counting from 1, and the column it is in. The column is its
+// index, named only as a message is written: a name kept as the cell was
+// read was the key's, "" where nameColumns made it "column 2", and had to
+// be patched to match.
 type sighting struct {
-	cell, col string
-	row       int
+	cell     string
+	col, row int
 }
 
 // marks is what cells have said of the decimal mark, cell by cell: the
 // first that reads as a number only with a point, the first only with a
 // comma, and the first that reads as two different numbers. unit is what
 // a row is called in a message: a CSV's row, a JSON Lines file's line.
+// names, where set, name a sighting's column in a message, where cells
+// of several columns are weighed together.
 type marks struct {
 	point, comma, either *sighting
 	unit                 string
+	names                []string
 }
 
-// see adds cell, on row row and under the key col, to what m has seen.
-func (m *marks) see(cell string, row int, col string) {
+// see adds cell, on row row and in column col, to what m has seen.
+func (m *marks) see(cell string, row, col int) {
 	if missing(cell) {
 		return
 	}
@@ -116,10 +121,11 @@ func (m marks) add(o marks) marks {
 	return m
 }
 
-// where names s in a message: "on row 3", or "in "v" on line 3".
+// where names s in a message: "on row 3", or, where m names columns,
+// "in "v" on line 3".
 func (m marks) where(s *sighting) string {
-	if s.col != "" {
-		return fmt.Sprintf("in %q on %s %d", s.col, m.unit, s.row)
+	if m.names != nil {
+		return fmt.Sprintf("in %q on %s %d", m.names[s.col], m.unit, s.row)
 	}
 	return fmt.Sprintf("on %s %d", m.unit, s.row)
 }
@@ -173,8 +179,8 @@ func decideDecimal(records [][]string, fallback, mark decimalMark) (decided deci
 	}
 	m := marks{unit: "row"}
 	for i, rec := range records {
-		for _, cell := range rec {
-			m.see(cell, i+1, "")
+		for j, cell := range rec {
+			m.see(cell, i+1, j)
 		}
 	}
 	return m.decide(fallback)
@@ -512,8 +518,16 @@ func findColumn(t *table, spec string) (int, error) {
 	if n, err := strconv.Atoi(spec); err == nil && n >= 1 && n <= len(names) {
 		return n - 1, nil
 	}
+	// The first few alone, where there are many: a log keyed by user
+	// listed a thousand names, 8 KB on one line, the mistake lost in it.
+	if len(names) > maxNamesSaid {
+		return 0, fmt.Errorf("no column %q: the columns are %s and %d more; --list lists them", spec, quoteList(names[:maxNamesSaid]), len(names)-maxNamesSaid)
+	}
 	return 0, fmt.Errorf("no column %q: the columns are %s", spec, quoteList(names))
 }
+
+// maxNamesSaid is the most column names an error lists.
+const maxNamesSaid = 10
 
 // quoteList is names quoted and joined for a message.
 func quoteList(names []string) string {

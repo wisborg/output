@@ -133,6 +133,8 @@ func TestPlotRefuses(t *testing.T) {
 		want string
 	}{
 		{"a,b\n1,2\n", []string{"--y", "c"}, `no column "c"`},
+		// Ten names at most, not a log's thousand on one line.
+		{"c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12\n1,2,3,4,5,6,7,8,9,10,11,12\n", []string{"--y", "c"}, `"c9", "c10" and 2 more; --list lists them`},
 		{"name,v\nx,1\ny,2\n", []string{"--y", "name"}, "holds text, not numbers"},
 		{"name,v\nx,1\ny,2\n", []string{"--x", "name"}, "neither numbers nor dates"},
 		{"d,v\n03/04/2024,1\n05/06/2024,2\n", nil, "--dates dmy or --dates mdy"},

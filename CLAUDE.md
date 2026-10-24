@@ -705,19 +705,34 @@ neither. Each column's evidence is kept as it is read (`table.seen`, a
 comma in another, or both in one, are refused, naming each, rather than
 guessed between -- the user's decision, as `"1.234"` read wrongly is a
 chart a thousand times out; where they show neither, a point. Until then,
-and for `--list`, each column is read by its own strings. A column read
+and for `--list`, each column is read by its own strings -- so the default
+x is chosen for being in order read by its own, and where the mark the
+columns plotted settle on puts it out of order, "1,234" and "2,000" read as
+1.234 and 2, the chart is refused, asking for `--x` or `--decimal`: choosing
+x and settling the mark wait on each other, and that is the user's to
+break, not a guess's. A sighting holds its column's index, named as a
+message is written, so the name it says is the one `nameColumns` gave.
+Where `--decimal` says the mark, no evidence is kept and `--list` says
+nothing of it; nor is it kept of a string with neither `.` nor `,`, which
+reads alike either way. A column read
 with another mark than its own strings showed is not typed again: its
 strings showed none, so each is a number either way or neither, and only
 its value changes. `--decimal` applies to every string column, and a
 number is never rewritten, as `commaToPoint` would make `1.250` 1250;
 whether a cell is a string is its last value's to say, where a key is
 written twice. `--input auto`
-takes a file for JSON Lines where at least half its first 20 lines are
-whole objects, not where its first byte is a brace: a log read from its
-middle begins with the end of a line, and was read as CSV of fragments. No
-CSV holds a line that is a whole object. JSON that is not JSON Lines --
-one array, an array a line, objects over several lines -- is refused, naming
-`jq -c` where it helps. The CSV-only flags, `--delimiter` and `--header`,
+takes a file for JSON Lines where any of its first 20 lines is a whole
+object, not where its first byte is a brace: a log read from its middle
+begins with the end of a line, and was read as CSV of fragments. Nor where
+half are: a log with a traceback of three lines after each object is a
+quarter objects, and was read as CSV too. No CSV holds a line that is a
+whole object -- a cell holding one is quoted -- and the lines that are none
+are left out and said. JSON that is not JSON Lines -- one array, an array a
+line, objects over several lines -- is refused, naming `jq -c` where it
+helps, and looked for before the lines are counted, as an array of objects a
+line has a line that is a whole object; objects over several lines only
+where the first is, not merely where the first three values are objects,
+which a log of three whole lines and then cut ones decoded as. The CSV-only flags, `--delimiter` and `--header`,
 are refused for JSON Lines at any value but `auto`, never ignored, as a
 `--header no` that changed nothing reads as one obeyed -- before the input
 is read, where `--input jsonl` says the format; nor do they make auto take

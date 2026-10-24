@@ -140,9 +140,29 @@ func TestSettleMarks(t *testing.T) {
 	}
 	// And --list, reading each column by its own strings, says the one at
 	// odds rather than refusing.
+	// It names the column once, at its head, and its cells by line.
 	_, errOut, err := plot(t, `{"v":"0,5"}`+"\n"+`{"v":"1.5"}`+"\n", "--list")
-	if err != nil || !strings.Contains(errOut, `"v": numbers written both ways`) {
+	if err != nil || !strings.Contains(errOut, `"v": numbers written both ways, "1.5" on line 2 with a decimal point`) {
 		t.Errorf("--list of a column at odds: %v, stderr %q", err, errOut)
+	}
+	// With --decimal saying, there is nothing to say: the note claimed a
+	// point and that --decimal was still wanted.
+	if _, errOut, err := plot(t, `{"v":"0,5"}`+"\n"+`{"v":"1.5"}`+"\n", "--list", "--decimal", "comma"); err != nil || errOut != "" {
+		t.Errorf("--list --decimal comma of a column at odds: %v, stderr %q, want none", err, errOut)
+	}
+
+	// x chosen for being in order, read with a point, as its own strings
+	// show no mark, is in order no longer read with the comma the y
+	// shows: 12, 1.234, 2. Refused, not plotted against; with --x, it is.
+	const unordered = `{"x":"12","y":"0,5"}` + "\n" + `{"x":"1,234","y":"0,7"}` + "\n" + `{"x":"2,000","y":"0,9"}` + "\n"
+	if _, _, err := plot(t, unordered); err == nil || !strings.Contains(err.Error(), `"x" is in order read with a decimal point`) || !strings.Contains(err.Error(), "say --x") {
+		t.Errorf("x out of order once the mark is settled: %v, want it refused", err)
+	}
+	if _, _, err := plot(t, unordered, "--x", "x"); err != nil {
+		t.Errorf("x out of order, with --x x: %v", err)
+	}
+	if out, _, err := plot(t, unordered, "--x", "0"); err != nil || !strings.Contains(out, "x and y against row") {
+		t.Errorf("x out of order, with --x 0: %v\n%s", err, out)
 	}
 }
 
@@ -242,7 +262,14 @@ func TestSniffInput(t *testing.T) {
 		{"first line cut short", "{\"a\":\n{\"a\":2}\n", inputJSONL},
 		{"read from the middle", "s\":200}\n{\"a\":1}\n{\"a\":2}\n", inputJSONL},
 		{"after a banner", "service starting\n{\"a\":1}\n{\"a\":2}\n", inputJSONL},
-		{"one object in three", "x\ny\n{\"a\":1}\n", inputCSV},
+		{"one object in three", "x\ny\n{\"a\":1}\n", inputJSONL},
+		// A Python log with a traceback after each object: a quarter of
+		// its lines objects, and read as CSV of their fragments.
+		{"tracebacks between objects", strings.Repeat("{\"ts\":1,\"v\":2}\nTraceback (most recent call last):\n  File \"a.py\", line 1\nValueError: x\n", 5), inputJSONL},
+		// Three whole lines and then cut ones decode as three objects,
+		// and were refused as objects over several lines.
+		{"whole lines, then cut ones", "{\"v\":1}\n{\"v\":2}\n{\"v\":3}\n{\"v\"\n{\"v\"\n{\"v\"\n{\"v\"\n", inputJSONL},
+		{"a CSV cell holding an object", "a,b\n\"{\"\"x\"\":1}\",2\n", inputCSV},
 		{"CSV", "a,b\n1,2\n", inputCSV},
 		{"a brace no line closes", "{a},b\n1,2\n", inputCSV},
 		{"brackets not JSON", "[a],b\n1,2\n", inputCSV},
@@ -262,6 +289,10 @@ func TestSniffInput(t *testing.T) {
 		{"an array of objects", " [{\"a\":1},{\"a\":2}]\n", "jq -c '.[]'", ""},
 		{"an array of numbers", "[1,2,3]", "one JSON array", "jq"},
 		{"objects over lines", "{\n  \"a\": 1\n}\n{\n  \"a\": 2\n}\n", "jq -c .", ""},
+		// Each holds a line that is a whole object, which read as JSON
+		// Lines would be one row of each.
+		{"an array of objects a line", "[\n{\"a\":1},\n{\"a\":2}\n]\n", "jq -c '.[]'", ""},
+		{"a pretty object holding one", "{\n  \"a\": 1,\n  \"b\":\n{\"c\":2}\n}\n", "jq -c .", ""},
 	} {
 		_, err := sniffInput([]byte(c.data))
 		if err == nil || !strings.Contains(err.Error(), c.want) || c.not != "" && strings.Contains(err.Error(), c.not) {

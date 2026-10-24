@@ -42,18 +42,34 @@ const maxJSONColumns = 1000
 // said.
 const maxJSONArray = 100
 
-// sniffInput is what --input auto takes data for: JSON Lines where at
-// least half of its first 20 lines, blank ones aside, read each as a whole
-// object, and CSV otherwise. Half, not the first: a log read from its
-// middle, tail -c, begins with the end of a line, and some begin with a
-// banner, which read as CSV gave columns named after JSON's fragments. A
-// CSV holds no line that is a whole object.
+// sniffInput is what --input auto takes data for: JSON Lines where any of
+// its first 20 lines, blank ones aside, reads as a whole object, and CSV
+// otherwise. Any, not the first: a log read from its middle, tail -c,
+// begins with the end of a line, and some begin with a banner, which read
+// as CSV gave columns named after JSON's fragments. Nor most: a log with a
+// traceback of three lines after each object is a quarter objects, and was
+// read so too. A CSV holds no line that is a whole object -- a cell holding
+// one is quoted, its quotes doubled -- and the lines that are none are left
+// out and said, as a cut line is.
 //
 // JSON that is not JSON Lines of objects is refused, saying what to make
 // of it, where it was read as CSV of brackets and quotes: one array; an
 // array a line; objects written over several lines each, as jq writes them
-// without -c.
+// without -c. These are looked for first, as an array of objects a line,
+// or a pretty object holding one, has a line that is a whole object.
 func sniffInput(data []byte) (inputMode, error) {
+	trimmed := bytes.TrimSpace(data)
+	switch {
+	case bytes.HasPrefix(trimmed, []byte("[")):
+		switch objects, ok := oneArray(trimmed); {
+		case ok && objects:
+			return "", errors.New("one JSON array: plot reads JSON Lines, an object a line, which jq -c '.[]' writes of it")
+		case ok:
+			return "", errors.New("one JSON array: plot reads JSON Lines, an object a line")
+		}
+	case bytes.HasPrefix(trimmed, []byte("{")) && overLines(trimmed):
+		return "", errors.New("JSON objects over several lines each: plot reads JSON Lines, an object a line, which jq -c . writes of them")
+	}
 	lines, objects, arrays := 0, 0, 0
 	for line := range bytes.Lines(data) {
 		line = bytes.TrimSpace(line)
@@ -73,41 +89,36 @@ func sniffInput(data []byte) (inputMode, error) {
 		}
 	}
 	switch {
-	case objects > 0 && 2*objects >= lines:
+	case objects > 0:
 		return inputJSONL, nil
 	case lines > 1 && 2*arrays >= lines:
 		return "", errors.New("an array a line: plot reads JSON Lines of objects, a column a key")
 	}
-	trimmed := bytes.TrimSpace(data)
-	switch {
-	case bytes.HasPrefix(trimmed, []byte("[")):
-		objects, ok := oneArray(trimmed)
-		switch {
-		case !ok:
-			return inputCSV, nil
-		case objects:
-			return "", errors.New("one JSON array: plot reads JSON Lines, an object a line, which jq -c '.[]' writes of it")
+	return inputCSV, nil
+}
+
+// overLines says data begins with JSON objects written over several lines
+// each: its first values, up to three, objects, and the first of them over
+// more than one line. The first alone, not that they are objects: a log of
+// three whole lines and then cut ones decoded as three objects, and was
+// refused as written over several lines, which none of it was. They are
+// read one at a time, where the whole file decoded only to say it held it
+// all twice.
+func overLines(data []byte) bool {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	for i := range 3 {
+		var v json.RawMessage
+		// The first is no EOF, data beginning with "{".
+		if err := dec.Decode(&v); err == io.EOF {
+			return true
+		} else if err != nil || !bytes.HasPrefix(v, []byte("{")) {
+			return false
 		}
-		return "", errors.New("one JSON array: plot reads JSON Lines, an object a line")
-	case bytes.HasPrefix(trimmed, []byte("{")):
-		// The first few values say it, where the whole file decoded only
-		// to choose a message held it all twice.
-		var elems []json.RawMessage
-		dec := json.NewDecoder(bytes.NewReader(trimmed))
-		for range 3 {
-			var v json.RawMessage
-			if err := dec.Decode(&v); err == io.EOF {
-				break
-			} else if err != nil {
-				return inputCSV, nil
-			}
-			elems = append(elems, v)
-		}
-		if allObjects(elems) {
-			return "", errors.New("JSON objects over several lines each: plot reads JSON Lines, an object a line, which jq -c . writes of them")
+		if i == 0 && !bytes.Contains(v, []byte("\n")) {
+			return false
 		}
 	}
-	return inputCSV, nil
+	return true
 }
 
 // oneArray says data is one JSON array and nothing after it, and whether
@@ -162,16 +173,6 @@ func skipValue(dec *json.Decoder) (json.Token, error) {
 		}
 	}
 	return first, nil
-}
-
-// allObjects says each of vs is a JSON object.
-func allObjects(vs []json.RawMessage) bool {
-	for _, v := range vs {
-		if !bytes.HasPrefix(bytes.TrimSpace(v), []byte("{")) {
-			return false
-		}
-	}
-	return true
 }
 
 // readJSONLines reads JSON Lines -- an object a line -- into a table: a
@@ -269,10 +270,16 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 		slices.SortFunc(row, func(a, b sparseCell) int { return cmp.Compare(a.col, b.col) })
 		// What the strings the row keeps say of the decimal mark, each
 		// column's apart, for settleMarks; JSON's own numbers say
-		// nothing, having a point whatever the file's strings do.
-		for _, c := range row {
-			if c.str {
-				t.seen[c.col].see(c.value, n, t.names[c.col])
+		// nothing, having a point whatever the file's strings do. Only
+		// where --decimal leaves it to be decided, and only of a string
+		// with a mark in it, as one without reads the same either way:
+		// every string of every line, messages and routes, was parsed
+		// twice to say nothing.
+		if mark == decimalAuto {
+			for _, c := range row {
+				if c.str && strings.ContainsAny(c.value, ".,") {
+					t.seen[c.col].see(c.value, n, int(c.col))
+				}
 			}
 		}
 		t.sparse = append(t.sparse, row)
@@ -302,15 +309,6 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 		}
 	}
 	nameColumns(t.names)
-	// t.names[j] is named now: the key "" is "column 2", and seen's
-	// sightings name it so too.
-	for j := range t.seen {
-		for _, s := range []*sighting{t.seen[j].point, t.seen[j].comma, t.seen[j].either} {
-			if s != nil {
-				s.col = t.names[j]
-			}
-		}
-	}
 	t.notes = bad.note(t.notes, "not a JSON object, left out", "")
 	// Apart from the lines that are no object: a valid one said to be
 	// none sends the reader looking for a fault that is not there.
