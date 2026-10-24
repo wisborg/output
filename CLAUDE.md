@@ -562,13 +562,18 @@ record of two equal fields that is the middle of a side, where a line most
 wants to end. Beside one, drawn `┴┬`, it reads the same way, but a field
 two cells wide, or the side of one a row tall, has nowhere else: the
 search charges `jointCost` there, more than the two turns and the steps
-that move an end a cell along, and does not forbid it. That holds of every line, not only the search's: a straight
+that move an end a cell along, and does not forbid it. It is charged only
+where the same side has a cell beside no joint, among those as asked for:
+it chooses a cell along a side and never a side, for charged on every such
+cell it sent lines between records under `rankdir=LR` round their tops,
+off the sides facing (`TestJointCostKeepsSidesFacing`). That holds of every
+line, not only the search's: a straight
 one leaving a record by a joint -- the middle, or a cell from it once lines
 between the same two nodes are set apart -- is drawn along rows and columns
 instead (`keepClearOfJoints`, before routing, as the other lines are routed
 round the straight ones); a braille stub does not slide beside a joint; and
 the plain path drawn where every search fails is moved a cell along
-(`offJoints`). `TestStraightLinesMissRecordJointsAtRandom` found the set-apart
+(`offJoints`), unless the move would take it through a box. `TestStraightLinesMissRecordJointsAtRandom` found the set-apart
 and sliding cases that a lone line between two middles did not show; it runs
 down and across, so the joints on a record's left and right are held as well
 as those on its top and bottom. `PlacedNode.joints` is the one answer to
@@ -583,12 +588,13 @@ record, merged, end beside the field and the second reads as joining it. The
 field, not the port's name: a port no field has is anywhere on the box, and
 keeps no line apart.
 `TestRecordFields`, `TestRecordPorts` and `TestRecordPortsShareOnlyTheirOwn`
-hold these, on Graphviz's own example among others. The reader refuses a
-label whose braces nest more than `maxDepth` deep, as it refuses subgraphs
-so nested: reading and laying out a record recurse once a brace, in time
+hold these, on Graphviz's own example among others. A label whose braces
+nest more than `maxDepth` deep -- the depth subgraphs may nest to -- is no
+record's: reading and laying out a record recurse once a brace, in time
 growing with the square of the depth, and a 40 KB label of braces took
 seconds -- a few megabytes would overflow the stack, which Go cannot
-recover from. A record label that is no record's is drawn as written and
+recover from. Where a subgraph so nested is an error, though, such a label
+is no error: it is drawn as written and warned of, as below. A record label that is no record's is drawn as written and
 said to `Options.Warn`, which `diagram` writes to standard error with its
 line: Graphviz refuses one, and drawn without a word its ports quietly
 named nothing.

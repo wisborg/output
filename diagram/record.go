@@ -120,8 +120,12 @@ func (f PlacedField) Lines() (lines []string, top int) {
 // at, and ends beside only where its field has no other cell, as it reads
 // as running into the divider. The one answer
 // to it, which the router, the straight lines and the text drawing's stubs
-// all ask; a divider's end inside the box, on another divider, is none.
+// all ask; a divider's end inside the box, on another divider, is none,
+// and an invisible record, whose dividers are not drawn, has none.
 func (n PlacedNode) joints() []Point {
+	if n.Node != nil && n.Node.Invisible {
+		return nil
+	}
 	r := n.Rect
 	var js []Point
 	for _, d := range n.Dividers {

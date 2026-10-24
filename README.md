@@ -663,7 +663,8 @@ is drawn as a box with its label as written, where Graphviz refuses it, and
 `diagram` says so, with its line; an HTML label on a record is the node's
 label, not its fields, as in Graphviz. Every line of a field is centred: `\l` and `\r` end a line, as everywhere here, without
 setting it left or right. `\ ` keeps a space at a field's either end, where
-other spaces are dropped. A node's name is put in once the fields are read,
+other spaces are dropped, and a run of spaces between words is one, as in
+Graphviz. A node's name is put in once the fields are read,
 so `"x|y" [shape=record]` is one field, `x|y`, as in Graphviz. In the
 legend, a record's entry is its fields' words.
 

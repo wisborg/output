@@ -709,19 +709,18 @@ func (rt *router) besideJoint(p Point) bool {
 // jointCost. Where strict is false, any but a corner, each with what
 // ending there costs.
 func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (cells []Point, out, costs []int) {
+	// asked says each cell is on the sides and beside the field asked for.
+	var asked []bool
 	add := func(p Point, way int) {
 		if !rt.in(p.X, p.Y) || rt.joints[p] {
 			return
 		}
-		cost := 0
-		if len(rt.joints) > 0 && rt.besideJoint(p) {
-			cost = jointCost
-		}
+		cost, ok := 0, true
 		if sides != 0 && sides&wayside[way] == 0 || field != (Rect{}) && !besideField(r, field, p, way) {
 			if !rt.anySide {
 				return
 			}
-			cost += missCost
+			cost, ok = missCost, false
 		}
 		if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) || rt.foreign(i, p.X, p.Y) != 0 {
 			if strict {
@@ -735,12 +734,12 @@ func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (c
 				// same cells: a line may end there from above or below.
 				// The second way is kept beside the first, not over it.
 				if out[k] != way {
-					cells, out, costs = append(cells, p), append(out, way), append(costs, cost)
+					cells, out, costs, asked = append(cells, p), append(out, way), append(costs, cost), append(asked, ok)
 				}
 				return
 			}
 		}
-		cells, out, costs = append(cells, p), append(out, way), append(costs, cost)
+		cells, out, costs, asked = append(cells, p), append(out, way), append(costs, cost), append(asked, ok)
 	}
 	corner := 1
 	if rt.bare[r] {
@@ -753,6 +752,33 @@ func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (c
 	for y := r.Y + corner; y < r.Y+r.H-corner; y++ {
 		add(Point{r.X, y}, 2)
 		add(Point{r.X + r.W - 1, y}, 3)
+	}
+	if len(rt.joints) == 0 {
+		return cells, out, costs
+	}
+	// A cell beside a joint costs jointCost only where its side has a cell
+	// that is not, among those as asked for as it is: the cost picks a cell
+	// along a side, and never turns a line to another side -- under
+	// rankdir=LR every cell of a field a row tall is beside one, and a
+	// line between two records went round their tops for it.
+	group := func(k int) int { // a side, as asked for or not
+		if asked[k] {
+			return out[k] + 4
+		}
+		return out[k]
+	}
+	beside := make([]bool, len(cells))
+	var clear [8]bool
+	for k, p := range cells {
+		beside[k] = rt.besideJoint(p)
+		if !beside[k] {
+			clear[group(k)] = true
+		}
+	}
+	for k := range cells {
+		if beside[k] && clear[group(k)] {
+			costs[k] += jointCost
+		}
 	}
 	return cells, out, costs
 }
@@ -1041,11 +1067,33 @@ func path(a, b Rect, nth int) []Point {
 // path there: on a record of two fields alike the plain path's end, the
 // middle of a side, is just there, and the line reads as the divider
 // running on. An end with nowhere to go, its side all joints and corners,
-// stays.
+// or whose moved stretches would pass through a box, stays: a line through
+// a box is the worse fault, as it reads as that box's own.
 func (rt *router) offJoints(pts []Point, a, b Rect) []Point {
 	n := len(pts)
 	if n < 2 {
 		return pts
+	}
+	// clear says the stretches of q from point m to its neighbours pass
+	// through no box but at the path's own two ends.
+	clear := func(q []Point, m int) bool {
+		for _, o := range []int{m - 1, m + 1} {
+			if o < 0 || o >= n {
+				continue
+			}
+			p, to := q[m], q[o]
+			dx, dy := sign(to.X-p.X), sign(to.Y-p.Y)
+			for {
+				if p != q[0] && p != q[n-1] && rt.in(p.X, p.Y) && rt.box[p.Y][p.X] {
+					return false
+				}
+				if p == to {
+					break
+				}
+				p.X, p.Y = p.X+dx, p.Y+dy
+			}
+		}
+		return true
 	}
 	// fine says end k of q is where the search could have ended it: on
 	// its box's outline, off the corners, and not at a joint.
@@ -1074,7 +1122,7 @@ func (rt *router) offJoints(pts []Point, a, b Rect) []Point {
 					q[m].Y += d
 				}
 			}
-			if fine(q, k) && (n > 2 || fine(q, next)) {
+			if fine(q, k) && (n > 2 || fine(q, next)) && clear(q, k) && clear(q, next) {
 				pts = q
 				break
 			}

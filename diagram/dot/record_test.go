@@ -30,6 +30,9 @@ func TestRecordLabels(t *testing.T) {
 		// pad a field; the others there are not.
 		{`<p> \ \ pad\  | q `, []diagram.Field{F("p", "  pad "), F("", "q")}},
 		{`x|\ y\ `, []diagram.Field{F("", "x"), F("", " y ")}},
+		// A run of spaces between words is one, as Graphviz writes it, a
+		// tab or a line break among them; escaped ones are each kept.
+		{"name    type|a \t\n b|c\\ \\  d", []diagram.Field{F("", "name type"), F("", "a b"), F("", "c   d")}},
 		{"\t a \n|b", []diagram.Field{F("", "a"), F("", "b")}},
 		// So are tabs and line breaks about a brace, as a record written
 		// over several lines has them.

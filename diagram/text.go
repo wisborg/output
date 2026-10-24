@@ -680,7 +680,7 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 		joints := append(from.joints(), to.joints()...)
 		free := func(p Point) bool {
 			return c.in(p.X, p.Y) && c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 && !inBox(p.X, p.Y) &&
-				!besideJoint(joints, p)
+				!stubBesideJoint(joints, p)
 		}
 		headAt, headArrow, headOK := stub(to.Rect, last, x1-x0, y1-y0, free)
 		if headOK {
@@ -864,9 +864,10 @@ func straightHeads(c *textCanvas, e PlacedEdge, cells []Point, dx, dy float64) {
 	}
 }
 
-// besideJoint says p is next to one of the joints js, across or up and
-// down.
-func besideJoint(js []Point, p Point) bool {
+// stubBesideJoint says p, a stub's cell, is next to one of the joints js,
+// across or up and down: the router's besideJoint asks the same of an end,
+// over its map of them.
+func stubBesideJoint(js []Point, p Point) bool {
 	for _, j := range js {
 		if abs(p.X-j.X)+abs(p.Y-j.Y) == 1 {
 			return true

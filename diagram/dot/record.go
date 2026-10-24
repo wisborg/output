@@ -13,7 +13,8 @@ import (
 // character; DOT's other escapes, \n, \l and \N among them, are read as a
 // label's are, after, so a node "x|y" with no label of its own is one
 // field, as in Graphviz. A field's words are taken without the spaces
-// about them, an escaped one excepted. A label that is not one -- a brace
+// about them, an escaped one excepted, and a run of spaces between them is
+// one. A label that is not one -- a brace
 // or a "<" not closed, a "{" in a field's words, a port after them or a
 // second one, braces nested more than maxDepth deep -- is no record,
 // false, and the node is drawn as a box with its label as written, where
@@ -125,8 +126,13 @@ func (r *recordReader) field() (diagram.Field, bool) {
 			continue
 		case ' ', '\t', '\n', '\r': // as skipSpace skips them
 			r.i++
-			if text.Len() > 0 { // a space before the words is none of them
-				text.WriteByte(c)
+			// One space for a run of them between words, as Graphviz
+			// writes it, and none before the words: end is short of the
+			// text only after a space not escaped. A tab or a line break
+			// is a space, as it is about the words, rather than a
+			// character the text drawing could not show.
+			if text.Len() > 0 && end == text.Len() {
+				text.WriteByte(' ')
 			}
 			continue
 		}

@@ -405,6 +405,11 @@ func TestRecordJoints(t *testing.T) {
 	if got := r.joints(); !reflect.DeepEqual(got, want) {
 		t.Errorf("joints %v, want %v; dividers %v", got, want, r.Dividers)
 	}
+	// Invisible, nothing is drawn there for a line to run into.
+	r.Node.Invisible = true
+	if got := r.joints(); len(got) != 0 {
+		t.Errorf("an invisible record's joints: %v, want none", got)
+	}
 }
 
 // The plain path drawn where every search fails ends where the search
@@ -439,6 +444,13 @@ func TestPlainPathMissesJoints(t *testing.T) {
 	}
 	if got := rt.offJoints(plain, r.Rect, below); abs(got[0].X-plain[0].X) != 1 {
 		t.Errorf("moved to %v, want a cell from %v", got[0], plain[0])
+	}
+	// With a box either side of the line, every move would run through
+	// one, the worse fault: the path stays at the joint.
+	l.out.Nodes = append(l.out.Nodes, PlacedNode{Node: &Node{ID: "left"}, Rect: Rect{11, 15, 4, 2}}, PlacedNode{Node: &Node{ID: "right"}, Rect: Rect{16, 15, 4, 2}})
+	rt = newRouter(l)
+	if got := rt.offJoints(plain, r.Rect, below); !reflect.DeepEqual(got, plain) {
+		t.Errorf("moved through a box beside the line: %v, want %v", got, plain)
 	}
 }
 
@@ -485,5 +497,33 @@ func TestRecordEndsAwayFromJoints(t *testing.T) {
 	}
 	if lay.Edges[0].SidesDropped {
 		t.Errorf("the line to an empty field does not keep to it:\n%s", strings.Join(lay.Text(), "\n"))
+	}
+}
+
+// The cost of ending beside a joint picks a cell along a side, and never
+// turns a line to another side: across, every cell on the side of a field
+// a row tall is beside one, and lines between records charged for each
+// went round their tops rather than straight across.
+func TestJointCostKeepsSidesFacing(t *testing.T) {
+	rec := func(id string, labels ...string) Item {
+		var fs []Field
+		for _, l := range labels {
+			fs = append(fs, Field{Label: l})
+		}
+		return Item{Node: &Node{ID: id, Record: fs}}
+	}
+	d := &Diagram{Direction: Right, Root: Group{Items: []Item{rec("a", "one", "two", "three"), rec("b", "x", "y", "z"), rec("c", "p", "q")}}}
+	d.Edges = []Edge{{From: "a", To: "b", Head: true}, {From: "b", To: "c", Head: true}, {From: "a", To: "c", Head: true}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range lay.Edges {
+		from, _ := lay.Node(e.Edge.From)
+		to, _ := lay.Node(e.Edge.To)
+		first, last := e.Points[0], e.Points[len(e.Points)-1]
+		if first.X != from.Rect.X+from.Rect.W-1 || last.X != to.Rect.X {
+			t.Errorf("%s to %s leaves by %v and enters by %v, not the sides facing:\n%s", e.Edge.From, e.Edge.To, first, last, strings.Join(lay.Text(), "\n"))
+		}
 	}
 }
