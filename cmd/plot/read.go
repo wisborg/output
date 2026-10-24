@@ -2,21 +2,29 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/wisborg/output/internal/cli"
 )
 
-// table is a file's cells as text: its columns' names, and its rows. A
-// row may stop short of the last column, and its missing cells are empty,
-// which a column reads as no value: read them through cell.
+// table is a file's cells as text: its columns' names, and its rows, held
+// one of two ways. A CSV's rows are rows: a cell a column, a short row's
+// missing cells empty. A JSON Lines file's are sparse: each row only the
+// cells its line has a key for, by column, as a log keyed by user names
+// one column of a thousand a line, and held a cell a column a line, empty
+// all but one, it took 2.9 GB for 5 MB. Missing cells are empty, which a
+// column reads as no value. Read them through rowCount, cell and
+// eachColumn, which answer the same of both.
 type table struct {
-	names []string
-	rows  [][]string
-	notes []string // what reading it guessed or left out, for plot to say
+	names  []string
+	rows   [][]string
+	sparse [][]sparseCell // JSON Lines' rows, in place of rows; each by column
+	notes  []string       // what reading it guessed or left out, for plot to say
 	// dropped are the keys a JSON Lines file has past maxJSONColumns,
 	// which are no column, so that asking for one can say so, and the
 	// note can count them.
@@ -51,12 +59,88 @@ func nameColumns(names []string) {
 	}
 }
 
-// cell is row i's cell in column j, empty past the row's end.
+// sparseCell is one cell of a sparse row: its column, its text, and
+// whether JSON wrote it as a string, which alone a decimal comma rewrites.
+// The column is an int32, which maxJSONColumns is far inside, so that a
+// cell is 24 bytes rather than 32: most of a log's memory is its cells.
+type sparseCell struct {
+	col   int32
+	str   bool
+	value string
+}
+
+// rowCount is how many rows t has.
+func (t *table) rowCount() int {
+	if t.sparse != nil {
+		return len(t.sparse)
+	}
+	return len(t.rows)
+}
+
+// cell is row i's cell in column j: empty past a row's end, or where a
+// sparse row has none.
 func (t *table) cell(i, j int) string {
+	if t.sparse != nil {
+		row := t.sparse[i]
+		if k, ok := slices.BinarySearchFunc(row, int32(j), func(c sparseCell, j int32) int { return cmp.Compare(c.col, j) }); ok {
+			return row[k].value
+		}
+		return ""
+	}
 	if row := t.rows[i]; j < len(row) {
 		return row[j]
 	}
 	return ""
+}
+
+// eachColumn calls f with each column and the cells of it that are not
+// empty, in the rows' order: what classify needs, which an empty cell
+// tells nothing. A sparse table's columns are gathered in one pass over
+// the cells it holds -- asked a cell at a time, a thousand columns of
+// 200,000 rows were 200 million lookups, of cells nearly all empty -- and
+// a CSV's a column at a time, holding no more than one at once.
+func (t *table) eachColumn(f func(j int, cells []string)) {
+	if t.sparse != nil {
+		// Counted first, so each column is made its size: grown by
+		// append, the slack took as much again as the cells.
+		counts := make([]int, len(t.names))
+		for _, row := range t.sparse {
+			for _, c := range row {
+				if c.value != "" {
+					counts[c.col]++
+				}
+			}
+		}
+		cols := make([][]string, len(t.names))
+		for j, n := range counts {
+			cols[j] = make([]string, 0, n)
+		}
+		for _, row := range t.sparse {
+			for _, c := range row {
+				if c.value != "" {
+					cols[c.col] = append(cols[c.col], c.value)
+				}
+			}
+		}
+		for j, cells := range cols {
+			f(j, cells)
+		}
+		return
+	}
+	for j := range t.names {
+		f(j, t.column(j))
+	}
+}
+
+// column is column j's cells that are not empty, in the rows' order.
+func (t *table) column(j int) []string {
+	var cells []string
+	for i := range t.rowCount() {
+		if c := t.cell(i, j); c != "" {
+			cells = append(cells, c)
+		}
+	}
+	return cells
 }
 
 // delimiters are the delimiters sniffDelimiter tells apart, in the order it
@@ -152,6 +236,17 @@ const (
 	headerNo   headerMode = "no"
 )
 
+// csvDecimal is the decimal mark a CSV delimited by delim is guessed to
+// have where nothing in it says: a comma where it is delimited by
+// semicolons, the delimiter of the places that write one, and a point
+// otherwise.
+func csvDecimal(delim rune) decimalMark {
+	if delim == ';' {
+		return decimalComma
+	}
+	return decimalPoint
+}
+
 // readTable reads delimited text from data -- delimited by delim, or by what
 // sniffDelimiter finds where it is zero -- with values in double quotes
 // where they hold the delimiter, a quote or a line break, as RFC 4180 has
@@ -206,7 +301,7 @@ func readTable(data []byte, delim rune, header headerMode, dates dateOrder, mark
 		}
 		records[i] = rec
 	}
-	decided, note, err := decideDecimal(records, delim, mark, "row")
+	decided, note, err := decideDecimal(records, csvDecimal(delim), mark, "row")
 	if err != nil {
 		return nil, err
 	}

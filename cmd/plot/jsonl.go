@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -58,7 +60,10 @@ func sniffInput(data []byte) (inputMode, error) {
 		if len(line) == 0 {
 			continue
 		}
-		if _, err := walkLine(line); err == nil {
+		// Too deep is an object still, which readJSONLines says of; not
+		// counted, a file of them was refused as objects over several
+		// lines.
+		if _, err := walkLine(line); err == nil || errors.Is(err, errTooDeep) {
 			objects++
 		} else if bytes.HasPrefix(line, []byte("[")) && json.Valid(allowNonFinite(line)) {
 			arrays++
@@ -82,9 +87,11 @@ func sniffInput(data []byte) (inputMode, error) {
 		}
 		return "", errors.New("one JSON array: plot reads JSON Lines, an object a line")
 	case bytes.HasPrefix(trimmed, []byte("{")):
+		// The first few values say it, where the whole file decoded only
+		// to choose a message held it all twice.
 		var elems []json.RawMessage
 		dec := json.NewDecoder(bytes.NewReader(trimmed))
-		for {
+		for range 3 {
 			var v json.RawMessage
 			if err := dec.Decode(&v); err == io.EOF {
 				break
@@ -124,10 +131,9 @@ func allObjects(vs []json.RawMessage) bool {
 // alone decide the file's mark, as decideDecimal decides a CSV's, or mark
 // says it; the numbers JSON writes are left as they are.
 //
-// A row holds cells only as far as its last key's column, and cell reads
-// past that as empty: padded to every column, a log whose keys differ from
-// line to line held a cell a column a line. Past maxJSONColumns, keys are
-// left out, and past maxJSONArray, an array's elements.
+// The rows are sparse, t.sparse: each holds only the cells its line has
+// keys for, as table says why. Past maxJSONColumns, keys are left out, and
+// past maxJSONArray, an array's elements.
 //
 // What is lost is said in the table's notes, as a cell that is not a number
 // is a gap and said: a line that is not one object -- cut short where a log
@@ -137,17 +143,17 @@ func allObjects(vs []json.RawMessage) bool {
 // values in one line, the last kept -- a key written twice, or two paths
 // named alike, {"a.b":1,"a":{"b":2}}. A file with no object is refused.
 func readJSONLines(data []byte, mark decimalMark) (*table, error) {
-	t := &table{dropped: map[string]bool{}}
+	t := &table{sparse: [][]sparseCell{}, dropped: map[string]bool{}}
 	index := map[string]int{}
 	var bad, deep, twice, cut []int
 	var firstDropped, firstCut string
 	var stamp []int     // the line each column last had a value in
-	var strAt []int     // the line each column's value was last a string in
-	var strCols [][]int // each row's columns that hold a string
-	var rowLine []int   // each row's line
+	var at []int        // where in its line's row each column's cell is
+	var strs [][]string // each line's strings as its row holds them, for decideDecimal
 	n := 0
 	for line := range bytes.Lines(data) {
 		n++
+		strs = append(strs, nil)
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -166,8 +172,10 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 			}
 			cut = append(cut, n)
 		}
-		var row []string
-		var touched []int
+		// Made the size of the line's fields, which it is unless keys
+		// repeat or are left out: grown by append, a row of six cells
+		// held room for eight.
+		row := make([]sparseCell, 0, len(w.fields))
 		again := false
 		for _, f := range w.fields {
 			j, seen := index[f.name]
@@ -184,40 +192,32 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 				j = len(t.names)
 				index[f.name] = j
 				t.names = append(t.names, f.name)
-				stamp = append(stamp, 0)
-				strAt = append(strAt, 0)
+				stamp, at = append(stamp, 0), append(at, 0)
 			}
+			// Written twice in the line, the last value wins, and with it
+			// whether the cell is a string: a number after a string was
+			// taken for one and rewritten with a decimal comma, 1.500 as
+			// 1500.
+			c := sparseCell{col: int32(j), value: f.value, str: f.str}
 			if stamp[j] == n {
-				again = true
-			} else {
-				touched = append(touched, j)
+				row[at[j]], again = c, true
+				continue
 			}
-			stamp[j] = n
-			for len(row) <= j {
-				row = append(row, "")
-			}
-			// Whether the cell is a string is the last value's to say: a
-			// number after a string, the key written twice, was taken for
-			// a string and rewritten with a decimal comma, 1.500 as 1500.
-			row[j], strAt[j] = f.value, 0
-			if f.str {
-				strAt[j] = n
-			}
+			stamp[j], at[j] = n, len(row)
+			row = append(row, c)
 		}
 		if again {
 			twice = append(twice, n)
 		}
-		var cols []int
-		for _, j := range touched {
-			if strAt[j] == n {
-				cols = append(cols, j)
+		slices.SortFunc(row, func(a, b sparseCell) int { return cmp.Compare(a.col, b.col) })
+		for _, c := range row {
+			if c.str {
+				strs[n-1] = append(strs[n-1], c.value)
 			}
 		}
-		t.rows = append(t.rows, row)
-		strCols = append(strCols, cols)
-		rowLine = append(rowLine, n)
+		t.sparse = append(t.sparse, row)
 	}
-	if len(t.rows) == 0 {
+	if len(t.sparse) == 0 {
 		switch {
 		case len(deep) > 0 && (len(bad) == 0 || deep[0] < bad[0]):
 			return nil, fmt.Errorf("line %d: nested past %d deep, and no line is a JSON object to read", deep[0], maxJSONDepth)
@@ -226,16 +226,9 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 		}
 		return nil, errors.New("no rows to plot")
 	}
-	// The strings the rows hold, by the line they are on, for the message
-	// that names one: not every string read, as a value a later one of the
-	// same column replaced would decide a mark no cell is written in.
-	strs := make([][]string, n)
-	for i, cols := range strCols {
-		for _, j := range cols {
-			strs[rowLine[i]-1] = append(strs[rowLine[i]-1], t.rows[i][j])
-		}
-	}
-	decided, note, err := decideDecimal(strs, ',', mark, "line")
+	// A JSON number has a point; only where nothing in the strings says,
+	// is the mark a guess, and then a point, as JSON's own.
+	decided, note, err := decideDecimal(strs, decimalPoint, mark, "line")
 	if err != nil {
 		return nil, err
 	}
@@ -243,43 +236,38 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 		t.notes = append(t.notes, note)
 	}
 	if decided == decimalComma {
-		for i, cols := range strCols {
-			for _, j := range cols {
-				t.rows[i][j] = commaToPoint(t.rows[i][j])
+		for _, row := range t.sparse {
+			for k := range row {
+				if row[k].str {
+					row[k].value = commaToPoint(row[k].value)
+				}
 			}
 		}
 	}
 	nameColumns(t.names)
-	switch {
-	case len(bad) == 1:
-		t.notes = append(t.notes, fmt.Sprintf("line %d: not a JSON object, left out", bad[0]))
-	case len(bad) > 1:
-		t.notes = append(t.notes, fmt.Sprintf("%d lines not a JSON object, left out, the first line %d", len(bad), bad[0]))
-	}
+	t.notes = appendLineNote(t.notes, bad, "not a JSON object, left out", "not a JSON object, left out")
 	// Apart from the lines that are no object: a valid one said to be
 	// none sends the reader looking for a fault that is not there.
-	switch {
-	case len(deep) == 1:
-		t.notes = append(t.notes, fmt.Sprintf("line %d: nested past %d deep, left out", deep[0], maxJSONDepth))
-	case len(deep) > 1:
-		t.notes = append(t.notes, fmt.Sprintf("%d lines nested past %d deep, left out, the first line %d", len(deep), maxJSONDepth, deep[0]))
-	}
+	t.notes = appendLineNote(t.notes, deep, fmt.Sprintf("nested past %d deep, left out", maxJSONDepth), fmt.Sprintf("nested past %d deep, left out", maxJSONDepth))
 	if len(t.dropped) > 0 {
 		t.notes = append(t.notes, fmt.Sprintf("%d keys past the first %d left out, the first %q", len(t.dropped), maxJSONColumns, firstDropped))
 	}
-	switch {
-	case len(cut) == 1:
-		t.notes = append(t.notes, fmt.Sprintf("line %d: %q's elements past the first %d left out", cut[0], firstCut, maxJSONArray))
-	case len(cut) > 1:
-		t.notes = append(t.notes, fmt.Sprintf("%d lines with an array's elements past the first %d left out, the first line %d, %q", len(cut), maxJSONArray, cut[0], firstCut))
-	}
-	switch {
-	case len(twice) == 1:
-		t.notes = append(t.notes, fmt.Sprintf("line %d: a column given two values, the last kept", twice[0]))
-	case len(twice) > 1:
-		t.notes = append(t.notes, fmt.Sprintf("%d lines giving a column two values, the last kept, the first line %d", len(twice), twice[0]))
-	}
+	t.notes = appendLineNote(t.notes, cut, fmt.Sprintf("%q cut to its first %d elements", firstCut, maxJSONArray), fmt.Sprintf("an array cut to its first %d elements, the first %q", maxJSONArray, firstCut))
+	t.notes = appendLineNote(t.notes, twice, "a column given two values, the last kept", "a column given two values, the last kept")
 	return t, nil
+}
+
+// appendLineNote is notes and, where lines holds any, a note of them, in
+// one wording for all of plot's notes of lines: "line 3: one" for a line,
+// "4 lines: many; the first line 3" for more.
+func appendLineNote(notes []string, lines []int, one, many string) []string {
+	switch len(lines) {
+	case 0:
+		return notes
+	case 1:
+		return append(notes, fmt.Sprintf("line %d: %s", lines[0], one))
+	}
+	return append(notes, fmt.Sprintf("%d lines: %s; the first line %d", len(lines), many, lines[0]))
 }
 
 // field is one value of a JSON object, named by its path in it; str says
@@ -308,7 +296,7 @@ var errNotObject = errors.New("not a JSON object")
 
 // walkLine reads line, which must be one JSON object and nothing after it.
 //
-// A decoder a line, read a token at a time, is about three times the time
+// A decoder a line, read a token at a time, is two to three times the time
 // and memory of the same data as CSV: a known limit, kept. encoding/json's
 // Decoder cannot be reset onto a new line, Unmarshal into a map loses the
 // order of the keys, which is the order of the columns, and one decoder

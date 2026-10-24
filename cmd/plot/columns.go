@@ -76,9 +76,10 @@ type sighting struct {
 }
 
 // decideDecimal is the decimal mark the file of records is written with:
-// mark where the caller gave one; else the mark its cells show; else a
-// comma where the file is delimited by semicolons -- the delimiter of the
-// places that write one -- and a point otherwise.
+// mark where the caller gave one; else the mark its cells show; else
+// fallback, the guess: for a CSV, a comma where it is delimited by
+// semicolons -- the delimiter of the places that write one -- and a point
+// otherwise.
 //
 // It is decided for the file, not for each column or each cell. One program
 // in one place wrote it, and read cell by cell, "1,234,567" was thousands
@@ -90,7 +91,7 @@ type sighting struct {
 // cell read as two different numbers -- "1,234" -- the guess is said in
 // note, with the flag that reads it the other way. unit is what a record
 // is called in a message: a CSV's row, a JSON Lines file's line.
-func decideDecimal(records [][]string, delim rune, mark decimalMark, unit string) (decided decimalMark, note string, err error) {
+func decideDecimal(records [][]string, fallback, mark decimalMark, unit string) (decided decimalMark, note string, err error) {
 	if mark != decimalAuto {
 		return mark, "", nil
 	}
@@ -122,9 +123,9 @@ func decideDecimal(records [][]string, delim rune, mark decimalMark, unit string
 	case comma != nil:
 		return decimalComma, "", nil
 	}
-	decided, other := decimalPoint, decimalComma
-	if delim == ';' {
-		decided, other = decimalComma, decimalPoint
+	decided, other := fallback, decimalComma
+	if fallback == decimalComma {
+		other = decimalPoint
 	}
 	if either != nil {
 		v, _ := asPoint(either.cell)
@@ -444,8 +445,9 @@ func (col column) value(cell string) (float64, bool) {
 //
 // A key a JSON Lines file has past maxJSONColumns is said to be left out,
 // rather than no column: it is in the file, and a reader told otherwise
-// looks for a typing mistake. It is looked for before a number, as a key
-// may be one.
+// looks for a typing mistake. It is looked for right after the names as
+// written, before a name in another case or a number, as a key may be
+// either.
 func findColumn(t *table, spec string) (int, error) {
 	names := t.names
 	spec = strings.TrimSpace(spec)
@@ -454,15 +456,16 @@ func findColumn(t *table, spec string) (int, error) {
 			return j, nil
 		}
 	}
+	// Before a name in another case, and a number: --y Latency plotted
+	// "latency" where Latency came past the columns kept, and a log keyed
+	// by bucket, "5", plotted the fifth column for --y 5.
+	if t.dropped[spec] {
+		return 0, fmt.Errorf("%q is past the first %d columns, and was left out", spec, maxJSONColumns)
+	}
 	for j, n := range names {
 		if strings.EqualFold(n, spec) {
 			return j, nil
 		}
-	}
-	// Before the number: a log keyed by bucket, "5", whose key 5 came past
-	// the columns kept, plotted the fifth column for --y 5.
-	if t.dropped[spec] {
-		return 0, fmt.Errorf("%q is past the first %d columns, and was left out", spec, maxJSONColumns)
 	}
 	if n, err := strconv.Atoi(spec); err == nil && n >= 1 && n <= len(names) {
 		return n - 1, nil

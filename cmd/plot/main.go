@@ -208,19 +208,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	if len(t.rows) == 0 && !o.list {
+	if t.rowCount() == 0 && !o.list {
 		// Said as it is: "no column holds numbers" sent the reader looking
 		// at columns when the file has no rows at all.
 		return fmt.Errorf("%s: a header and no rows of values to plot", name)
 	}
 	cols := make([]column, len(t.names))
-	for j := range t.names {
-		cells := make([]string, len(t.rows))
-		for i := range t.rows {
-			cells[i] = t.cell(i, j)
-		}
-		cols[j] = classify(cells, order)
-	}
+	t.eachColumn(func(j int, cells []string) { cols[j] = classify(cells, order) })
 	if o.list {
 		// What reading left out or guessed is said here too: a log listed
 		// with its cut lines and lost keys unsaid lists columns that look
@@ -250,11 +244,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		if x < 0 {
 			return cli.Usagef("--x-date reads the x column as dates, and the chart is against the row: say --x")
 		}
-		cells := make([]string, len(t.rows))
-		for i := range t.rows {
-			cells[i] = t.cell(i, x)
-		}
-		if cols[x] = asDates(cells, xLayout); cols[x].values == cols[x].wrong {
+		if cols[x] = asDates(t.column(x), xLayout); cols[x].values == cols[x].wrong {
 			return fmt.Errorf("--x-date %s: no cell of %q reads as one", o.xDate, t.names[x])
 		}
 	}
@@ -396,7 +386,7 @@ func chooseX(t *table, cols []column, spec string) (int, error) {
 func ordered(t *table, j int, c column) bool {
 	up, down := true, true
 	prev, have := 0.0, false
-	for i := range t.rows {
+	for i := range t.rowCount() {
 		v, ok := c.value(t.cell(i, j))
 		if !ok {
 			continue
@@ -455,7 +445,7 @@ func writeColumns(w io.Writer, t *table, cols []column) error {
 		if c.wrong > 0 {
 			holds += fmt.Sprintf(" (%s not)", cells(c.wrong))
 		}
-		tb.MustAppend(j+1, t.names[j], holds, fmt.Sprintf("%d of %d", c.values, len(t.rows)))
+		tb.MustAppend(j+1, t.names[j], holds, fmt.Sprintf("%d of %d", c.values, t.rowCount()))
 	}
 	return tb.Render(w, tbl.Style{Spacing: 2})
 }

@@ -704,17 +704,23 @@ one array, an array a line, objects over several lines -- is refused, naming
 are refused for JSON Lines at any value but `auto`, never ignored, as a
 `--header no` that changed nothing reads as one obeyed -- before the input
 is read, where `--input jsonl` says the format; nor do they make auto take
-a file for CSV, as an alias holding one would read every log so. A row
-holds cells only as far as its last key, read through `table.cell`, and
-keys stop at `maxJSONColumns`: padded to every key, a log keyed by user
-grew with the square of its lines, 640 MB for 4,000. Nesting is read by
+a file for CSV, as an alias holding one would read every log so. A JSON
+Lines row is sparse, `table.sparse`, holding only the cells its line has
+keys for, and keys stop at `maxJSONColumns`: padded to every key, a log
+keyed by user grew with the square of its lines, 640 MB for 4,000, and
+held only to its last key's column it still took 2.9 GB for 5 MB, a line
+naming one user of a thousand holding a cell for each before it. Rows are
+read through `rowCount`, `cell` and `eachColumn`, which answer the same
+of a CSV's dense rows, and `eachColumn` types every column in one pass
+over the cells there are. A sparse cell costs a log of the same keys a
+line about a tenth more memory than a dense one would. Nesting is read by
 recursion, so a line deeper than `maxJSONDepth` is left out, and said to
 be nested too deep rather than to be no object, which it is.
 
 Two limits of the JSON Lines reader are known and kept; reviews have
-raised each more than once, so here is why. **It is about three times
-slower than CSV, and takes about three times the memory**: 300,000 lines
-in 2 s and 314 MB, against 0.6 s and 102 MB. Each line has a
+raised each more than once, so here is why. **It is two to three times
+slower than CSV, and takes two to three times the memory**: 300,000 lines
+of a log in 2 s and 330 MB, against 0.9 s and 145 MB as CSV. Each line has a
 `json.Decoder` of its own, read a token at a time (`walkLine`).
 encoding/json's Decoder cannot be reset onto a new line, `Unmarshal` into a
 map loses the keys' order, which is the columns' order, and one decoder

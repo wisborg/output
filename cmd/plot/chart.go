@@ -49,7 +49,7 @@ func readSeries(t *table, x int, xcol column, ys []int, ycols []column) series {
 	for _, y := range ys {
 		s.yNames = append(s.yNames, t.names[y])
 	}
-	for i := range t.rows {
+	for i := range t.rowCount() {
 		r := seriesRow{x: float64(i + 1), ys: make([]float64, len(ys)), ok: make([]bool, len(ys))}
 		if x >= 0 {
 			v, ok := xcol.value(t.cell(i, x))

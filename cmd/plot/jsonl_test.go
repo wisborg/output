@@ -31,8 +31,8 @@ func TestReadJSONLines(t *testing.T) {
 	if got := grid(tb); !reflect.DeepEqual(got, want) {
 		t.Errorf("rows %q, want %q", got, want)
 	}
-	if n := len(tb.rows[2]); n != 3 {
-		t.Errorf("the last row holds %d cells, want 3: as far as its last key, not padded to every column", n)
+	if n := len(tb.sparse[1]); n != 4 {
+		t.Errorf("the second row holds %d cells, want 4: its own keys', null's among them, not one a column", n)
 	}
 	if len(tb.notes) != 0 {
 		t.Errorf("notes %q, want none: a blank line is no row and no fault", tb.notes)
@@ -41,8 +41,8 @@ func TestReadJSONLines(t *testing.T) {
 
 // grid is tb's cells as cell reads them, every row as wide as the names.
 func grid(tb *table) [][]string {
-	g := make([][]string, len(tb.rows))
-	for i := range tb.rows {
+	g := make([][]string, tb.rowCount())
+	for i := range tb.rowCount() {
 		for j := range tb.names {
 			g[i] = append(g[i], tb.cell(i, j))
 		}
@@ -65,7 +65,7 @@ func TestReadJSONLinesKeys(t *testing.T) {
 	if want := [][]string{{"2", "5", ""}, {"3", "", ""}, {"", "", "4"}}; !reflect.DeepEqual(grid(tb), want) {
 		t.Errorf("rows %q, want %q", grid(tb), want)
 	}
-	if want := []string{"2 lines giving a column two values, the last kept, the first line 1"}; !reflect.DeepEqual(tb.notes, want) {
+	if want := []string{"2 lines: a column given two values, the last kept; the first line 1"}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
 	// The key "" holds an object whose x is ".x", not the line's own x.
@@ -93,31 +93,47 @@ func TestReadJSONLinesStringsAsLeft(t *testing.T) {
 	if _, err := readJSONLines([]byte(`{"v":"1,5","v":2}`+"\n"+`{"w":"0.5"}`+"\n"), decimalAuto); err != nil {
 		t.Errorf("a decimal comma only in a string replaced: %v, want no file written both ways", err)
 	}
+	// JSON's numbers say nothing of the mark: 1.5 beside "0,5" is no file
+	// written both ways.
+	if tb, err := readJSONLines([]byte(`{"n":1.5,"s":"0,5"}`+"\n"), decimalAuto); err != nil || tb.cell(0, 1) != "0.5" {
+		t.Errorf("a number and a string with a comma: %v, want the string read with it", err)
+	}
+	// Where the strings cannot say, a point is taken, as JSON's own, and
+	// the guess said.
+	tb, err = readJSONLines([]byte(`{"v":"1,234"}`+"\n"), decimalAuto)
+	if err != nil || tb.cell(0, 0) != "1,234" || len(tb.notes) != 1 || !strings.Contains(tb.notes[0], "1234") {
+		t.Errorf("1,234 alone: %v, %q, notes %q, want it read as 1234 and said", err, tb.cell(0, 0), tb.notes)
+	}
 }
 
 // A log keyed by user has a key a line; past maxJSONColumns the keys are
-// left out and said, and no row holds more cells than its own keys reach.
+// left out and said, and a row holds only the cells its own keys have:
+// after the first thousand lines brought a thousand users, each line naming
+// one of them held a cell a column to that user's, some 500 a line, and 5
+// MB of log took 2.9 GB.
 func TestReadJSONLinesHoldsItsColumns(t *testing.T) {
 	var b strings.Builder
 	const lines = 3 * maxJSONColumns
 	for i := range lines {
 		fmt.Fprintf(&b, `{"t":%d,"counts":{"user%d":1}}`+"\n", i, i)
 	}
+	for i := range lines {
+		fmt.Fprintf(&b, `{"t":%d,"counts":{"user%d":1}}`+"\n", i, (i*7919)%(maxJSONColumns-1))
+	}
 	tb, err := readJSONLines([]byte(b.String()), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tb.names) != maxJSONColumns || len(tb.rows) != lines {
-		t.Errorf("%d columns and %d rows, want %d and %d", len(tb.names), len(tb.rows), maxJSONColumns, lines)
+	if len(tb.names) != maxJSONColumns || tb.rowCount() != 2*lines {
+		t.Errorf("%d columns and %d rows, want %d and %d", len(tb.names), tb.rowCount(), maxJSONColumns, 2*lines)
 	}
-	cells := 0
-	for _, row := range tb.rows {
-		cells += len(row)
+	for i, row := range tb.sparse {
+		if len(row) > 2 {
+			t.Fatalf("row %d holds %d cells, want its own keys', 2 at most", i, len(row))
+		}
 	}
-	// Row i reaches column i+1, 2 cells to maxJSONColumns, while there
-	// are columns to make, and holds t's alone after.
-	if want := (2+maxJSONColumns)*(maxJSONColumns-1)/2 + (lines - maxJSONColumns + 1); cells != want {
-		t.Errorf("%d cells held, want %d", cells, want)
+	if got, want := tb.cell(2*lines-1, 1+((lines-1)*7919)%(maxJSONColumns-1)), "1"; got != want {
+		t.Errorf("the last row's user: %q, want %q", got, want)
 	}
 	if want := []string{fmt.Sprintf("%d keys past the first %d left out, the first \"counts.user%d\"", lines-maxJSONColumns+1, maxJSONColumns, maxJSONColumns-1)}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
@@ -143,7 +159,7 @@ starting up
 	if want := [][]string{{"1"}, {"5"}}; !reflect.DeepEqual(grid(tb), want) {
 		t.Errorf("rows %q, want %q", grid(tb), want)
 	}
-	if want := []string{"4 lines not a JSON object, left out, the first line 2", fmt.Sprintf("line 6: nested past %d deep, left out", maxJSONDepth)}; !reflect.DeepEqual(tb.notes, want) {
+	if want := []string{"4 lines: not a JSON object, left out; the first line 2", fmt.Sprintf("line 6: nested past %d deep, left out", maxJSONDepth)}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
 	if _, err := readJSONLines([]byte(deep), decimalAuto); err == nil || !strings.Contains(err.Error(), "nested past") {
@@ -152,7 +168,7 @@ starting up
 
 	// As deep as maxJSONDepth is read.
 	shallow := strings.Repeat(`{"a":`, maxJSONDepth) + "1" + strings.Repeat("}", maxJSONDepth)
-	if tb, err := readJSONLines([]byte(shallow), decimalAuto); err != nil || len(tb.rows) != 1 || len(tb.notes) != 0 {
+	if tb, err := readJSONLines([]byte(shallow), decimalAuto); err != nil || tb.rowCount() != 1 || len(tb.notes) != 0 {
 		t.Errorf("%d deep: %v, want one row", maxJSONDepth, err)
 	}
 
@@ -193,6 +209,7 @@ func TestSniffInput(t *testing.T) {
 		{"a brace and JSON after", "{\n\"a\": 1\n} x\n", inputCSV},
 		{"NaN in most lines", "{\"v\":NaN}\n{\"v\":NaN}\n{\"v\":1}\n", inputJSONL},
 		{"one bracketed line", "[a]\n", inputCSV},
+		{"objects too deep", strings.Repeat(strings.Repeat(`{"a":`, maxJSONDepth+1)+"1"+strings.Repeat("}", maxJSONDepth+1)+"\n", 3), inputJSONL},
 	} {
 		got, err := sniffInput([]byte(c.data))
 		if err != nil || got != c.want {
@@ -227,7 +244,7 @@ func TestReadJSONLinesCutsLongArrays(t *testing.T) {
 	if n := len(tb.names); n != maxJSONArray+2 || tb.names[n-1] != "latency" || tb.cell(2, n-1) != "2" {
 		t.Errorf("%d columns, the last %q holding %q: want %d, latency holding 2", n, tb.names[n-1], tb.cell(2, n-1), maxJSONArray+2)
 	}
-	if want := []string{fmt.Sprintf("3 lines with an array's elements past the first %d left out, the first line 1, \"samples\"", maxJSONArray)}; !reflect.DeepEqual(tb.notes, want) {
+	if want := []string{fmt.Sprintf("3 lines: an array cut to its first %d elements, the first \"samples\"; the first line 1", maxJSONArray)}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
 }
@@ -269,6 +286,14 @@ func TestFindColumnSaysAKeyLeftOut(t *testing.T) {
 	if j, err := findColumn(tb, "4"); err != nil || j != 3 {
 		t.Errorf("--y 4: %d, %v, want the fourth column", j, err)
 	}
+	// Nor is a key left out found as another in a different case.
+	tb = &table{names: []string{"t", "latency"}, dropped: map[string]bool{"Latency": true}}
+	if _, err := findColumn(tb, "Latency"); err == nil || !strings.Contains(err.Error(), "left out") {
+		t.Errorf("--y Latency, left out beside latency: %v", err)
+	}
+	if j, err := findColumn(tb, "LATENCY"); err != nil || j != 1 {
+		t.Errorf("--y LATENCY: %d, %v, want latency, in another case", j, err)
+	}
 }
 
 // A line whose key is NaN is no JSON, and is left out, not read as an
@@ -280,5 +305,42 @@ func TestReadJSONLinesNaNKey(t *testing.T) {
 	}
 	if want := []string{"v"}; !reflect.DeepEqual(tb.names, want) || len(tb.notes) != 1 {
 		t.Errorf("names %q, notes %q, want %q and line 2 left out", tb.names, tb.notes, want)
+	}
+}
+
+// A table answers the same through rowCount, cell and eachColumn whether
+// its rows are a CSV's or JSON Lines' sparse ones.
+func TestTableSparseAndDense(t *testing.T) {
+	dense := &table{names: []string{"a", "b", "c"}, rows: [][]string{{"1", "", "x"}, {"2"}, {"", "5", "y"}}}
+	sparse := &table{names: []string{"a", "b", "c"}, sparse: [][]sparseCell{
+		{{col: 0, value: "1"}, {col: 2, value: "x"}},
+		{{col: 0, value: "2"}},
+		{{col: 0, value: ""}, {col: 1, value: "5"}, {col: 2, value: "y"}},
+	}}
+	columns := func(tb *table) [][]string {
+		var cols [][]string
+		tb.eachColumn(func(j int, cells []string) { cols = append(cols, cells) })
+		return cols
+	}
+	if !reflect.DeepEqual(grid(dense), grid(sparse)) || dense.rowCount() != sparse.rowCount() {
+		t.Errorf("cells: %q and %q", grid(dense), grid(sparse))
+	}
+	want := [][]string{{"1", "2"}, {"5"}, {"x", "y"}}
+	if !reflect.DeepEqual(columns(dense), want) || !reflect.DeepEqual(columns(sparse), want) {
+		t.Errorf("columns: %q and %q, want %q", columns(dense), columns(sparse), want)
+	}
+	if !reflect.DeepEqual(sparse.column(2), want[2]) {
+		t.Errorf("column 3: %q", sparse.column(2))
+	}
+}
+
+// One line's note names the line, and an array cut there by its name.
+func TestReadJSONLinesSaysOneLine(t *testing.T) {
+	tb, err := readJSONLines([]byte(`{"t":1}`+"\n"+`{"t":2,"s":[`+strings.Repeat("1,", maxJSONArray)+`1]}`+"\n"), decimalAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{fmt.Sprintf("line 2: \"s\" cut to its first %d elements", maxJSONArray)}; !reflect.DeepEqual(tb.notes, want) {
+		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
 }
