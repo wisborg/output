@@ -32,18 +32,18 @@ func TestSniffDelimiter(t *testing.T) {
 // A first row of names over numbers is a header; a first row of numbers is
 // data, and the columns are numbered.
 func TestReadTableFindsTheHeader(t *testing.T) {
-	tb, err := readTable(strings.NewReader("\xef\xbb\xbfdate, close\n2024-01-02,10\n2024-01-03,11\n"), 0, headerAuto, datesAuto, decimalAuto)
+	tb, err := readTable([]byte("date, close\n2024-01-02,10\n2024-01-03,11\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"date", "close"}; !reflect.DeepEqual(tb.names, want) {
-		t.Errorf("names %q, want %q (the byte-order mark and the space after the comma gone)", tb.names, want)
+		t.Errorf("names %q, want %q (the space after the comma gone)", tb.names, want)
 	}
 	if len(tb.rows) != 2 {
 		t.Errorf("%d rows, want 2", len(tb.rows))
 	}
 
-	tb, err = readTable(strings.NewReader("1,2\n3,4\n"), 0, headerAuto, datesAuto, decimalAuto)
+	tb, err = readTable([]byte("1,2\n3,4\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestReadTableFindsTheHeader(t *testing.T) {
 		t.Errorf("names %q and %d rows, want %q and 2: a row of numbers is data", tb.names, len(tb.rows), want)
 	}
 
-	tb, err = readTable(strings.NewReader("1,2\n3,4\n"), 0, headerYes, datesAuto, decimalAuto)
+	tb, err = readTable([]byte("1,2\n3,4\n"), 0, headerYes, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestReadTableFindsTheHeader(t *testing.T) {
 // Rows of different lengths are padded with empty cells, which are gaps,
 // and a quoted value holds the delimiter.
 func TestReadTableForgivesRaggedRows(t *testing.T) {
-	tb, err := readTable(strings.NewReader("a,b,c\n1,\"2,000\"\n4,5,6,7\n"), 0, headerAuto, datesAuto, decimalAuto)
+	tb, err := readTable([]byte("a,b,c\n1,\"2,000\"\n4,5,6,7\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestParseDelimiter(t *testing.T) {
 // In a tab file an empty cell is two tabs in a row, and the values after it
 // stay in their own columns rather than each moving one left.
 func TestReadTableKeepsATabFilesEmptyCells(t *testing.T) {
-	tb, err := readTable(strings.NewReader("a\tb\tc\n1\t\t3\n\t5\t6\n"), 0, headerAuto, datesAuto, decimalAuto)
+	tb, err := readTable([]byte("a\tb\tc\n1\t\t3\n\t5\t6\n"), 0, headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestReadTableDecidesTheDecimalMarkForTheFile(t *testing.T) {
 		{"text", "t;v\n1;a,b\n", decimalAuto, [][]string{{"1", "a,b"}}, ""},
 		{"dates and versions", "d;v\n03.04.2024;1\n10.0.0.1;2\n", decimalAuto, [][]string{{"03.04.2024", "1"}, {"10.0.0.1", "2"}}, ""},
 	} {
-		tb, err := readTable(strings.NewReader(c.data), 0, headerAuto, datesAuto, c.mark)
+		tb, err := readTable([]byte(c.data), 0, headerAuto, datesAuto, c.mark)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -152,7 +152,7 @@ func TestReadTableRefusesTwoDecimalMarks(t *testing.T) {
 		"v;w\n1,234,567;x\n1,234;x\n5,5;x\n",
 		"v;w\n1.234;x\n2.5;x\n0,5;x\n",
 	} {
-		_, err := readTable(strings.NewReader(data), 0, headerAuto, datesAuto, decimalAuto)
+		_, err := readTable([]byte(data), 0, headerAuto, datesAuto, decimalAuto)
 		if err == nil || !strings.Contains(err.Error(), "both ways") || !strings.Contains(err.Error(), "--decimal") {
 			t.Errorf("%q: %v, want an error saying the numbers are written both ways", data, err)
 		}
@@ -164,7 +164,7 @@ func TestReadTableRefusesTwoDecimalMarks(t *testing.T) {
 // phantom column of empty cells for the extra ones, which once pushed one
 // row's reading under it.
 func TestReadTableMergesRunsOfSpaces(t *testing.T) {
-	tb, err := readTable(strings.NewReader("a  b\n1  10\n10 20\n2  30\n"), ' ', headerAuto, datesAuto, decimalAuto)
+	tb, err := readTable([]byte("a  b\n1  10\n10 20\n2  30\n"), ' ', headerAuto, datesAuto, decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}

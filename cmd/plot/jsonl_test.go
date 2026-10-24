@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -27,27 +28,81 @@ func TestReadJSONLines(t *testing.T) {
 		{"2", "", "", "", "", "hi", "true"},
 		{"3", "2e3", "0.3", "", "", "", ""},
 	}
-	if !reflect.DeepEqual(tb.rows, want) {
-		t.Errorf("rows %q, want %q", tb.rows, want)
+	if got := grid(tb); !reflect.DeepEqual(got, want) {
+		t.Errorf("rows %q, want %q", got, want)
+	}
+	if n := len(tb.rows[2]); n != 3 {
+		t.Errorf("the last row holds %d cells, want 3: as far as its last key, not padded to every column", n)
 	}
 	if len(tb.notes) != 0 {
 		t.Errorf("notes %q, want none: a blank line is no row and no fault", tb.notes)
 	}
 }
 
+// grid is tb's cells as cell reads them, every row as wide as the names.
+func grid(tb *table) [][]string {
+	g := make([][]string, len(tb.rows))
+	for i := range tb.rows {
+		for j := range tb.names {
+			g[i] = append(g[i], tb.cell(i, j))
+		}
+	}
+	return g
+}
+
 // A key written twice in one object is one column, with its last value,
-// as encoding/json reads it; an empty key is a column numbered as a CSV's
-// unnamed one is.
+// as encoding/json reads it, and so is a dotted key beside the nested path
+// named alike; each loses a value, which is said. An empty key is a column
+// numbered as a CSV's unnamed one is.
 func TestReadJSONLinesKeys(t *testing.T) {
-	tb, err := readJSONLines([]byte(`{"a":1,"":5,"a":2}` + "\n"))
+	tb, err := readJSONLines([]byte(`{"a":1,"":5,"a":2}` + "\n" + `{"a":3}` + "\n" + `{"b.c":1,"b":{"c":4}}` + "\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"a", "column 2"}; !reflect.DeepEqual(tb.names, want) {
+	if want := []string{"a", "column 2", "b.c"}; !reflect.DeepEqual(tb.names, want) {
 		t.Errorf("names %q, want %q", tb.names, want)
 	}
-	if want := [][]string{{"2", "5"}}; !reflect.DeepEqual(tb.rows, want) {
-		t.Errorf("rows %q, want %q", tb.rows, want)
+	if want := [][]string{{"2", "5", ""}, {"3", "", ""}, {"", "", "4"}}; !reflect.DeepEqual(grid(tb), want) {
+		t.Errorf("rows %q, want %q", grid(tb), want)
+	}
+	if want := []string{"2 lines giving a column two values, the last kept, the first line 1"}; !reflect.DeepEqual(tb.notes, want) {
+		t.Errorf("notes %q, want %q", tb.notes, want)
+	}
+	tb, err = readJSONLines([]byte(`{"x":1,"":{"x":2}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"line 1: a column given two values, the last kept"}; !reflect.DeepEqual(tb.notes, want) {
+		t.Errorf("an object under the empty key: notes %q, want %q", tb.notes, want)
+	}
+}
+
+// A log keyed by user has a key a line; past maxJSONColumns the keys are
+// left out and said, and no row holds more cells than its own keys reach.
+func TestReadJSONLinesHoldsItsColumns(t *testing.T) {
+	var b strings.Builder
+	const lines = 3 * maxJSONColumns
+	for i := range lines {
+		fmt.Fprintf(&b, `{"t":%d,"counts":{"user%d":1}}`+"\n", i, i)
+	}
+	tb, err := readJSONLines([]byte(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tb.names) != maxJSONColumns || len(tb.rows) != lines {
+		t.Errorf("%d columns and %d rows, want %d and %d", len(tb.names), len(tb.rows), maxJSONColumns, lines)
+	}
+	cells := 0
+	for _, row := range tb.rows {
+		cells += len(row)
+	}
+	// Row i reaches column i+1, 2 cells to maxJSONColumns, while there
+	// are columns to make, and holds t's alone after.
+	if want := (2+maxJSONColumns)*(maxJSONColumns-1)/2 + (lines - maxJSONColumns + 1); cells != want {
+		t.Errorf("%d cells held, want %d", cells, want)
+	}
+	if want := []string{fmt.Sprintf("%d keys past the first %d left out, the first \"counts.user%d\"", lines-maxJSONColumns+1, maxJSONColumns, maxJSONColumns-1)}; !reflect.DeepEqual(tb.notes, want) {
+		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
 }
 
@@ -67,8 +122,8 @@ starting up
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := [][]string{{"1"}, {"5"}}; !reflect.DeepEqual(tb.rows, want) {
-		t.Errorf("rows %q, want %q", tb.rows, want)
+	if want := [][]string{{"1"}, {"5"}}; !reflect.DeepEqual(grid(tb), want) {
+		t.Errorf("rows %q, want %q", grid(tb), want)
 	}
 	if want := []string{"5 lines not a JSON object, left out, the first line 2"}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
@@ -96,9 +151,10 @@ starting up
 	}
 }
 
-// auto takes a file beginning with an object, one of whose first lines
-// reads as one, for JSON Lines, and anything else for CSV; a JSON array is
-// refused, saying what plot reads instead.
+// auto takes a file for JSON Lines where at least half its first lines
+// are whole objects, whatever the first is -- a log read from its middle
+// begins with the end of a line -- and anything else for CSV. JSON that is
+// not JSON Lines is refused, saying jq -c makes it so where it would.
 func TestSniffInput(t *testing.T) {
 	for _, c := range []struct {
 		name, data string
@@ -107,16 +163,27 @@ func TestSniffInput(t *testing.T) {
 		{"objects", "{\"a\":1}\n{\"a\":2}\n", inputJSONL},
 		{"after blank lines", "\n  \n{\"a\":1}\n", inputJSONL},
 		{"first line cut short", "{\"a\":\n{\"a\":2}\n", inputJSONL},
+		{"read from the middle", "s\":200}\n{\"a\":1}\n{\"a\":2}\n", inputJSONL},
+		{"after a banner", "service starting\n{\"a\":1}\n{\"a\":2}\n", inputJSONL},
+		{"one object in three", "x\ny\n{\"a\":1}\n", inputCSV},
 		{"CSV", "a,b\n1,2\n", inputCSV},
 		{"a brace no line closes", "{a},b\n1,2\n", inputCSV},
 		{"brackets not JSON", "[a],b\n1,2\n", inputCSV},
+		{"a brace and JSON after", "{\n\"a\": 1\n} x\n", inputCSV},
 	} {
 		got, err := sniffInput([]byte(c.data))
 		if err != nil || got != c.want {
 			t.Errorf("%s: %q, %v, want %q", c.name, got, err, c.want)
 		}
 	}
-	if _, err := sniffInput([]byte(" [{\"a\":1},{\"a\":2}]\n")); err == nil || !strings.Contains(err.Error(), "jq -c") {
-		t.Errorf("an array: %v, want an error saying how to make JSON Lines of it", err)
+	for _, c := range []struct{ name, data, want, not string }{
+		{"an array of objects", " [{\"a\":1},{\"a\":2}]\n", "jq -c '.[]'", ""},
+		{"an array of numbers", "[1,2,3]", "one JSON array", "jq"},
+		{"objects over lines", "{\n  \"a\": 1\n}\n{\n  \"a\": 2\n}\n", "jq -c .", ""},
+	} {
+		_, err := sniffInput([]byte(c.data))
+		if err == nil || !strings.Contains(err.Error(), c.want) || c.not != "" && strings.Contains(err.Error(), c.not) {
+			t.Errorf("%s: %v, want an error saying %q and not %q", c.name, err, c.want, c.not)
+		}
 	}
 }

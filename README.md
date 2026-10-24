@@ -478,18 +478,23 @@ window; in any other terminal, in tmux, or into a pipe, it is braille; with
 `--out` it is a PNG.
 
 It reads JSON Lines, an object a line, as logs and many tools write them,
-where a file begins with an object, or where `--input jsonl` says. Each key is
+where at least half a file's first 20 lines are objects — so a log read from
+its middle, cut line first, is still one — or where `--input jsonl` says.
+Each key is
 a column, in the order the keys are first met, and a key inside an object is
 named by its path, `cpu.user`, an array's element by its index, `load[0]`; a
 key a line lacks, and a `null`, is a gap. A number is read as written, and a
 string as a CSV's cell is, so `"12.5"` is a number and
 `"2024-03-05T14:30:00Z"` a date. A line that is not one object — cut short
 where a log was rotated mid-write, a line of text among them — is left out,
-and `plot` says how many and the first. `--delimiter`, `--header` and
-`--decimal` are for CSV, and refused for JSON Lines rather than ignored; a
-file of one JSON array is refused with `jq -c '.[]'`, which writes its
-elements as JSON Lines. `--input csv` reads a file as CSV whatever it begins
-with. Each format is one file of the command, read into the same table of
+and `plot` says how many and the first. So is a column given two values in
+one line — a key written twice, or `"a.b"` beside an `"a"` holding `"b"` —
+which keeps the last, and the keys past the first 1,000, which a log keyed by
+user or request can reach. `--delimiter`, `--header` and `--decimal` are for
+CSV, and refused for JSON Lines rather than ignored. A file of one JSON
+array, or of objects written over several lines each, as `jq` writes them
+without `-c`, is refused, saying `jq -c` makes JSON Lines of it.
+`--input csv` reads a file as CSV whatever it holds. Each format is one file of the command, read into the same table of
 text, and another format is another reader of it.
 
 [`examples/requests.jsonl`](examples/requests.jsonl) is an hour of made-up

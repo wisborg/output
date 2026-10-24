@@ -90,7 +90,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.x, "x", "", "the column to plot against, by name or number from 1, or 0 for the row (default: the first column, where it holds dates or numbers in order; the row otherwise)")
 	fs.StringVar(&o.y, "y", "", "the columns to plot, by name or number from 1, comma-separated, each in a strip of its own (default: every column of numbers but x, up to "+strconv.Itoa(maxDefaultColumns)+")")
 	fs.BoolVar(&o.list, "list", false, "list the columns, what each holds and how many values, and plot nothing")
-	fs.StringVar(&o.input, "input", string(inputAuto), "how the file is written: auto, csv, or jsonl (JSON Lines, an object a line); auto takes a file beginning with an object for JSON Lines")
+	fs.StringVar(&o.input, "input", string(inputAuto), "how the file is written: auto, csv, or jsonl (JSON Lines, an object a line); auto takes a file for JSON Lines where at least half its first lines are objects")
 	fs.StringVar(&o.delimiter, "delimiter", "auto", "what separates values: auto, tab, or a character such as , ; or |")
 	fs.StringVar(&o.header, "header", string(headerAuto), "whether the first row names the columns: auto, yes or no")
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
@@ -190,15 +190,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	var t *table
 	if mode == inputJSONL {
 		// Said, not ignored: a --decimal comma that changed nothing reads
-		// as one obeyed.
+		// as one obeyed. Nor does the flag make auto take the file for
+		// CSV: an alias holding one would read every log as fragments.
 		for _, f := range []string{"delimiter", "header", "decimal"} {
 			if set[f] {
-				return cli.Usagef("--%s is for CSV, and %s is read as JSON Lines", f, name)
+				return cli.Usagef("--%s is for CSV, and %s is read as JSON Lines: --input csv reads it as CSV", f, name)
 			}
 		}
 		t, err = readJSONLines(data)
 	} else {
-		t, err = readTable(bytes.NewReader(data), delim, header, order, mark)
+		t, err = readTable(data, delim, header, order, mark)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
@@ -211,13 +212,22 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	cols := make([]column, len(t.names))
 	for j := range t.names {
 		cells := make([]string, len(t.rows))
-		for i, rec := range t.rows {
-			cells[i] = rec[j]
+		for i := range t.rows {
+			cells[i] = t.cell(i, j)
 		}
 		cols[j] = classify(cells, order)
 	}
 	if o.list {
-		return writeColumns(stdout, t, cols)
+		// What reading left out or guessed is said here too: a log listed
+		// with its cut lines and lost keys unsaid lists columns that look
+		// whole.
+		if err := writeColumns(stdout, t, cols); err != nil {
+			return err
+		}
+		for _, n := range t.notes {
+			fmt.Fprintln(stderr, n)
+		}
+		return nil
 	}
 
 	xLayout := ""
@@ -237,8 +247,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 			return cli.Usagef("--x-date reads the x column as dates, and the chart is against the row: say --x")
 		}
 		cells := make([]string, len(t.rows))
-		for i, rec := range t.rows {
-			cells[i] = rec[x]
+		for i := range t.rows {
+			cells[i] = t.cell(i, x)
 		}
 		if cols[x] = asDates(cells, xLayout); cols[x].values == cols[x].wrong {
 			return fmt.Errorf("--x-date %s: no cell of %q reads as one", o.xDate, t.names[x])
@@ -309,9 +319,10 @@ usage: plot [flags] [FILE]
 
 FILE is read as CSV -- delimited by commas, tabs, semicolons or bars --
 with or without a first row of names, or as JSON Lines -- an object a
-line, a column for each key, cpu.user for a key inside another -- where it
-begins with an object; without FILE, or with -, standard input is. Each column plotted is a strip of its own, on its own scale,
-sharing the x axis. An empty cell, NA or null is a gap in the line, never
+line, a column for each key, cpu.user for a key inside another -- where
+its lines are objects; without FILE, or with -, standard input is. Each
+column plotted is a strip of its own, on its own scale, sharing the x
+axis. An empty cell, NA or null is a gap in the line, never
 a zero. A number may be written with a decimal point, 1,234.5, or a decimal
 comma, 1.234,5: which, is told for the whole file from its numbers, or
 said with --decimal.
@@ -360,8 +371,8 @@ func chooseX(t *table, cols []column, spec string) (int, error) {
 func ordered(t *table, j int, c column) bool {
 	up, down := true, true
 	prev, have := 0.0, false
-	for _, rec := range t.rows {
-		v, ok := c.value(rec[j])
+	for i := range t.rows {
+		v, ok := c.value(t.cell(i, j))
 		if !ok {
 			continue
 		}

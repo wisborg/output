@@ -5,19 +5,26 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/wisborg/output/internal/cli"
 )
 
-// table is a file's cells as text: its columns' names, and its rows, each
-// as long as the longest -- a short row's missing cells are empty, which a
-// column reads as no value.
+// table is a file's cells as text: its columns' names, and its rows. A
+// row may stop short of the last column, and its missing cells are empty,
+// which a column reads as no value: read them through cell.
 type table struct {
 	names []string
 	rows  [][]string
-	notes []string // what reading it guessed, for plot to say
+	notes []string // what reading it guessed or left out, for plot to say
+}
+
+// cell is row i's cell in column j, empty past the row's end.
+func (t *table) cell(i, j int) string {
+	if row := t.rows[i]; j < len(row) {
+		return row[j]
+	}
+	return ""
 }
 
 // delimiters are the delimiters sniffDelimiter tells apart, in the order it
@@ -113,7 +120,7 @@ const (
 	headerNo   headerMode = "no"
 )
 
-// readTable reads delimited text from r -- delimited by delim, or by what
+// readTable reads delimited text from data -- delimited by delim, or by what
 // sniffDelimiter finds where it is zero -- with values in double quotes
 // where they hold the delimiter, a quote or a line break, as RFC 4180 has
 // them. header says whether the first row names the columns; for auto,
@@ -122,16 +129,12 @@ const (
 //
 // The reader forgives what spreadsheets and hand-written files do: rows of
 // different lengths, a quote inside an unquoted value, spaces after a
-// delimiter, and the byte-order mark Excel begins a UTF-8 file with. A file
-// written with a decimal comma -- "1,5", "1.234,5" -- is read as one, as
-// decideDecimal decides from mark and the file's own cells, and its numbers
-// are rewritten with points.
-func readTable(r io.Reader, delim rune, header headerMode, dates dateOrder, mark decimalMark) (*table, error) {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+// delimiter. (The byte-order mark Excel begins a UTF-8 file with is run's
+// to strip, before it tells CSV from JSON Lines.) A file written with a
+// decimal comma -- "1,5", "1.234,5" -- is read as one, as decideDecimal
+// decides from mark and the file's own cells, and its numbers are
+// rewritten with points.
+func readTable(data []byte, delim rune, header headerMode, dates dateOrder, mark decimalMark) (*table, error) {
 	if delim == 0 {
 		delim = sniffDelimiter(data)
 	}

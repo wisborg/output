@@ -185,10 +185,10 @@ func TestPlotWritesAPNG(t *testing.T) {
 }
 
 // Every example CSV and JSON Lines file in the repository draws, in braille
-// and as a PNG: an example that no longer reads is worse than none. Drawn narrower than
-// its title, each line is at most the width in a terminal's columns --
-// summer-weather.csv's title, in Japanese, came out 59 columns of 50 when
-// a title was cut by runes.
+// and as a PNG: an example that no longer reads is worse than none. Drawn
+// narrower than its title, each line is at most the width in a terminal's
+// columns -- summer-weather.csv's title, in Japanese, came out 59 columns
+// of 50 when a title was cut by runes.
 func TestExamples(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.csv"))
 	if err != nil {
@@ -539,9 +539,12 @@ func TestPlotJSONLines(t *testing.T) {
 	if errOut != "line 3: not a JSON object, left out\n" {
 		t.Errorf("stderr %q, want the line left out said", errOut)
 	}
-	out, _, err = plot(t, data, "--list", "--input", "jsonl")
+	out, errOut, err = plot(t, data, "--list", "--input", "jsonl")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if errOut != "line 3: not a JSON object, left out\n" {
+		t.Errorf("--list: stderr %q, want the line left out said there too", errOut)
 	}
 	if !strings.Contains(out, "1  ts        date    3 of 3") || !strings.Contains(out, "2  cpu.user  number  3 of 3") {
 		t.Errorf("--list:\n%s", out)
@@ -551,6 +554,8 @@ func TestPlotJSONLines(t *testing.T) {
 	for _, args := range [][]string{{"--delimiter", ","}, {"--header", "no"}, {"--decimal", "point"}, {"--input", "xml"}} {
 		if _, _, err := plot(t, data, args...); !errors.As(err, &ue) {
 			t.Errorf("%q: %v, want a UsageError", args, err)
+		} else if args[0] != "--input" && !strings.Contains(err.Error(), "--input csv") {
+			t.Errorf("%q: %v, want it to say --input csv reads the file as CSV", args, err)
 		}
 	}
 	if _, _, err := plot(t, data, "--dates", "dmy"); err != nil {
@@ -565,5 +570,10 @@ func TestPlotJSONLines(t *testing.T) {
 	}
 	if _, _, err := plot(t, `[{"a":1},{"a":2}]`); err == nil || !strings.Contains(err.Error(), "JSON Lines") {
 		t.Errorf("a JSON array: %v", err)
+	}
+	// The byte-order mark is stripped once, before either reader: a CSV's
+	// first name does not begin with it.
+	if out, _, err := plot(t, "\xef\xbb\xbfdate,v\n2024-01-01,1\n2024-01-02,2\n", "--list"); err != nil || !strings.Contains(out, "1  date ") || strings.Contains(out, "\ufeff") {
+		t.Errorf("a CSV after a byte-order mark: %v\n%s", err, out)
 	}
 }

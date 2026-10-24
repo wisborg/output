@@ -82,9 +82,9 @@ from reality is a test failure.
   `diagram/picture`, and internal so that it is not an API anyone else
   depends on.
 - `examples/` — DOT files a reader can copy, each drawn as text, PNG and
-  SVG by `cmd/diagram`'s `TestExamples`, and CSV and JSON Lines files, each drawn in
-  braille and as a PNG by `cmd/plot`'s, so one that stops reading fails the
-  build rather than the reader.
+  SVG by `cmd/diagram`'s `TestExamples`, and CSV and JSON Lines files,
+  each drawn in braille and as a PNG by `cmd/plot`'s, so one that stops
+  reading fails the build rather than the reader.
 - `internal/cli/` — what the commands share in reading their command line:
   `Parse` takes flags before or after the file and returns a mistake as a
   `UsageError` without printing, `Exit` reports it and exits 2 (0 for
@@ -101,10 +101,11 @@ from reality is a test failure.
   drawing as too large and the commands.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
   writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
-- `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of text,
-  `jsonl.go` JSON Lines into the same table, `columns.go` decides what each column holds and reads its values,
-  `chart.go` turns the columns into a `chart.Chart`, `main.go` is the flags
-  and the drawing. A new input format is a new reader of the same table.
+- `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of
+  text, `jsonl.go` JSON Lines into the same table, `columns.go` decides
+  what each column holds and reads its values, `chart.go` turns the
+  columns into a `chart.Chart`, `main.go` is the flags and the drawing. A
+  new input format is a new reader of the same table.
 - `diagram/diagram.go` — the package doc, the model (`Diagram`, `Group`,
   `Node`, `Edge`), `Palette`; `layout.go` — `Layout`, grids and layers;
   `route.go` — the search for edges' paths along rows and columns; `straight.go` — which edges a
@@ -683,12 +684,20 @@ JSON's own types was considered and rejected: logs quote numbers as often
 as not, and a second classifier would disagree with the first. A line that
 is not one object is left out and said, as a cell that is not a number is
 a gap and said: a log cut mid-line by rotation is ordinary, and refusing
-the file for it would refuse every such log. `--input auto` takes a file
-beginning with an object for JSON Lines only where one of its first lines
-reads as a whole object, so a CSV whose first cell starts with a brace
-stays a CSV. The CSV-only flags are refused for JSON Lines, never ignored,
-as a `--decimal comma` that changed nothing reads as one obeyed. Nesting is
-read by recursion, so a line deeper than `maxJSONDepth` is left out.
+the file for it would refuse every such log. A column given two values in
+one line, and keys past `maxJSONColumns`, are said too. `--input auto`
+takes a file for JSON Lines where at least half its first 20 lines are
+whole objects, not where its first byte is a brace: a log read from its
+middle begins with the end of a line, and was read as CSV of fragments. No
+CSV holds a line that is a whole object. JSON that is not JSON Lines -- one
+array, objects over several lines -- is refused naming `jq -c`. The
+CSV-only flags are refused for JSON Lines, never ignored, as a `--decimal
+comma` that changed nothing reads as one obeyed; nor do they make auto
+take a file for CSV, as an alias holding one would read every log so. A
+row holds cells only as far as its last key, read through `table.cell`,
+and keys stop at `maxJSONColumns`: padded to every key, a log keyed by user
+grew with the square of its lines, 640 MB for 4,000. Nesting is read by
+recursion, so a line deeper than `maxJSONDepth` is left out.
 
 **A column is a column of numbers when most of its values are, not all.** A
 typed file holds the odd "n.d."; refusing the column for one would refuse the
@@ -726,7 +735,8 @@ The characteristic bug here is output that *looks* right, so a test asserting
   the time for twice the edges, which is why dot's default limit is 300.
 - Input a stranger writes is fuzzed. `FuzzParse` (in `diagram/dot`) reads
   DOT and draws it as text, braille, colour and SVG, `FuzzPlot` (in
-  `cmd/plot`) charts a CSV and lists it, and `FuzzWriteMarkdown` (in
+  `cmd/plot`) charts a CSV or JSON Lines and lists it, and lists it read
+  as JSON Lines, and `FuzzWriteMarkdown` (in
   `table`) writes a cell as Markdown; each checks no panic and the promises
   a label carries -- no control character reaching a terminal, UTF-8
   throughout, well-formed SVG, a chart within its width, a Markdown row a
