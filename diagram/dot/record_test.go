@@ -209,4 +209,13 @@ func TestRecordLabelNotOneIsSaid(t *testing.T) {
 	if len(said) != 2 || said[0].Line != 3 || !strings.Contains(said[0].Msg, `node "a"`) || said[1].Line != 7 || !strings.Contains(said[1].Msg, `node "e"`) {
 		t.Errorf("said %v, want node a's label at line 3 and e's at 7", said)
 	}
+	// Of a file with an error after, nothing is drawn, and nothing said
+	// to be drawn as written.
+	said = nil
+	if _, err := ParseWith("digraph {\n a [shape=record, label=\"{x\"]\n b [color=\"nocolour\"]\n}", Options{Warn: func(e *Error) { said = append(said, e) }}); err == nil {
+		t.Fatal("a bad colour read")
+	}
+	if len(said) != 0 {
+		t.Errorf("said %v of a file that is an error", said)
+	}
 }

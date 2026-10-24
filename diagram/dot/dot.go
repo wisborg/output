@@ -89,7 +89,8 @@ type Options struct {
 	// than as it says, and is no error, since the diagram still draws: a
 	// record's label that is no record label, which Graphviz refuses and
 	// is drawn here as a box with its label as written, its ports naming
-	// nothing. Without it, nothing is said.
+	// nothing. It is told once the file has read, and not of a file that
+	// is an error, which draws nothing. Without it, nothing is said.
 	Warn func(*Error)
 }
 
@@ -126,7 +127,7 @@ func ParseWith(src string, o Options) (*diagram.Diagram, error) {
 	if o.MaxEdges <= 0 {
 		o.MaxEdges = DefaultMaxEdges
 	}
-	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}, clusters: map[string]*clusterInfo{}, maxEdges: o.MaxEdges, warn: o.Warn}
+	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}, clusters: map[string]*clusterInfo{}, maxEdges: o.MaxEdges}
 	if err := p.advance(); err != nil {
 		return nil, err
 	}
@@ -138,6 +139,13 @@ func ParseWith(src string, o Options) (*diagram.Diagram, error) {
 	// end, is a mistake to be told of rather than dropped unread.
 	if p.tok.kind != tEOF && !p.keyword("strict") && !p.keyword("graph") && !p.keyword("digraph") {
 		return nil, p.errorf("unexpected %s after the graph's closing }", p.describe())
+	}
+	// Said once the file has read, as each says what is drawn: of a file
+	// with an error after, nothing is.
+	if o.Warn != nil {
+		for _, w := range p.warnings {
+			o.Warn(w)
+		}
 	}
 	return p.d, nil
 }
@@ -222,10 +230,10 @@ type parser struct {
 	// legend is the cluster with style=legend, and the line it begins on.
 	legend     *diagram.Group
 	legendLine int
-	depth      int          // how many subgraphs the one being read is inside
-	maxEdges   int          // Options.MaxEdges
-	stated     int          // the edges stated, a strict graph's repeats included
-	warn       func(*Error) // Options.Warn
+	depth      int      // how many subgraphs the one being read is inside
+	maxEdges   int      // Options.MaxEdges
+	stated     int      // the edges stated, a strict graph's repeats included
+	warnings   []*Error // for Options.Warn, once the file has read
 }
 
 // clusterInfo is a cluster as read so far.
@@ -955,13 +963,13 @@ func (p *parser) applyNode(info *nodeInfo) error {
 		if !info.lines["label"].html {
 			if fields, ok := record(v, n.ID, p.name); ok {
 				n.Record = fields
-			} else if p.warn != nil {
+			} else {
 				// The line that set the label, or the node's own.
 				line := info.line
 				if at := info.lines["label"]; at.line > 0 {
 					line = at.line
 				}
-				p.warn(&Error{Line: line, Msg: fmt.Sprintf("node %q: the label %q is no record's: it is drawn as written, and no port names a field of it", n.ID, v)})
+				p.warnings = append(p.warnings, &Error{Line: line, Msg: fmt.Sprintf("node %q: the label %q is no record's: it is drawn as written, and no port names a field of it", n.ID, v)})
 			}
 		}
 	}

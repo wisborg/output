@@ -693,13 +693,6 @@ func keepsFields(pts []Point, a, b Rect, fields [2]Rect) bool {
 		(fields[1] == Rect{} || besideField(b, fields[1], pts[n-1], wayOut(pts[n-1], pts[n-2])))
 }
 
-// besideJoint says p is a cell from a joint, across or up and down: an end
-// there is allowed, as a field two cells wide has nowhere else, but costs
-// jointCost, so a line takes a cell further along where there is one.
-func (rt *router) besideJoint(p Point) bool {
-	return rt.joints[Point{p.X - 1, p.Y}] || rt.joints[Point{p.X + 1, p.Y}] || rt.joints[Point{p.X, p.Y - 1}] || rt.joints[Point{p.X, p.Y + 1}]
-}
-
 // outline is r's outline cells edge i may end at -- not its corners, nor
 // where a record's divider meets it, nor a cell another edge ends at but
 // one it may share with -- each with the
@@ -756,7 +749,9 @@ func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (c
 	if len(rt.joints) == 0 {
 		return cells, out, costs
 	}
-	// A cell beside a joint costs jointCost only where its side has a cell
+	// An end beside a joint is allowed, as a field two cells wide has
+	// nowhere else, but costs jointCost, so a line takes a cell further
+	// along where there is one. A cell beside a joint costs it only where its side has a cell
 	// that is not, among those as asked for as it is: the cost picks a cell
 	// along a side, and never turns a line to another side -- under
 	// rankdir=LR every cell of a field a row tall is beside one, and a
@@ -770,7 +765,7 @@ func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (c
 	beside := make([]bool, len(cells))
 	var clear [8]bool
 	for k, p := range cells {
-		beside[k] = rt.besideJoint(p)
+		beside[k] = besideJoint(rt.joints, p)
 		if !beside[k] {
 			clear[group(k)] = true
 		}

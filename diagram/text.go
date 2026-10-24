@@ -677,10 +677,13 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 		// A cell is free for a stub where no line, word or box is, nor
 		// a record's divider meeting the outline beside it, which the
 		// stub would read as running on from.
-		joints := append(from.joints(), to.joints()...)
+		joints := map[Point]bool{}
+		for _, j := range append(from.joints(), to.joints()...) {
+			joints[j] = true
+		}
 		free := func(p Point) bool {
 			return c.in(p.X, p.Y) && c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 && !inBox(p.X, p.Y) &&
-				!stubBesideJoint(joints, p)
+				!besideJoint(joints, p)
 		}
 		headAt, headArrow, headOK := stub(to.Rect, last, x1-x0, y1-y0, free)
 		if headOK {
@@ -862,18 +865,6 @@ func straightHeads(c *textCanvas, e PlacedEdge, cells []Point, dx, dy float64) {
 	if e.Edge.Tail {
 		c.set(first.X, first.Y, pointing(-dx, -dy), e.Edge.Colour)
 	}
-}
-
-// stubBesideJoint says p, a stub's cell, is next to one of the joints js,
-// across or up and down: the router's besideJoint asks the same of an end,
-// over its map of them.
-func stubBesideJoint(js []Point, p Point) bool {
-	for _, j := range js {
-		if abs(p.X-j.X)+abs(p.Y-j.Y) == 1 {
-			return true
-		}
-	}
-	return false
 }
 
 // stub is the cell a straight line, reaching box r at cell near and

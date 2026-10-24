@@ -203,7 +203,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if o.maxEdges <= 0 || o.maxCells <= 0 {
 		return cli.Usagef("--max-edges %d, --max-cells %d: each a number from 1", o.maxEdges, o.maxCells)
 	}
-	warn := func(e *dot.Error) { fmt.Fprintf(stderr, "diagram: %s: %v\n", name, e) }
+	// Warnings are said once the drawing is laid out, as each says what is
+	// drawn: a layout refused draws nothing.
+	var warnings []*dot.Error
+	warn := func(e *dot.Error) { warnings = append(warnings, e) }
 	d, err := dot.ParseWith(string(src), dot.Options{MaxEdges: o.maxEdges, Warn: warn})
 	if errors.Is(err, dot.ErrTooManyEdges) {
 		return fmt.Errorf("%s: %w (--max-edges raises the limit)", name, err)
@@ -231,6 +234,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(stderr, "diagram: %s: %v\n", name, w)
 	}
 	sidesNote(stderr, lay)
 	portsNote(stderr, lay)
@@ -450,7 +456,7 @@ func portsNote(errOut io.Writer, lay *diagram.Layout) {
 			side       diagram.Side
 		}{{e.Edge.From, e.Edge.FromPort, e.Edge.FromSide}, {e.Edge.To, e.Edge.ToPort, e.Edge.ToSide}} {
 			n, ok := lay.Node(end.node)
-			if end.port == "" || !ok || len(n.Node.Record) == 0 || namesField(lay, end.node, end.port) {
+			if end.port == "" || !ok || len(n.Node.Record) == 0 || n.Node.Field(end.port) != nil {
 				continue
 			}
 			where := "anywhere on the box"

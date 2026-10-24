@@ -865,4 +865,12 @@ func TestDiagramSaysARecordLabelIsNone(t *testing.T) {
 	if want := `line 3: node "a": the label "<k> key|{broken" is no record's`; !strings.Contains(errOut, want) {
 		t.Errorf("stderr %q, want %q", errOut, want)
 	}
+	// Nor said where the layout is refused, and nothing drawn.
+	_, errOut, err = draw(t, "digraph {\n a [shape=record,\n label=\"<k> key|{broken\"]\n a:k -> b\n}", "--max-cells", "10")
+	if err == nil {
+		t.Fatal("drawn within 10 cells")
+	}
+	if strings.Contains(errOut, "drawn as written") {
+		t.Errorf("stderr %q says a label is drawn, of a layout refused", errOut)
+	}
 }

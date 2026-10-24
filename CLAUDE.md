@@ -597,7 +597,9 @@ recover from. Where a subgraph so nested is an error, though, such a label
 is no error: it is drawn as written and warned of, as below. A record label that is no record's is drawn as written and
 said to `Options.Warn`, which `diagram` writes to standard error with its
 line: Graphviz refuses one, and drawn without a word its ports quietly
-named nothing.
+named nothing. It is said once the file has read and the drawing is laid
+out, as it says what is drawn: said as it was read, it told of a label
+drawn as written in a file an error later stopped from drawing at all.
 
 **Straight edges are the pictures' alone, and only where clear.** With
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an
