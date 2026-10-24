@@ -15,16 +15,22 @@ import (
 
 // FuzzPlot reads a file as a stranger may write it and charts whatever
 // reads, in braille 60 by 16 characters, smoothed, on a log axis and plain,
-// and lists its columns. A CSV is often someone else's, so none of it may
-// panic, and what is written must keep what the command promises of a
-// heading or a cell: standard output and standard error hold no control
-// character but a line's end and are UTF-8, and no line of the chart is
-// wider than 60 columns.  go test runs the seeds and testdata/fuzz alone;
-// make fuzz searches.
+// and lists its columns, read as it reads and as JSON Lines. A CSV or a
+// log is often someone else's, so none of it may panic, and what is
+// written must keep what the command promises of a heading or a cell:
+// standard output and standard error hold no control character but a
+// line's end and are UTF-8, and no line of the chart is wider than 60
+// columns. A JSON string escapes a control character, \u001b, which a
+// seed must, as JSON holds none raw. go test runs the seeds and
+// testdata/fuzz alone; make fuzz searches.
 func FuzzPlot(f *testing.F) {
-	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.csv"))
-	if err != nil {
-		f.Fatal(err)
+	var paths []string
+	for _, pattern := range []string{"*.csv", "*.jsonl"} {
+		p, err := filepath.Glob(filepath.Join("..", "..", "examples", pattern))
+		if err != nil {
+			f.Fatal(err)
+		}
+		paths = append(paths, p...)
 	}
 	for _, p := range paths {
 		src, err := os.ReadFile(p)
@@ -42,6 +48,9 @@ func FuzzPlot(f *testing.F) {
 		"ts,v\n2024-03-05 14:30:15 +0100,1\n2024-03-05 14:31:15 +0100,1e308\n",
 		"n,\x1b]0;t\x07\n1,2\n2,-3\n",
 		"日本語,値\n1,2\n2,3\n",
+		"{\"t\":1,\"v\":2.5,\"m\":{\"a\":[1,null]}}\n{\"t\":2,\"v\":null}\nnot json\n{\"t\":3,\"v\":-1e9}\n",
+		"{\"\\u001b]0;t\\u0007\":1,\"\u202e\":\"\u200b\",\"n\\u0085\":\"\\u001b[2J\"}\n{\"\\u001b]0;t\\u0007\":2,\"\u202e\":3}\n",
+		"{\"a\":1,\"a\":{\"a\":2},\"\":3}\n[1]\n{\"a\":\n",
 	} {
 		f.Add(s)
 	}
@@ -66,6 +75,7 @@ func checkPlot(t *testing.T, data string) {
 		{"--terminal", "braille", "--width", "60", "--height", "16", "--smooth", "3", "--robust"},
 		{"--terminal", "braille", "--width", "60", "--height", "16", "--log"},
 		{"--list"},
+		{"--list", "--input", "jsonl"},
 	} {
 		var out, errOut bytes.Buffer
 		_ = run(args, strings.NewReader(data), &out, &errOut, noEnv)

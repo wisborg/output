@@ -82,7 +82,7 @@ from reality is a test failure.
   `diagram/picture`, and internal so that it is not an API anyone else
   depends on.
 - `examples/` — DOT files a reader can copy, each drawn as text, PNG and
-  SVG by `cmd/diagram`'s `TestExamples`, and CSV files, each drawn in
+  SVG by `cmd/diagram`'s `TestExamples`, and CSV and JSON Lines files, each drawn in
   braille and as a PNG by `cmd/plot`'s, so one that stops reading fails the
   build rather than the reader.
 - `internal/cli/` — what the commands share in reading their command line:
@@ -102,7 +102,7 @@ from reality is a test failure.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
   writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
 - `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of text,
-  `columns.go` decides what each column holds and reads its values,
+  `jsonl.go` JSON Lines into the same table, `columns.go` decides what each column holds and reads its values,
   `chart.go` turns the columns into a `chart.Chart`, `main.go` is the flags
   and the drawing. A new input format is a new reader of the same table.
 - `diagram/diagram.go` — the package doc, the model (`Diagram`, `Group`,
@@ -672,6 +672,23 @@ learns one word; it lifts limits on memory only -- `--max-edges` bounds
 time, and an SVG's `MaxSide` what viewers open. An explicit `--max-cells`
 outranks it. Re-measure the costs a unit when the drawing code changes much,
 since a refusal quoting them is only as true as they are.
+
+**`plot` reads JSON Lines into the table of text a CSV is read into.**
+A key is a column, in the order keys are first met, a nested one named by
+its path (`cpu.user`, `load[0]`), and every value becomes the text a CSV
+cell would hold -- a number as written, `null` an empty cell -- so
+`columns.go` decides what a column holds the same way for both, and a
+string of digits in a log reads as the number it is. Typing columns from
+JSON's own types was considered and rejected: logs quote numbers as often
+as not, and a second classifier would disagree with the first. A line that
+is not one object is left out and said, as a cell that is not a number is
+a gap and said: a log cut mid-line by rotation is ordinary, and refusing
+the file for it would refuse every such log. `--input auto` takes a file
+beginning with an object for JSON Lines only where one of its first lines
+reads as a whole object, so a CSV whose first cell starts with a brace
+stays a CSV. The CSV-only flags are refused for JSON Lines, never ignored,
+as a `--decimal comma` that changed nothing reads as one obeyed. Nesting is
+read by recursion, so a line deeper than `maxJSONDepth` is left out.
 
 **A column is a column of numbers when most of its values are, not all.** A
 typed file holds the odd "n.d."; refusing the column for one would refuse the

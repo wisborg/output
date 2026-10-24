@@ -420,8 +420,9 @@ and `terminal.LightBackground` whether its background is light, by
 
 ## plot
 
-`plot` charts columns of a CSV file — prices against dates, rain against
-months, anything — with the packages above.
+`plot` charts columns of a CSV or JSON Lines file — prices against dates, rain
+against months, a log's latencies against their times, anything — with the
+packages above.
 
 ```
 go install github.com/wisborg/output/cmd/plot@latest
@@ -431,6 +432,7 @@ plot --y close,volume prices.csv         # these columns, a strip each
 plot --x month --y rain --out rain.png weather.tsv
 some-program | plot --smooth 7           # from standard input, a 7-row average
 plot --log latency.csv                   # each power of ten the same height
+plot --y latency_ms requests.jsonl       # JSON Lines, an object a line
 plot --list prices.csv                   # what each column holds
 ```
 
@@ -473,9 +475,26 @@ it is `chart.Log`, a `Kind` like `Number` and `Date`, for a strip's Y scale.
 
 In iTerm2, WezTerm, kitty and Ghostty the chart is a picture the width of the
 window; in any other terminal, in tmux, or into a pipe, it is braille; with
-`--out` it is a PNG. CSV is the only format it reads for now: the reading is
-one file of the command, and another format is another reader of the same
-table.
+`--out` it is a PNG.
+
+It reads JSON Lines, an object a line, as logs and many tools write them,
+where a file begins with an object, or where `--input jsonl` says. Each key is
+a column, in the order the keys are first met, and a key inside an object is
+named by its path, `cpu.user`, an array's element by its index, `load[0]`; a
+key a line lacks, and a `null`, is a gap. A number is read as written, and a
+string as a CSV's cell is, so `"12.5"` is a number and
+`"2024-03-05T14:30:00Z"` a date. A line that is not one object — cut short
+where a log was rotated mid-write, a line of text among them — is left out,
+and `plot` says how many and the first. `--delimiter`, `--header` and
+`--decimal` are for CSV, and refused for JSON Lines rather than ignored; a
+file of one JSON array is refused with `jq -c '.[]'`, which writes its
+elements as JSON Lines. `--input csv` reads a file as CSV whatever it begins
+with. Each format is one file of the command, read into the same table of
+text, and another format is another reader of it.
+
+[`examples/requests.jsonl`](examples/requests.jsonl) is an hour of made-up
+requests to one service, slowing to a stop:
+`plot --log --y latency_ms examples/requests.jsonl`.
 
 [`examples/summer-weather.csv`](examples/summer-weather.csv) is a month of
 made-up daily readings under Japanese column names. Its title is wider than

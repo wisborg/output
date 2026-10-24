@@ -1,19 +1,23 @@
-// Command plot charts columns of a CSV file -- prices against dates, rain
-// against months, any column of numbers against another or against its
-// row -- in the terminal or as a PNG.
+// Command plot charts columns of a CSV or JSON Lines file -- prices
+// against dates, rain against months, latency against the time of a
+// request -- any column of numbers against another or against its row, in
+// the terminal or as a PNG.
 //
 //	plot prices.csv
 //	plot --y close,volume prices.csv
 //	plot --x month --y rain --out rain.png weather.tsv
 //	some-program | plot --smooth 7
+//	plot --y latency_ms --log requests.jsonl
 //
 // It reads CSV: values delimited by commas, tabs, semicolons or bars -- it
 // tells which by looking -- quoted where they hold the delimiter, with or
 // without a first row naming the columns, and with its numbers' fractions
 // marked by a point or a comma, which it tells for the whole file from the
-// numbers in it. Other formats may come; the
-// reading is one file of this command, and the chart does not care where
-// its numbers came from.
+// numbers in it. It reads JSON Lines too, an object a line, as logs and
+// many tools write them: a column for each key, a nested one named by its
+// path, "cpu.user". Each format is one file of this command, read into the
+// same table of text, and the chart does not care where its numbers came
+// from.
 //
 // It draws with github.com/wisborg/output/chart: in iTerm2, WezTerm, kitty
 // and Ghostty a picture the width of the window; in any other terminal, or
@@ -57,6 +61,7 @@ const maxDefaultColumns = 6
 type options struct {
 	x, y          string
 	list          bool
+	input         string
 	delimiter     string
 	header        string
 	dates         string
@@ -85,6 +90,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.x, "x", "", "the column to plot against, by name or number from 1, or 0 for the row (default: the first column, where it holds dates or numbers in order; the row otherwise)")
 	fs.StringVar(&o.y, "y", "", "the columns to plot, by name or number from 1, comma-separated, each in a strip of its own (default: every column of numbers but x, up to "+strconv.Itoa(maxDefaultColumns)+")")
 	fs.BoolVar(&o.list, "list", false, "list the columns, what each holds and how many values, and plot nothing")
+	fs.StringVar(&o.input, "input", string(inputAuto), "how the file is written: auto, csv, or jsonl (JSON Lines, an object a line); auto takes a file beginning with an object for JSON Lines")
 	fs.StringVar(&o.delimiter, "delimiter", "auto", "what separates values: auto, tab, or a character such as , ; or |")
 	fs.StringVar(&o.header, "header", string(headerAuto), "whether the first row names the columns: auto, yes or no")
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
@@ -149,6 +155,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		defer f.Close()
 		in, name = f, files[0]
 	}
+	mode := inputMode(o.input)
+	if mode != inputAuto && mode != inputCSV && mode != inputJSONL {
+		return cli.Usagef("--input %q: use auto, csv or jsonl", o.input)
+	}
 	delim, err := parseDelimiter(o.delimiter)
 	if err != nil {
 		return err
@@ -165,7 +175,31 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if mark != decimalAuto && mark != decimalPoint && mark != decimalComma {
 		return cli.Usagef("--decimal %q: use auto, point or comma", o.decimal)
 	}
-	t, err := readTable(in, delim, header, order, mark)
+	data, err := io.ReadAll(in)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	// Excel begins a UTF-8 file with one, and a tool may begin JSON Lines
+	// with one too; before it, a file of objects began with no "{".
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	if mode == inputAuto {
+		if mode, err = sniffInput(data); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	var t *table
+	if mode == inputJSONL {
+		// Said, not ignored: a --decimal comma that changed nothing reads
+		// as one obeyed.
+		for _, f := range []string{"delimiter", "header", "decimal"} {
+			if set[f] {
+				return cli.Usagef("--%s is for CSV, and %s is read as JSON Lines", f, name)
+			}
+		}
+		t, err = readJSONLines(data)
+	} else {
+		t, err = readTable(bytes.NewReader(data), delim, header, order, mark)
+	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -268,14 +302,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	return nil
 }
 
-const usage = `plot charts columns of a CSV file against another column, or against the
-row, in the terminal or as a PNG.
+const usage = `plot charts columns of a CSV or JSON Lines file against another column,
+or against the row, in the terminal or as a PNG.
 
 usage: plot [flags] [FILE]
 
 FILE is read as CSV -- delimited by commas, tabs, semicolons or bars --
-with or without a first row of names; without FILE, or with -, standard
-input is. Each column plotted is a strip of its own, on its own scale,
+with or without a first row of names, or as JSON Lines -- an object a
+line, a column for each key, cpu.user for a key inside another -- where it
+begins with an object; without FILE, or with -, standard input is. Each column plotted is a strip of its own, on its own scale,
 sharing the x axis. An empty cell, NA or null is a gap in the line, never
 a zero. A number may be written with a decimal point, 1,234.5, or a decimal
 comma, 1.234,5: which, is told for the whole file from its numbers, or

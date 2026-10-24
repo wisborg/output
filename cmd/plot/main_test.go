@@ -184,8 +184,8 @@ func TestPlotWritesAPNG(t *testing.T) {
 	}
 }
 
-// Every example CSV in the repository draws, in braille and as a PNG: an
-// example that no longer reads is worse than none. Drawn narrower than
+// Every example CSV and JSON Lines file in the repository draws, in braille
+// and as a PNG: an example that no longer reads is worse than none. Drawn narrower than
 // its title, each line is at most the width in a terminal's columns --
 // summer-weather.csv's title, in Japanese, came out 59 columns of 50 when
 // a title was cut by runes.
@@ -194,9 +194,14 @@ func TestExamples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) == 0 {
-		t.Fatal("no examples/*.csv")
+	jsonl, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	if len(paths) == 0 || len(jsonl) == 0 {
+		t.Fatal("no examples/*.csv or no examples/*.jsonl")
+	}
+	paths = append(paths, jsonl...)
 	const width = 50
 	for _, path := range paths {
 		var out, errOut bytes.Buffer
@@ -512,5 +517,53 @@ func TestPlotLog(t *testing.T) {
 	}
 	if _, _, err := plot(t, "n,v\n1,0\n2,-3\n", "--log"); err == nil || !strings.Contains(err.Error(), "above zero") {
 		t.Errorf("a column with nothing above zero: %v", err)
+	}
+}
+
+// A file of JSON objects is read as JSON Lines without being told, and
+// plotted by its keys; a line not an object is left out and said. The
+// flags for CSV alone are refused for it rather than ignored, and --input
+// csv reads it as CSV. A JSON array says what plot reads instead.
+func TestPlotJSONLines(t *testing.T) {
+	const data = "\xef\xbb\xbf{\"ts\":\"2024-03-05T14:30:00Z\",\"cpu\":{\"user\":0.2}}\n" +
+		"{\"ts\":\"2024-03-05T14:31:00Z\",\"cpu\":{\"user\":0.5}}\n" +
+		"{\"ts\":\"2024-03-05T14:32\n" +
+		"{\"ts\":\"2024-03-05T14:33:00Z\",\"cpu\":{\"user\":0.3}}\n"
+	out, errOut, err := plot(t, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "cpu.user against ts") {
+		t.Errorf("want cpu.user plotted against ts:\n%s", out)
+	}
+	if errOut != "line 3: not a JSON object, left out\n" {
+		t.Errorf("stderr %q, want the line left out said", errOut)
+	}
+	out, _, err = plot(t, data, "--list", "--input", "jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "1  ts        date    3 of 3") || !strings.Contains(out, "2  cpu.user  number  3 of 3") {
+		t.Errorf("--list:\n%s", out)
+	}
+
+	var ue *cli.UsageError
+	for _, args := range [][]string{{"--delimiter", ","}, {"--header", "no"}, {"--decimal", "point"}, {"--input", "xml"}} {
+		if _, _, err := plot(t, data, args...); !errors.As(err, &ue) {
+			t.Errorf("%q: %v, want a UsageError", args, err)
+		}
+	}
+	if _, _, err := plot(t, data, "--dates", "dmy"); err != nil {
+		t.Errorf("--dates, which JSON Lines' strings may need: %v", err)
+	}
+
+	if out, _, err := plot(t, data, "--list", "--input", "csv"); err != nil || !strings.Contains(out, `{"ts":"2024-03-05T14:30:00Z"`) {
+		t.Errorf("--input csv: %v, want the objects read as CSV cells:\n%s", err, out)
+	}
+	if _, _, err := plot(t, "a,b\n1,2\n", "--input", "jsonl"); err == nil || !strings.Contains(err.Error(), "line 1: not a JSON object") {
+		t.Errorf("CSV as --input jsonl: %v", err)
+	}
+	if _, _, err := plot(t, `[{"a":1},{"a":2}]`); err == nil || !strings.Contains(err.Error(), "JSON Lines") {
+		t.Errorf("a JSON array: %v", err)
 	}
 }
