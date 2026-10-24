@@ -18,7 +18,15 @@ type table struct {
 	rows  [][]string
 	notes []string // what reading it guessed or left out, for plot to say
 	// dropped are the keys a JSON Lines file has past maxJSONColumns,
-	// which are no column, so that asking for one can say so.
+	// which are no column, so that asking for one can say so, and the
+	// note can count them.
+	//
+	// It holds every such key, without a limit: a known limit, kept. A log
+	// keyed by user with millions of users holds millions of names. The
+	// whole file is in memory already, and the names are no larger than
+	// it, so this at most doubles what reading takes; a bounded set would
+	// miscount the keys left out, and say of a key past its bound that
+	// there is no such column, or the file would be read twice to answer.
 	dropped map[string]bool
 }
 

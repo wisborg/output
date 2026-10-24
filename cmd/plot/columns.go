@@ -444,7 +444,8 @@ func (col column) value(cell string) (float64, bool) {
 //
 // A key a JSON Lines file has past maxJSONColumns is said to be left out,
 // rather than no column: it is in the file, and a reader told otherwise
-// looks for a typing mistake.
+// looks for a typing mistake. It is looked for before a number, as a key
+// may be one.
 func findColumn(t *table, spec string) (int, error) {
 	names := t.names
 	spec = strings.TrimSpace(spec)
@@ -458,11 +459,13 @@ func findColumn(t *table, spec string) (int, error) {
 			return j, nil
 		}
 	}
-	if n, err := strconv.Atoi(spec); err == nil && n >= 1 && n <= len(names) {
-		return n - 1, nil
-	}
+	// Before the number: a log keyed by bucket, "5", whose key 5 came past
+	// the columns kept, plotted the fifth column for --y 5.
 	if t.dropped[spec] {
 		return 0, fmt.Errorf("%q is past the first %d columns, and was left out", spec, maxJSONColumns)
+	}
+	if n, err := strconv.Atoi(spec); err == nil && n >= 1 && n <= len(names) {
+		return n - 1, nil
 	}
 	return 0, fmt.Errorf("no column %q: the columns are %s", spec, quoteList(names))
 }

@@ -68,12 +68,30 @@ func TestReadJSONLinesKeys(t *testing.T) {
 	if want := []string{"2 lines giving a column two values, the last kept, the first line 1"}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
+	// The key "" holds an object whose x is ".x", not the line's own x.
 	tb, err = readJSONLines([]byte(`{"x":1,"":{"x":2}}`), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"line 1: a column given two values, the last kept"}; !reflect.DeepEqual(tb.notes, want) {
-		t.Errorf("an object under the empty key: notes %q, want %q", tb.notes, want)
+	if want := []string{"x", ".x"}; !reflect.DeepEqual(tb.names, want) || len(tb.notes) != 0 {
+		t.Errorf("an object under the empty key: names %q, notes %q, want %q and none", tb.names, tb.notes, want)
+	}
+}
+
+// Whether a cell is a string is its last value's to say, and only the
+// strings the rows hold decide the decimal mark: a number after a string,
+// the key written twice, was rewritten with a decimal comma, 1.500 as
+// 1500, and a string replaced decided a mark no cell is written in.
+func TestReadJSONLinesStringsAsLeft(t *testing.T) {
+	tb, err := readJSONLines([]byte(`{"a":"1,5"}`+"\n"+`{"a":"x","a":1.500}`+"\n"+`{"a":"2,5"}`+"\n"+`{"a.b":"1,5","a":{"b":1.500}}`+"\n"), decimalAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := grid(tb); got[0][0] != "1.5" || got[1][0] != "1.500" || got[2][0] != "2.5" || got[3][1] != "1.500" {
+		t.Errorf("rows %q, want the strings read with a comma and the numbers 1.500 left be", got)
+	}
+	if _, err := readJSONLines([]byte(`{"v":"1,5","v":2}`+"\n"+`{"w":"0.5"}`+"\n"), decimalAuto); err != nil {
+		t.Errorf("a decimal comma only in a string replaced: %v, want no file written both ways", err)
 	}
 }
 
@@ -125,8 +143,11 @@ starting up
 	if want := [][]string{{"1"}, {"5"}}; !reflect.DeepEqual(grid(tb), want) {
 		t.Errorf("rows %q, want %q", grid(tb), want)
 	}
-	if want := []string{"5 lines not a JSON object, left out, the first line 2"}; !reflect.DeepEqual(tb.notes, want) {
+	if want := []string{"4 lines not a JSON object, left out, the first line 2", fmt.Sprintf("line 6: nested past %d deep, left out", maxJSONDepth)}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
+	}
+	if _, err := readJSONLines([]byte(deep), decimalAuto); err == nil || !strings.Contains(err.Error(), "nested past") {
+		t.Errorf("only a line too deep: %v, want it said to be nested too deep", err)
 	}
 
 	// As deep as maxJSONDepth is read.
@@ -219,6 +240,8 @@ func TestAllowNonFinite(t *testing.T) {
 		`{"a":"NaN \" NaN","b":1}`:           `{"a":"NaN \" NaN","b":1}`,
 		`{"NaN":1,"a":NaNx,"b":xNaN}`:        `{"NaN":1,"a":NaNx,"b":xNaN}`,
 		`{"a":1}`:                            `{"a":1}`,
+		`{NaN:1,"b":[1,NaN],"c":{"d":NaN}}`:  `{NaN:1,"b":[1,"NaN"],"c":{"d":"NaN"}}`,
+		`{"a":1,Infinity:2}`:                 `{"a":1,Infinity:2}`,
 	} {
 		if got := string(allowNonFinite([]byte(in))); got != want {
 			t.Errorf("%s: %s, want %s", in, got, want)
@@ -233,5 +256,29 @@ func TestNameColumns(t *testing.T) {
 	nameColumns(names)
 	if want := []string{"t", "column 2, unnamed", "column 2", "column 4"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("%q, want %q", names, want)
+	}
+}
+
+// A key left out past maxJSONColumns is said to be, though its name is a
+// number that could be a column's: --y 5 plotted the fifth column.
+func TestFindColumnSaysAKeyLeftOut(t *testing.T) {
+	tb := &table{names: []string{"t", "a", "b", "c", "d", "e"}, dropped: map[string]bool{"5": true}}
+	if _, err := findColumn(tb, "5"); err == nil || !strings.Contains(err.Error(), "left out") {
+		t.Errorf("--y 5, a key left out: %v", err)
+	}
+	if j, err := findColumn(tb, "4"); err != nil || j != 3 {
+		t.Errorf("--y 4: %d, %v, want the fourth column", j, err)
+	}
+}
+
+// A line whose key is NaN is no JSON, and is left out, not read as an
+// object with a column "NaN".
+func TestReadJSONLinesNaNKey(t *testing.T) {
+	tb, err := readJSONLines([]byte(`{"v":1}`+"\n"+`{NaN:1,"b":2}`+"\n"), decimalAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"v"}; !reflect.DeepEqual(tb.names, want) || len(tb.notes) != 1 {
+		t.Errorf("names %q, notes %q, want %q and line 2 left out", tb.names, tb.notes, want)
 	}
 }

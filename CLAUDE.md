@@ -689,24 +689,45 @@ one line, and keys past `maxJSONColumns` and an array's elements past
 `maxJSONArray`, are said too: each element is a column, and a long array
 took every column, losing the keys after it. `NaN` and `Infinity`, which
 encoding/json refuses and Python writes, are quoted before decoding
-(`allowNonFinite`), so they read as the words a CSV's cell would be, and
-lose no line. A JSON number has a point, but a string may hold `"1,5"`, so
-the strings alone go to `decideDecimal` and `--decimal` applies; the
-numbers are never rewritten, as `commaToPoint` would make `1.250` 1250. `--input auto`
+(`allowNonFinite`) where a value stands, never a key, so they read as the
+words a CSV's cell would be, and lose no line. A JSON number has a point,
+but a string may hold `"1,5"`, so the strings the rows hold go to
+`decideDecimal` and `--decimal` applies; a number is never rewritten, as
+`commaToPoint` would make `1.250` 1250, and whether a cell is a string is
+its last value's to say, where a key is written twice. `--input auto`
 takes a file for JSON Lines where at least half its first 20 lines are
 whole objects, not where its first byte is a brace: a log read from its
 middle begins with the end of a line, and was read as CSV of fragments. No
-CSV holds a line that is a whole object. JSON that is not JSON Lines -- one
-array, objects over several lines -- is refused naming `jq -c`. The
-CSV-only flags, `--delimiter` and `--header`, are refused for JSON Lines
-at any value but `auto`, never ignored, as a `--header no` that changed
-nothing reads as one obeyed -- before the input is read, where `--input
-jsonl` says the format; nor do they make auto take a file for CSV, as an
-alias holding one would read every log so. A
-row holds cells only as far as its last key, read through `table.cell`,
-and keys stop at `maxJSONColumns`: padded to every key, a log keyed by user
+CSV holds a line that is a whole object. JSON that is not JSON Lines --
+one array, an array a line, objects over several lines -- is refused, naming
+`jq -c` where it helps. The CSV-only flags, `--delimiter` and `--header`,
+are refused for JSON Lines at any value but `auto`, never ignored, as a
+`--header no` that changed nothing reads as one obeyed -- before the input
+is read, where `--input jsonl` says the format; nor do they make auto take
+a file for CSV, as an alias holding one would read every log so. A row
+holds cells only as far as its last key, read through `table.cell`, and
+keys stop at `maxJSONColumns`: padded to every key, a log keyed by user
 grew with the square of its lines, 640 MB for 4,000. Nesting is read by
-recursion, so a line deeper than `maxJSONDepth` is left out.
+recursion, so a line deeper than `maxJSONDepth` is left out, and said to
+be nested too deep rather than to be no object, which it is.
+
+Two limits of the JSON Lines reader are known and kept; reviews have
+raised each more than once, so here is why. **It is about three times
+slower than CSV, and takes about three times the memory**: 300,000 lines
+in 2 s and 314 MB, against 0.6 s and 102 MB. Each line has a
+`json.Decoder` of its own, read a token at a time (`walkLine`).
+encoding/json's Decoder cannot be reset onto a new line, `Unmarshal` into a
+map loses the keys' order, which is the columns' order, and one decoder
+over the whole file cannot leave out a broken line and read on. Doing
+better means a tokenizer of plot's own, judged not worth its code for
+seconds at half a million lines; it is the change to make if that
+judgement changes. **`table.dropped` holds every key past
+`maxJSONColumns`, without a limit.** It is what lets the note count the
+keys left out exactly and `--y` say a key was left out rather than that
+there is none. The file is in memory whole already and the names are no
+larger than it, so the set at most doubles what reading takes; a bounded
+one would miscount, or answer "no such column" for a key in the file, or
+need the file read twice.
 
 **A column is a column of numbers when most of its values are, not all.** A
 typed file holds the odd "n.d."; refusing the column for one would refuse the
