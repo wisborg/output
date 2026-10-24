@@ -14,10 +14,10 @@ import (
 // label's are, after, so a node "x|y" with no label of its own is one
 // field, as in Graphviz. A field's words are taken without the spaces
 // about them, an escaped one excepted. A label that is not one -- a brace
-// or a "<" not closed, a "{" in a field's words, a port after them, braces
-// nested more than maxDepth deep -- is no record, false, and the node is
-// drawn as a box with its label as written, where Graphviz refuses to
-// draw it.
+// or a "<" not closed, a "{" in a field's words, a port after them or a
+// second one, braces nested more than maxDepth deep -- is no record,
+// false, and the node is drawn as a box with its label as written, where
+// Graphviz refuses to draw it.
 func record(v, name, graph string) ([]diagram.Field, bool) {
 	r := recordReader{s: v, name: name, graph: graph}
 	fields, ok := r.list()
@@ -58,9 +58,7 @@ func (r *recordReader) list() ([]diagram.Field, bool) {
 
 // field reads one field: "{" fields "}", or a port and words.
 func (r *recordReader) field() (diagram.Field, bool) {
-	for r.i < len(r.s) && r.s[r.i] == ' ' {
-		r.i++
-	}
+	r.skipSpace()
 	if r.i < len(r.s) && r.s[r.i] == '{' {
 		if r.depth >= maxDepth {
 			return diagram.Field{}, false
@@ -73,12 +71,12 @@ func (r *recordReader) field() (diagram.Field, bool) {
 			return diagram.Field{}, false
 		}
 		r.i++
-		for r.i < len(r.s) && r.s[r.i] == ' ' {
-			r.i++
-		}
+		r.skipSpace()
 		return diagram.Field{Fields: fields}, true
 	}
 	var f diagram.Field
+	// port says f has a port already, an empty one, "<>", among them.
+	port := false
 	// text is the field's words, and end how much of it is left once the
 	// spaces after them are taken off: not an escaped one, which is how
 	// Graphviz's labels keep a space at either end.
@@ -102,9 +100,10 @@ func (r *recordReader) field() (diagram.Field, bool) {
 			}
 			// One port, before the words: one after them would take a
 			// word out of the field's text, and Graphviz refuses both.
-			if gt >= len(r.s) || f.Port != "" || text.Len() > 0 {
+			if gt >= len(r.s) || port || text.Len() > 0 {
 				return f, false
 			}
+			port = true
 			f.Port = strings.TrimSpace(unescape(r.s[r.i+1 : gt]))
 			r.i = gt + 1
 			continue
@@ -124,7 +123,7 @@ func (r *recordReader) field() (diagram.Field, bool) {
 			}
 			end = text.Len()
 			continue
-		case ' ', '\t', '\n', '\r':
+		case ' ', '\t', '\n', '\r': // as skipSpace skips them
 			r.i++
 			if text.Len() > 0 { // a space before the words is none of them
 				text.WriteByte(c)
@@ -153,6 +152,15 @@ func fieldsText(fields []diagram.Field) string {
 		}
 	}
 	return strings.Join(words, " ")
+}
+
+// skipSpace reads past the spaces, tabs and line breaks at r.i: those about
+// a brace, as those about a field's words, are none of the label's, and a
+// long record written over several lines has a line break before its "{".
+func (r *recordReader) skipSpace() {
+	for r.i < len(r.s) && strings.IndexByte(" \t\n\r", r.s[r.i]) >= 0 {
+		r.i++
+	}
 }
 
 // unescape is s with a backslash before any character taken off.

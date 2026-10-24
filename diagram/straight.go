@@ -39,31 +39,14 @@ func (lay *Layout) straightens(e Edge) bool {
 	return !lay.crossesBox(a, b)
 }
 
-// nearJoint says the line from (x, y), at n's middle, towards (tx, ty) leaves
-// n's outline less than a cell from one of its joints.
-func nearJoint(n PlacedNode, x, y, tx, ty float64) bool {
-	js := n.joints()
-	if len(js) == 0 {
-		return false
-	}
-	r := n.Rect
+// nearJoint says the line from (x, y), in box r, towards (tx, ty) leaves
+// r's outline less than a cell from one of the joints js.
+func nearJoint(js []Point, r Rect, x, y, tx, ty float64) bool {
 	dx, dy := tx-x, ty-y
-	// The part of the way to (tx, ty) at which the line reaches each of
-	// the outline's columns and rows, the nearer of them where it leaves.
-	t := math.Inf(1)
-	if dx > 0 {
-		t = min(t, (float64(r.X+r.W-1)-x)/dx)
-	} else if dx < 0 {
-		t = min(t, (float64(r.X)-x)/dx)
-	}
-	if dy > 0 {
-		t = min(t, (float64(r.Y+r.H-1)-y)/dy)
-	} else if dy < 0 {
-		t = min(t, (float64(r.Y)-y)/dy)
-	}
-	if math.IsInf(t, 1) {
+	if len(js) == 0 || dx == 0 && dy == 0 {
 		return false
 	}
+	t := exitBox(x, y, dx, dy, float64(r.X), float64(r.Y), float64(r.X+r.W-1), float64(r.Y+r.H-1))
 	ex, ey := x+t*dx, y+t*dy
 	for _, j := range js {
 		if math.Abs(ex-float64(j.X)) < 1 && math.Abs(ey-float64(j.Y)) < 1 {
@@ -117,6 +100,15 @@ func shifts(edges []Edge, straight []bool) []float64 {
 // running on. Each taken out sets the others between its nodes apart
 // differently, so it looks again until none is.
 func (lay *Layout) keepClearOfJoints(edges []Edge, straight []bool) {
+	joints := map[string][]Point{}
+	for _, n := range lay.Nodes {
+		if js := n.joints(); len(js) > 0 {
+			joints[n.Node.ID] = js
+		}
+	}
+	if len(joints) == 0 {
+		return
+	}
 	for {
 		sh, changed := shifts(edges, straight), false
 		for i := range edges {
@@ -126,7 +118,7 @@ func (lay *Layout) keepClearOfJoints(edges []Edge, straight []bool) {
 			x0, y0, x1, y1 := lay.ends(PlacedEdge{Edge: &edges[i], Shift: sh[i]})
 			a, _ := lay.Node(edges[i].From)
 			b, _ := lay.Node(edges[i].To)
-			if nearJoint(a, x0, y0, x1, y1) || nearJoint(b, x1, y1, x0, y0) {
+			if nearJoint(joints[a.Node.ID], a.Rect, x0, y0, x1, y1) || nearJoint(joints[b.Node.ID], b.Rect, x1, y1, x0, y0) {
 				straight[i], changed = false, true
 			}
 		}

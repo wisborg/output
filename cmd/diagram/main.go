@@ -203,7 +203,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if o.maxEdges <= 0 || o.maxCells <= 0 {
 		return cli.Usagef("--max-edges %d, --max-cells %d: each a number from 1", o.maxEdges, o.maxCells)
 	}
-	d, err := dot.ParseWith(string(src), dot.Options{MaxEdges: o.maxEdges})
+	warn := func(e *dot.Error) { fmt.Fprintf(stderr, "diagram: %s: %v\n", name, e) }
+	d, err := dot.ParseWith(string(src), dot.Options{MaxEdges: o.maxEdges, Warn: warn})
 	if errors.Is(err, dot.ErrTooManyEdges) {
 		return fmt.Errorf("%s: %w (--max-edges raises the limit)", name, err)
 	}
@@ -412,13 +413,26 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 // passing through a box. A port that had no effect without a word looked
 // as though it had been read wrongly, or not at all. The nodes' names are
 // quoted, as the reader's errors quote them: they are the file's text,
-// and an escape in one written as it is is a command to the terminal.
+// and an escape in one written as it is is a command to the terminal. Of
+// an edge whose ports name a record's field, it says so, and of one whose
+// ports are sides alone, it does not, as there are no fields to be beside.
 func sidesNote(errOut io.Writer, lay *diagram.Layout) {
 	for _, e := range lay.Edges {
-		if e.SidesDropped {
-			fmt.Fprintf(errOut, "diagram: the edge %q to %q is drawn by other sides, or beside other fields, than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To)
+		if !e.SidesDropped {
+			continue
 		}
+		which := "other sides"
+		if namesField(lay, e.Edge.From, e.Edge.FromPort) || namesField(lay, e.Edge.To, e.Edge.ToPort) {
+			which = "other sides, or beside other fields,"
+		}
+		fmt.Fprintf(errOut, "diagram: the edge %q to %q is drawn by %s than its ports ask for: no line leaves or enters by those without joining another or passing through a box\n", e.Edge.From, e.Edge.To, which)
 	}
+}
+
+// namesField says port names a field of the node id.
+func namesField(lay *diagram.Layout, id, port string) bool {
+	n, ok := lay.Node(id)
+	return ok && port != "" && n.Node.Field(port) != nil
 }
 
 // portsNote says on errOut which edges name a port no field of their
@@ -436,7 +450,7 @@ func portsNote(errOut io.Writer, lay *diagram.Layout) {
 			side       diagram.Side
 		}{{e.Edge.From, e.Edge.FromPort, e.Edge.FromSide}, {e.Edge.To, e.Edge.ToPort, e.Edge.ToSide}} {
 			n, ok := lay.Node(end.node)
-			if end.port == "" || !ok || len(n.Node.Record) == 0 || n.Node.Field(end.port) != nil {
+			if end.port == "" || !ok || len(n.Node.Record) == 0 || namesField(lay, end.node, end.port) {
 				continue
 			}
 			where := "anywhere on the box"

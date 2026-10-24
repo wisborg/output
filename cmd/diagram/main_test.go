@@ -813,6 +813,17 @@ func TestDiagramSaysWhichPortsWereNotKept(t *testing.T) {
 	if strings.ContainsAny(errOut, "\x1b\x07") {
 		t.Errorf("stderr %q holds the name's escape as it is", errOut)
 	}
+	// Of sides alone it says sides; of a record's field, fields as well.
+	if !strings.Contains(errOut, "drawn by other sides than") {
+		t.Errorf("stderr %q, want the note of sides alone", errOut)
+	}
+	record := strings.Replace(strings.Replace(blocked, "d;", `d [shape=record, label="<p> p"];`, 1), "\x07\" -> d:n", "\x07\" -> d:p:n", 1)
+	if _, errOut, err = draw(t, record); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "drawn by other sides, or beside other fields, than") {
+		t.Errorf("stderr %q, want the note of a field", errOut)
+	}
 }
 
 // A port no field of its record has is said so, as Graphviz warns of one,
@@ -841,5 +852,17 @@ func TestDiagramSaysWhichPortsNameNoField(t *testing.T) {
 	}
 	if n := strings.Count(errOut, "names the port"); n != 3 {
 		t.Errorf("stderr %q: %d notes of ports, want 3", errOut, n)
+	}
+}
+
+// A record label that is none is said, with its line, as Graphviz refuses
+// it: drawn as written, its ports quietly name nothing.
+func TestDiagramSaysARecordLabelIsNone(t *testing.T) {
+	_, errOut, err := draw(t, "digraph {\n a [shape=record,\n label=\"<k> key|{broken\"]\n a:k -> b\n}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `line 3: node "a": the label "<k> key|{broken" is no record's`; !strings.Contains(errOut, want) {
+		t.Errorf("stderr %q, want %q", errOut, want)
 	}
 }

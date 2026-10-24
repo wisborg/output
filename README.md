@@ -654,14 +654,14 @@ and a line here never runs through a box. An edge with no port ends anywhere on
 the outline, which beside a record reads as one of its fields: give it a port
 to say which. No line ends where a divider meets the outline, where it would
 read as the divider running on — a straight edge that would is drawn along
-rows and columns instead. A port that names no field of its record is said so, as
+rows and columns instead — nor beside it where its field has another cell. A port that names no field of its record is said so, as
 Graphviz warns of one; a field named with a `:` in it cannot be named by an
 edge, as in Graphviz, which reads `a:"x:y"` as the field `x` and the compass
 point `y`. A record label that is not one — a brace not closed, a `<port>`
-after a field's words, braces nested more than 100 deep — is drawn as a box
-with its label as written, where Graphviz refuses it, and an HTML label on a
-record is the node's label, not its fields, as in Graphviz. Every line of a
-field is centred: `\l` and `\r` end a line, as everywhere here, without
+after a field's words or a second one, braces nested more than 100 deep —
+is drawn as a box with its label as written, where Graphviz refuses it, and
+`diagram` says so, with its line; an HTML label on a record is the node's
+label, not its fields, as in Graphviz. Every line of a field is centred: `\l` and `\r` end a line, as everywhere here, without
 setting it left or right. `\ ` keeps a space at a field's either end, where
 other spaces are dropped. A node's name is put in once the fields are read,
 so `"x|y" [shape=record]` is one field, `x|y`, as in Graphviz. In the

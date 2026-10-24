@@ -53,16 +53,11 @@ func measure(fields []Field, row bool) ([]measured, size) {
 	return ms, size{max(s.w, 1), max(s.h, 1)}
 }
 
-// placeFields places fields in r, the inside of a record's outline or of a
+// place places fields in r, the inside of a record's outline or of a
 // field divided further, in a row or a column, adding each field and each
-// divider to pn. A divider runs a cell past r at either end, onto the
-// outline or the divider beside r, so a drawing joins it to them.
-func placeFields(pn *PlacedNode, fields []Field, r Rect, row bool) {
-	ms, _ := measure(fields, row)
-	place(pn, fields, ms, r, row)
-}
-
-// place is placeFields, with each field's cells measured already.
+// divider to pn; ms is each field's cells, as measure found them. A divider
+// runs a cell past r at either end, onto the outline or the divider beside
+// r, so a drawing joins it to them.
 func place(pn *PlacedNode, fields []Field, ms []measured, r Rect, row bool) {
 	n := len(fields)
 	sizes := make([]int, n)
@@ -122,7 +117,8 @@ func (f PlacedField) Lines() (lines []string, top int) {
 }
 
 // joints is where n's dividers meet its outline: the cells no line ends
-// at, nor beside, as it reads as running into the divider. The one answer
+// at, and ends beside only where its field has no other cell, as it reads
+// as running into the divider. The one answer
 // to it, which the router, the straight lines and the text drawing's stubs
 // all ask; a divider's end inside the box, on another divider, is none.
 func (n PlacedNode) joints() []Point {

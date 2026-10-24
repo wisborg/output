@@ -85,6 +85,12 @@ type Options struct {
 	// in a minute and a half, and 10,000 -- "{a0 ... a99} -> {b0 ...
 	// b99}", under a kilobyte -- did not finish in seven minutes.
 	MaxEdges int
+	// Warn, where set, is told of what the file says that is drawn other
+	// than as it says, and is no error, since the diagram still draws: a
+	// record's label that is no record label, which Graphviz refuses and
+	// is drawn here as a box with its label as written, its ports naming
+	// nothing. Without it, nothing is said.
+	Warn func(*Error)
 }
 
 // DefaultMaxEdges is Options.MaxEdges where it is not set: a diagram of 300
@@ -120,7 +126,7 @@ func ParseWith(src string, o Options) (*diagram.Diagram, error) {
 	if o.MaxEdges <= 0 {
 		o.MaxEdges = DefaultMaxEdges
 	}
-	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}, clusters: map[string]*clusterInfo{}, maxEdges: o.MaxEdges}
+	p := &parser{lex: lexer{src: src, line: 1}, nodes: map[string]*nodeInfo{}, clusters: map[string]*clusterInfo{}, maxEdges: o.MaxEdges, warn: o.Warn}
 	if err := p.advance(); err != nil {
 		return nil, err
 	}
@@ -216,9 +222,10 @@ type parser struct {
 	// legend is the cluster with style=legend, and the line it begins on.
 	legend     *diagram.Group
 	legendLine int
-	depth      int // how many subgraphs the one being read is inside
-	maxEdges   int // Options.MaxEdges
-	stated     int // the edges stated, a strict graph's repeats included
+	depth      int          // how many subgraphs the one being read is inside
+	maxEdges   int          // Options.MaxEdges
+	stated     int          // the edges stated, a strict graph's repeats included
+	warn       func(*Error) // Options.Warn
 }
 
 // clusterInfo is a cluster as read so far.
@@ -948,6 +955,13 @@ func (p *parser) applyNode(info *nodeInfo) error {
 		if !info.lines["label"].html {
 			if fields, ok := record(v, n.ID, p.name); ok {
 				n.Record = fields
+			} else if p.warn != nil {
+				// The line that set the label, or the node's own.
+				line := info.line
+				if at := info.lines["label"]; at.line > 0 {
+					line = at.line
+				}
+				p.warn(&Error{Line: line, Msg: fmt.Sprintf("node %q: the label %q is no record's: it is drawn as written, and no port names a field of it", n.ID, v)})
 			}
 		}
 	}

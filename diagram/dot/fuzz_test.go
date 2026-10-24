@@ -53,6 +53,10 @@ func FuzzParse(f *testing.F) {
 		"digraph { rankdir=LR; node [shape=record]; r [label=\"{<k> key|value}|<x> x\"]; r:k -> r:x; q [label=\"{broken\"] }",
 		"digraph { node [shape=record]; a [label=<<b>l</b>|r>]; b [label=\"<n> n|x <y> z|<s> \\ s\\ \"]; c -> b:n; b:s -> a:p; b:\"a:b\" -> c }",
 		"digraph { a [label=\"<b>&amp; \\\"q\\\" \x01\"] -> b [label=\"]]> <!--\"] }",
+		// Hostile text inside a record's fields, which reach the text
+		// drawing by their own path: an escape, a bidi override, a C1 CSI,
+		// a zero-width space and SVG's markup.
+		"digraph { node [shape=record]; a [label=\"<p> \x1b]0;t\x07|{\u202ex|\u009b2J\u200b}|<q> ]]\\> \\<!--\"]; b -> a:p; a:q -> b }",
 		"digraph { legend [label=\"k\"]; {a b} -> {c d} [style=dashed] }",
 	} {
 		f.Add(s)

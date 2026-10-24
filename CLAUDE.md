@@ -559,7 +559,10 @@ any side across from it: a line here never runs through a box to a field's
 middle, as Graphviz's does. No line ends where a divider meets the outline,
 as none ends at a corner, since it reads as running into the divider -- in a
 record of two equal fields that is the middle of a side, where a line most
-wants to end. That holds of every line, not only the search's: a straight
+wants to end. Beside one, drawn `┴┬`, it reads the same way, but a field
+two cells wide, or the side of one a row tall, has nowhere else: the
+search charges `jointCost` there, more than the two turns and the steps
+that move an end a cell along, and does not forbid it. That holds of every line, not only the search's: a straight
 one leaving a record by a joint -- the middle, or a cell from it once lines
 between the same two nodes are set apart -- is drawn along rows and columns
 instead (`keepClearOfJoints`, before routing, as the other lines are routed
@@ -585,7 +588,10 @@ label whose braces nest more than `maxDepth` deep, as it refuses subgraphs
 so nested: reading and laying out a record recurse once a brace, in time
 growing with the square of the depth, and a 40 KB label of braces took
 seconds -- a few megabytes would overflow the stack, which Go cannot
-recover from.
+recover from. A record label that is no record's is drawn as written and
+said to `Options.Warn`, which `diagram` writes to standard error with its
+line: Graphviz refuses one, and drawn without a word its ports quietly
+named nothing.
 
 **Straight edges are the pictures' alone, and only where clear.** With
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an

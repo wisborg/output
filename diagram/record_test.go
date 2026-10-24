@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+// placeFields measures fields and places them in r, as placeNode does a
+// record's.
+func placeFields(pn *PlacedNode, fields []Field, r Rect, row bool) {
+	ms, _ := measure(fields, row)
+	place(pn, fields, ms, r, row)
+}
+
 // struct3 is Graphviz's own example of a record, "hello\nworld |{ b |{c|<here> d|e}| f}| g | h":
 // fields in a row, one of them a column, one of whose fields is a row.
 func struct3() *Node {
@@ -432,5 +439,51 @@ func TestPlainPathMissesJoints(t *testing.T) {
 	}
 	if got := rt.offJoints(plain, r.Rect, below); abs(got[0].X-plain[0].X) != 1 {
 		t.Errorf("moved to %v, want a cell from %v", got[0], plain[0])
+	}
+}
+
+// A line into a field ends a cell or more from where the field's dividers
+// meet the outline, where the field has such a cell: one beside a joint,
+// drawn ┴┬, reads as running into the divider. A field two cells wide has
+// none, nor the side of a field a row tall, and a line still ends at it.
+func TestRecordEndsAwayFromJoints(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		dir  Direction
+		to   []Field
+		port string
+	}{
+		{"a field of a column of fields", Down, []Field{{Fields: []Field{{Label: "a"}, {Label: "b"}}}, {Fields: []Field{{Port: "c", Label: "c"}, {Label: "d"}}}}, "c"},
+		{"a field of a row of fields, across", Right, []Field{{Fields: []Field{{Port: "x", Label: "o\nn\ne"}, {Label: "two"}}}, {Label: "three"}}, "x"},
+		{"a field of one letter", Down, []Field{{Label: "left"}, {Port: "m", Label: "m"}, {Label: "right"}}, "m"},
+	} {
+		d := &Diagram{Direction: c.dir, Root: Group{Items: []Item{node("a"), {Node: &Node{ID: "r", Record: c.to}}}}}
+		d.Edges = []Edge{{From: "a", To: "r", ToPort: c.port, Head: true}}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, _ := lay.Node("r")
+		e := lay.Edges[0]
+		end := e.Points[len(e.Points)-1]
+		for _, j := range r.joints() {
+			if abs(end.X-j.X)+abs(end.Y-j.Y) <= 1 {
+				t.Errorf("%s: the line ends at %v, beside the joint %v:\n%s", c.name, end, j, strings.Join(lay.Text(), "\n"))
+			}
+		}
+		if e.SidesDropped {
+			t.Errorf("%s: the port is not kept:\n%s", c.name, strings.Join(lay.Text(), "\n"))
+		}
+	}
+	// An empty field is two cells wide, both beside a joint: the line ends
+	// there all the same, by the field it is for.
+	d := &Diagram{Root: Group{Items: []Item{node("a"), {Node: &Node{ID: "r", Record: []Field{{Label: "left"}, {Port: "e"}, {Label: "right"}}}}}}}
+	d.Edges = []Edge{{From: "a", To: "r", ToPort: "e", Head: true}}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lay.Edges[0].SidesDropped {
+		t.Errorf("the line to an empty field does not keep to it:\n%s", strings.Join(lay.Text(), "\n"))
 	}
 }

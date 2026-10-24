@@ -1,6 +1,9 @@
 package diagram
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 // route finds each edge's path between the nodes as placed, along rows and
 // columns only, by searching the page's cells for the cheapest way from an
@@ -160,6 +163,7 @@ const (
 	sideCost   = 40 // an end on a side that does not face the other box: more than a turn, so a flow keeps flowing
 	besideCost = 6  // each cell beside another's line, running the same way
 	shareCost  = -4 // each cell along a line it may share: a trunk, not two lines side by side
+	jointCost  = 80 // an end beside a record's joint, as ┴┬, reads as running into the divider: more than the two turns and the steps that move it a cell along
 	// joinCost is each cell where a path the rules do not allow -- along
 	// another's line, turning on it, at another's end -- is taken all the
 	// same, where nothing else is: more than any detour across a page.
@@ -689,24 +693,35 @@ func keepsFields(pts []Point, a, b Rect, fields [2]Rect) bool {
 		(fields[1] == Rect{} || besideField(b, fields[1], pts[n-1], wayOut(pts[n-1], pts[n-2])))
 }
 
+// besideJoint says p is a cell from a joint, across or up and down: an end
+// there is allowed, as a field two cells wide has nowhere else, but costs
+// jointCost, so a line takes a cell further along where there is one.
+func (rt *router) besideJoint(p Point) bool {
+	return rt.joints[Point{p.X - 1, p.Y}] || rt.joints[Point{p.X + 1, p.Y}] || rt.joints[Point{p.X, p.Y - 1}] || rt.joints[Point{p.X, p.Y + 1}]
+}
+
 // outline is r's outline cells edge i may end at -- not its corners, nor
 // where a record's divider meets it, nor a cell another edge ends at but
 // one it may share with -- each with the
 // way out of the box there, on sides alone where sides is not zero, and
 // beside field alone where it is not the zero Rect -- or, under anySide,
-// anywhere, those off them at missCost. Where strict is false, any but a
-// corner, each with what ending there costs.
+// anywhere, those off them at missCost; a cell beside a joint at
+// jointCost. Where strict is false, any but a corner, each with what
+// ending there costs.
 func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (cells []Point, out, costs []int) {
 	add := func(p Point, way int) {
 		if !rt.in(p.X, p.Y) || rt.joints[p] {
 			return
 		}
 		cost := 0
+		if len(rt.joints) > 0 && rt.besideJoint(p) {
+			cost = jointCost
+		}
 		if sides != 0 && sides&wayside[way] == 0 || field != (Rect{}) && !besideField(r, field, p, way) {
 			if !rt.anySide {
 				return
 			}
-			cost = missCost
+			cost += missCost
 		}
 		if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) || rt.foreign(i, p.X, p.Y) != 0 {
 			if strict {
@@ -782,11 +797,22 @@ func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
 		way int
 	}
 	goalCost := map[entry]int{}
+	least := math.MaxInt
 	for k, g := range goals {
 		e := entry{g, opposite(ins[k])}
 		goalCost[e] = endCosts[k]
 		if !facing(b, a, ins[k]) {
 			goalCost[e] += sideCost
+		}
+		least = min(least, goalCost[e])
+	}
+	// What every goal costs is no choice between them, and the search,
+	// which does not foresee it, would look that much further round
+	// before reaching one: where each cell of a side is beside a joint,
+	// as in a record of fields a row tall, that doubled the time.
+	if least > 0 {
+		for e := range goalCost {
+			goalCost[e] -= least
 		}
 	}
 	estimate := func(x, y int) int {

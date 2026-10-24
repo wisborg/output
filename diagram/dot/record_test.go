@@ -31,6 +31,10 @@ func TestRecordLabels(t *testing.T) {
 		{`<p> \ \ pad\  | q `, []diagram.Field{F("p", "  pad "), F("", "q")}},
 		{`x|\ y\ `, []diagram.Field{F("", "x"), F("", " y ")}},
 		{"\t a \n|b", []diagram.Field{F("", "a"), F("", "b")}},
+		// So are tabs and line breaks about a brace, as a record written
+		// over several lines has them.
+		{"x|\n\t{y|z}\r\n|r", []diagram.Field{F("", "x"), G(F("", "y"), F("", "z")), F("", "r")}},
+		{"{p|q}\t|r", []diagram.Field{G(F("", "p"), F("", "q")), F("", "r")}},
 		// A backslash at the end is itself, and the label still a record.
 		{`a|b\`, []diagram.Field{F("", "a"), F("", `b\`)}},
 		// As deep as subgraphs may nest is still a record.
@@ -44,7 +48,7 @@ func TestRecordLabels(t *testing.T) {
 	// What is not a record label is none, and its node a box with its
 	// label as written, where Graphviz refuses to draw it.
 	deep := strings.Repeat("{", maxDepth+1) + "x" + strings.Repeat("}", maxDepth+1)
-	for _, bad := range []string{"{a|b", "a}|b", "<p a", "a{b}", "a{b", "a>b", "<p><q> x", "x <y> z", deep} {
+	for _, bad := range []string{"{a|b", "a}|b", "<p a", "a{b}", "a{b", "a>b", "<p><q> x", "<> <p> x", "<p> <> x", "x <y> z", deep} {
 		if got, ok := record(bad, "n", "g"); ok {
 			t.Errorf("%q read as a record: %+v", bad, got)
 		}
@@ -179,5 +183,27 @@ func TestRecordInLegend(t *testing.T) {
 		if got := d.Legend.Entries[i].Label; got != want {
 			t.Errorf("entry %d: %q, want %q", i, got, want)
 		}
+	}
+}
+
+// A record label that is none is said to Options.Warn, with the line that
+// set it, as Graphviz refuses it: drawn as written, it reads as a mistake
+// in the drawing rather than in the file, and its ports quietly name
+// nothing. An HTML label is the node's, and a record read is no mistake.
+func TestRecordLabelNotOneIsSaid(t *testing.T) {
+	var said []*Error
+	_, err := ParseWith(`digraph {
+		node [shape=record]
+		a [label="<k> key|{broken"]
+		b [label="<k> key|{fine}"]; c [label=<x|{y>]
+		d
+		e
+		[label="x <y> z"]
+	}`, Options{Warn: func(e *Error) { said = append(said, e) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(said) != 2 || said[0].Line != 3 || !strings.Contains(said[0].Msg, `node "a"`) || said[1].Line != 7 || !strings.Contains(said[1].Msg, `node "e"`) {
+		t.Errorf("said %v, want node a's label at line 3 and e's at 7", said)
 	}
 }
