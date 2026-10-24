@@ -89,12 +89,12 @@ func TestParseDateKeepsTheWallClock(t *testing.T) {
 func TestFindColumn(t *testing.T) {
 	names := []string{"Date", "Close", "2024"}
 	for spec, want := range map[string]int{"Close": 1, "close": 1, "1": 0, "2024": 2, " Date ": 0} {
-		if got, err := findColumn(names, spec); err != nil || got != want {
+		if got, err := findColumn(&table{names: names}, spec); err != nil || got != want {
 			t.Errorf("%q: %d, %v; want %d", spec, got, err, want)
 		}
 	}
 	for _, spec := range []string{"Open", "0", "4"} {
-		if _, err := findColumn(names, spec); err == nil {
+		if _, err := findColumn(&table{names: names}, spec); err == nil {
 			t.Errorf("%q found", spec)
 		}
 	}

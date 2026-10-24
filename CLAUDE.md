@@ -685,15 +685,24 @@ as not, and a second classifier would disagree with the first. A line that
 is not one object is left out and said, as a cell that is not a number is
 a gap and said: a log cut mid-line by rotation is ordinary, and refusing
 the file for it would refuse every such log. A column given two values in
-one line, and keys past `maxJSONColumns`, are said too. `--input auto`
+one line, and keys past `maxJSONColumns` and an array's elements past
+`maxJSONArray`, are said too: each element is a column, and a long array
+took every column, losing the keys after it. `NaN` and `Infinity`, which
+encoding/json refuses and Python writes, are quoted before decoding
+(`allowNonFinite`), so they read as the words a CSV's cell would be, and
+lose no line. A JSON number has a point, but a string may hold `"1,5"`, so
+the strings alone go to `decideDecimal` and `--decimal` applies; the
+numbers are never rewritten, as `commaToPoint` would make `1.250` 1250. `--input auto`
 takes a file for JSON Lines where at least half its first 20 lines are
 whole objects, not where its first byte is a brace: a log read from its
 middle begins with the end of a line, and was read as CSV of fragments. No
 CSV holds a line that is a whole object. JSON that is not JSON Lines -- one
 array, objects over several lines -- is refused naming `jq -c`. The
-CSV-only flags are refused for JSON Lines, never ignored, as a `--decimal
-comma` that changed nothing reads as one obeyed; nor do they make auto
-take a file for CSV, as an alias holding one would read every log so. A
+CSV-only flags, `--delimiter` and `--header`, are refused for JSON Lines
+at any value but `auto`, never ignored, as a `--header no` that changed
+nothing reads as one obeyed -- before the input is read, where `--input
+jsonl` says the format; nor do they make auto take a file for CSV, as an
+alias holding one would read every log so. A
 row holds cells only as far as its last key, read through `table.cell`,
 and keys stop at `maxJSONColumns`: padded to every key, a log keyed by user
 grew with the square of its lines, 640 MB for 4,000. Nesting is read by

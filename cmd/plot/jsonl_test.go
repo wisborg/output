@@ -16,7 +16,7 @@ func TestReadJSONLines(t *testing.T) {
 {"t":2,"v":null,"note":" hi ","ok":true}
 
 {"t":3,"v":2e3,"cpu":{"user":0.3}}
-`))
+`), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func grid(tb *table) [][]string {
 // named alike; each loses a value, which is said. An empty key is a column
 // numbered as a CSV's unnamed one is.
 func TestReadJSONLinesKeys(t *testing.T) {
-	tb, err := readJSONLines([]byte(`{"a":1,"":5,"a":2}` + "\n" + `{"a":3}` + "\n" + `{"b.c":1,"b":{"c":4}}` + "\n"))
+	tb, err := readJSONLines([]byte(`{"a":1,"":5,"a":2}`+"\n"+`{"a":3}`+"\n"+`{"b.c":1,"b":{"c":4}}`+"\n"), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestReadJSONLinesKeys(t *testing.T) {
 	if want := []string{"2 lines giving a column two values, the last kept, the first line 1"}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
-	tb, err = readJSONLines([]byte(`{"x":1,"":{"x":2}}`))
+	tb, err = readJSONLines([]byte(`{"x":1,"":{"x":2}}`), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestReadJSONLinesHoldsItsColumns(t *testing.T) {
 	for i := range lines {
 		fmt.Fprintf(&b, `{"t":%d,"counts":{"user%d":1}}`+"\n", i, i)
 	}
-	tb, err := readJSONLines([]byte(b.String()))
+	tb, err := readJSONLines([]byte(b.String()), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +117,8 @@ func TestReadJSONLinesLeavesOutWhatIsNoObject(t *testing.T) {
 starting up
 [1,2]
 {"v":3} {"v":4}
-` + deep + `
-{"v":5}`))
+`+deep+`
+{"v":5}`), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,11 +131,11 @@ starting up
 
 	// As deep as maxJSONDepth is read.
 	shallow := strings.Repeat(`{"a":`, maxJSONDepth) + "1" + strings.Repeat("}", maxJSONDepth)
-	if tb, err := readJSONLines([]byte(shallow)); err != nil || len(tb.rows) != 1 || len(tb.notes) != 0 {
+	if tb, err := readJSONLines([]byte(shallow), decimalAuto); err != nil || len(tb.rows) != 1 || len(tb.notes) != 0 {
 		t.Errorf("%d deep: %v, want one row", maxJSONDepth, err)
 	}
 
-	tb, err = readJSONLines([]byte("{\"v\":1}\n{\"v\"\n"))
+	tb, err = readJSONLines([]byte("{\"v\":1}\n{\"v\"\n"), decimalAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,10 +143,10 @@ starting up
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
 
-	if _, err := readJSONLines([]byte("\n{\"v\"\n")); err == nil || !strings.Contains(err.Error(), "line 2") {
+	if _, err := readJSONLines([]byte("\n{\"v\"\n"), decimalAuto); err == nil || !strings.Contains(err.Error(), "line 2") {
 		t.Errorf("no object: %v, want an error naming line 2", err)
 	}
-	if _, err := readJSONLines([]byte("\n\n")); err == nil {
+	if _, err := readJSONLines([]byte("\n\n"), decimalAuto); err == nil {
 		t.Error("blank lines alone: no error")
 	}
 }
@@ -170,6 +170,8 @@ func TestSniffInput(t *testing.T) {
 		{"a brace no line closes", "{a},b\n1,2\n", inputCSV},
 		{"brackets not JSON", "[a],b\n1,2\n", inputCSV},
 		{"a brace and JSON after", "{\n\"a\": 1\n} x\n", inputCSV},
+		{"NaN in most lines", "{\"v\":NaN}\n{\"v\":NaN}\n{\"v\":1}\n", inputJSONL},
+		{"one bracketed line", "[a]\n", inputCSV},
 	} {
 		got, err := sniffInput([]byte(c.data))
 		if err != nil || got != c.want {
@@ -177,6 +179,7 @@ func TestSniffInput(t *testing.T) {
 		}
 	}
 	for _, c := range []struct{ name, data, want, not string }{
+		{"an array a line", "[1,2]\n[3,4]\n[5,NaN]\n", "an array a line", "jq"},
 		{"an array of objects", " [{\"a\":1},{\"a\":2}]\n", "jq -c '.[]'", ""},
 		{"an array of numbers", "[1,2,3]", "one JSON array", "jq"},
 		{"objects over lines", "{\n  \"a\": 1\n}\n{\n  \"a\": 2\n}\n", "jq -c .", ""},
@@ -185,5 +188,50 @@ func TestSniffInput(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) || c.not != "" && strings.Contains(err.Error(), c.not) {
 			t.Errorf("%s: %v, want an error saying %q and not %q", c.name, err, c.want, c.not)
 		}
+	}
+}
+
+// An array's elements past maxJSONArray are left out and said, and what
+// follows the array is still a column: a sample of readings took every
+// column, and the latency after it was lost.
+func TestReadJSONLinesCutsLongArrays(t *testing.T) {
+	var b strings.Builder
+	for i := range 3 {
+		fmt.Fprintf(&b, `{"t":%d,"samples":[%s],"latency":%d}`+"\n", i, strings.Repeat("1,", 1200)+"1", i)
+	}
+	tb, err := readJSONLines([]byte(b.String()), decimalAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(tb.names); n != maxJSONArray+2 || tb.names[n-1] != "latency" || tb.cell(2, n-1) != "2" {
+		t.Errorf("%d columns, the last %q holding %q: want %d, latency holding 2", n, tb.names[n-1], tb.cell(2, n-1), maxJSONArray+2)
+	}
+	if want := []string{fmt.Sprintf("3 lines with an array's elements past the first %d left out, the first line 1, \"samples\"", maxJSONArray)}; !reflect.DeepEqual(tb.notes, want) {
+		t.Errorf("notes %q, want %q", tb.notes, want)
+	}
+}
+
+// NaN and Infinity alone are read as words; inside a string, or as part of
+// a longer word, they are left as they are.
+func TestAllowNonFinite(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"a":NaN,"b":[Infinity,-Infinity]}`: `{"a":"NaN","b":["Infinity","-Infinity"]}`,
+		`{"a":"NaN \" NaN","b":1}`:           `{"a":"NaN \" NaN","b":1}`,
+		`{"NaN":1,"a":NaNx,"b":xNaN}`:        `{"NaN":1,"a":NaNx,"b":xNaN}`,
+		`{"a":1}`:                            `{"a":1}`,
+	} {
+		if got := string(allowNonFinite([]byte(in))); got != want {
+			t.Errorf("%s: %s, want %s", in, got, want)
+		}
+	}
+}
+
+// An empty name is "column N", and where a column already has that name,
+// as a JSON key may, "column N, unnamed", so that each can be asked for.
+func TestNameColumns(t *testing.T) {
+	names := []string{"t", "", "column 2", ""}
+	nameColumns(names)
+	if want := []string{"t", "column 2, unnamed", "column 2", "column 4"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("%q, want %q", names, want)
 	}
 }

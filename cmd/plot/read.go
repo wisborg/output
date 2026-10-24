@@ -17,6 +17,30 @@ type table struct {
 	names []string
 	rows  [][]string
 	notes []string // what reading it guessed or left out, for plot to say
+	// dropped are the keys a JSON Lines file has past maxJSONColumns,
+	// which are no column, so that asking for one can say so.
+	dropped map[string]bool
+}
+
+// nameColumns names each of names that is empty "column N", N its place
+// from 1 -- or, where a column has that name already, as a JSON key may,
+// "column N, unnamed": two columns named alike, the second could not be
+// asked for by name.
+func nameColumns(names []string) {
+	taken := map[string]bool{}
+	for _, n := range names {
+		taken[n] = true
+	}
+	for j, n := range names {
+		if n != "" {
+			continue
+		}
+		name := fmt.Sprintf("column %d", j+1)
+		if taken[name] {
+			name += ", unnamed"
+		}
+		names[j], taken[name] = name, true
+	}
 }
 
 // cell is row i's cell in column j, empty past the row's end.
@@ -174,7 +198,7 @@ func readTable(data []byte, delim rune, header headerMode, dates dateOrder, mark
 		}
 		records[i] = rec
 	}
-	decided, note, err := decideDecimal(records, delim, mark)
+	decided, note, err := decideDecimal(records, delim, mark, "row")
 	if err != nil {
 		return nil, err
 	}
@@ -192,14 +216,10 @@ func readTable(data []byte, delim rune, header headerMode, dates dateOrder, mark
 	if header == headerYes || header == headerAuto && hasHeader(records, dates) {
 		t.names, t.rows = records[0], records[1:]
 	}
-	for j := range width {
-		if j >= len(t.names) {
-			t.names = append(t.names, "")
-		}
-		if t.names[j] == "" {
-			t.names[j] = fmt.Sprintf("column %d", j+1)
-		}
+	for len(t.names) < width {
+		t.names = append(t.names, "")
 	}
+	nameColumns(t.names)
 	return t, nil
 }
 

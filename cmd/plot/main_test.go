@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"image/color"
 	"image/png"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -550,16 +552,28 @@ func TestPlotJSONLines(t *testing.T) {
 		t.Errorf("--list:\n%s", out)
 	}
 
+	// A CSV's flags are refused for JSON Lines, but not at their defaults,
+	// which a wrapper passing every flag says; --decimal, --dates apply.
 	var ue *cli.UsageError
-	for _, args := range [][]string{{"--delimiter", ","}, {"--header", "no"}, {"--decimal", "point"}, {"--input", "xml"}} {
+	for _, args := range [][]string{{"--delimiter", ","}, {"--header", "no"}, {"--input", "xml"}} {
 		if _, _, err := plot(t, data, args...); !errors.As(err, &ue) {
 			t.Errorf("%q: %v, want a UsageError", args, err)
 		} else if args[0] != "--input" && !strings.Contains(err.Error(), "--input csv") {
 			t.Errorf("%q: %v, want it to say --input csv reads the file as CSV", args, err)
 		}
 	}
-	if _, _, err := plot(t, data, "--dates", "dmy"); err != nil {
-		t.Errorf("--dates, which JSON Lines' strings may need: %v", err)
+	for _, args := range [][]string{{"--delimiter", "auto"}, {"--header", "auto"}, {"--decimal", "point"}, {"--decimal", "auto"}, {"--dates", "dmy"}} {
+		if _, _, err := plot(t, data, args...); err != nil {
+			t.Errorf("%q: %v", args, err)
+		}
+	}
+	// With --input jsonl typed, the refusal does not send the reader to
+	// --input csv, and comes before the input is read: a stream from a
+	// program still running was read to its end first.
+	var out2, errOut2 bytes.Buffer
+	err = run([]string{"--input", "jsonl", "--delimiter", ","}, unreadable{t}, &out2, &errOut2, noEnv)
+	if !errors.As(err, &ue) || strings.Contains(err.Error(), "--input csv") {
+		t.Errorf("--input jsonl --delimiter ,: %v, want a UsageError not naming --input csv", err)
 	}
 
 	if out, _, err := plot(t, data, "--list", "--input", "csv"); err != nil || !strings.Contains(out, `{"ts":"2024-03-05T14:30:00Z"`) {
@@ -575,5 +589,63 @@ func TestPlotJSONLines(t *testing.T) {
 	// first name does not begin with it.
 	if out, _, err := plot(t, "\xef\xbb\xbfdate,v\n2024-01-01,1\n2024-01-02,2\n", "--list"); err != nil || !strings.Contains(out, "1  date ") || strings.Contains(out, "\ufeff") {
 		t.Errorf("a CSV after a byte-order mark: %v\n%s", err, out)
+	}
+}
+
+// unreadable is an input a test must not read.
+type unreadable struct{ t *testing.T }
+
+func (u unreadable) Read([]byte) (int, error) {
+	u.t.Error("the input was read")
+	return 0, io.EOF
+}
+
+// A log as Python writes one holds NaN and Infinity, which JSON has no
+// word for: read as the words, as a CSV's cells are, NaN is a gap and
+// Infinity a cell not a number, and the rest of the line is kept. A log
+// written where a comma is the decimal mark, in its strings, is read so
+// -- its JSON numbers are left be -- or as --decimal says. A key past the
+// columns kept, asked for, is said to be left out.
+func TestPlotJSONLinesAsWritten(t *testing.T) {
+	out, _, err := plot(t, "{\"t\":1,\"v\":NaN,\"w\":1}\n{\"t\":2,\"v\":2,\"w\":2}\n{\"t\":3,\"v\":3,\"w\":3}\n{\"t\":4,\"v\":-Infinity,\"w\":4,\"s\":\"NaN\"}\n", "--list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range [][]string{{"2", "v", "number", "(1", "cell", "not)", "3", "of", "4"}, {"3", "w", "number", "4", "of", "4"}} {
+		if !slices.ContainsFunc(strings.Split(out, "\n"), func(l string) bool { return slices.Equal(strings.Fields(l), want) }) {
+			t.Errorf("NaN and Infinity: want a line %q in\n%s", want, out)
+		}
+	}
+
+	const comma = "{\"t\":1,\"v\":\"1,250\",\"n\":1.250}\n{\"t\":2,\"v\":\"0,5\",\"n\":2}\n"
+	tb, err := readJSONLines([]byte(comma), decimalAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := grid(tb); got[0][1] != "1.250" || got[0][2] != "1.250" || got[1][1] != "0.5" {
+		t.Errorf("strings with a decimal comma: %q, want 1,250 and 0,5 read with it and the number 1.250 left be", got)
+	}
+	if tb, err = readJSONLines([]byte(comma), decimalPoint); err != nil || tb.cell(0, 1) != "1,250" {
+		t.Errorf("--decimal point: %v, %q", err, tb.cell(0, 1))
+	}
+	if _, err := readJSONLines([]byte("{\"v\":\"0,5\"}\n{\"v\":\"1.5\"}\n"), decimalAuto); err == nil || !strings.Contains(err.Error(), "on line 2") {
+		t.Errorf("strings written both ways: %v, want the line named", err)
+	}
+
+	// And through the command: --decimal point reads "1,5" as no number.
+	const strs = "{\"v\":\"1,5\"}\n{\"v\":\"2,5\"}\n{\"v\":\"3,5\"}\n"
+	for mark, kind := range map[string]string{"auto": "number", "point": "text"} {
+		out, _, err := plot(t, strs, "--list", "--decimal", mark)
+		if err != nil || !strings.Contains(out, "1  v       "+kind) {
+			t.Errorf("--decimal %s: %v, want v %s:\n%s", mark, err, kind, out)
+		}
+	}
+
+	var b strings.Builder
+	for i := range maxJSONColumns + 1 {
+		fmt.Fprintf(&b, "{\"t\":%d,\"k%d\":1}\n", i, i)
+	}
+	if _, _, err := plot(t, b.String(), "--y", fmt.Sprint("k", maxJSONColumns)); err == nil || !strings.Contains(err.Error(), "left out") {
+		t.Errorf("--y naming a key left out: %v, want it said to be left out", err)
 	}
 }

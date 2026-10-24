@@ -95,7 +95,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.header, "header", string(headerAuto), "whether the first row names the columns: auto, yes or no")
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
 	fs.StringVar(&o.xDate, "x-date", "", "read the x column as dates written as numbers: unix (seconds since 1970), unix-ms (milliseconds) or yyyymmdd (20240305), which a number alone cannot say it is")
-	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise")
+	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise; in JSON Lines, its strings alone, as JSON writes its numbers with a point")
 	fs.StringVar(&o.out, "out", "", "write the chart to this PNG rather than drawing it in the terminal")
 	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default, or 0: the terminal's, or 100); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageWidth)+")")
 	fs.IntVar(&o.height, "height", 0, "the chart's height: in lines in the terminal (default, or 0: 24, and 10 more for each further column, held to the terminal's); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageHeight)+", and 300 more for each further column)")
@@ -175,6 +175,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if mark != decimalAuto && mark != decimalPoint && mark != decimalComma {
 		return cli.Usagef("--decimal %q: use auto, point or comma", o.decimal)
 	}
+	// Before reading, where --input says JSON Lines: a stream from a
+	// long-running program was read to its end before the refusal.
+	if mode == inputJSONL {
+		if err := csvOnly(o, name, false); err != nil {
+			return err
+		}
+	}
 	data, err := io.ReadAll(in)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
@@ -186,18 +193,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		if mode, err = sniffInput(data); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+		if mode == inputJSONL {
+			if err := csvOnly(o, name, true); err != nil {
+				return err
+			}
+		}
 	}
 	var t *table
 	if mode == inputJSONL {
-		// Said, not ignored: a --decimal comma that changed nothing reads
-		// as one obeyed. Nor does the flag make auto take the file for
-		// CSV: an alias holding one would read every log as fragments.
-		for _, f := range []string{"delimiter", "header", "decimal"} {
-			if set[f] {
-				return cli.Usagef("--%s is for CSV, and %s is read as JSON Lines: --input csv reads it as CSV", f, name)
-			}
-		}
-		t, err = readJSONLines(data)
+		t, err = readJSONLines(data, mark)
 	} else {
 		t, err = readTable(data, delim, header, order, mark)
 	}
@@ -330,6 +334,27 @@ said with --decimal.
 Flags:
 `
 
+// csvOnly refuses a flag that says something of a CSV alone, --delimiter
+// or --header, given for name read as JSON Lines: said, not ignored, as a
+// --header no that changed nothing reads as one obeyed. Its default value,
+// auto, says nothing, and is no mistake in a wrapper that passes every
+// flag. sniffed says auto took the file for JSON Lines, where --input csv
+// is the way to say it is not; where --input jsonl said so, it is not.
+// Nor does such a flag make auto take the file for CSV: an alias holding
+// one would read every log as fragments.
+func csvOnly(o options, name string, sniffed bool) error {
+	for _, f := range []struct{ flag, value string }{{"delimiter", o.delimiter}, {"header", o.header}} {
+		if f.value == "auto" {
+			continue
+		}
+		if sniffed {
+			return cli.Usagef("--%s is for CSV, and %s is read as JSON Lines: --input csv reads it as CSV", f.flag, name)
+		}
+		return cli.Usagef("--%s is for CSV, and --input jsonl reads %s as JSON Lines", f.flag, name)
+	}
+	return nil
+}
+
 // chooseX is the column --x names, or -1 for the row. Without --x it is the
 // first column where that holds dates, or numbers in order -- years, a
 // count, a sequence -- and another column holds numbers to plot against
@@ -340,7 +365,7 @@ func chooseX(t *table, cols []column, spec string) (int, error) {
 		return -1, nil
 	}
 	if spec != "" {
-		x, err := findColumn(t.names, spec)
+		x, err := findColumn(t, spec)
 		if err != nil {
 			return 0, fmt.Errorf("--x: %w", err)
 		}
@@ -389,7 +414,7 @@ func chooseY(t *table, cols []column, x int, spec string) ([]int, error) {
 	var ys []int
 	if spec != "" {
 		for part := range strings.SplitSeq(spec, ",") {
-			y, err := findColumn(t.names, part)
+			y, err := findColumn(t, part)
 			if err != nil {
 				return nil, fmt.Errorf("--y: %w", err)
 			}

@@ -33,6 +33,13 @@ const maxJSONDepth = 64
 // already more than a reader reads.
 const maxJSONColumns = 1000
 
+// maxJSONArray is the most elements of one array read as columns. Each
+// element is a column, so a log holding a sample of a thousand readings a
+// line took every column there was, and the keys after it -- the latency
+// the log is read for -- were left out. Past it, the rest are left out and
+// said.
+const maxJSONArray = 100
+
 // sniffInput is what --input auto takes data for: JSON Lines where at
 // least half of its first 20 lines, blank ones aside, read each as a whole
 // object, and CSV otherwise. Half, not the first: a log read from its
@@ -40,11 +47,12 @@ const maxJSONColumns = 1000
 // banner, which read as CSV gave columns named after JSON's fragments. A
 // CSV holds no line that is a whole object.
 //
-// JSON that is not JSON Lines is refused, saying what to make of it, where
-// it was read as CSV of brackets and quotes: one array, or objects written
-// over several lines each, as jq writes them without -c.
+// JSON that is not JSON Lines of objects is refused, saying what to make
+// of it, where it was read as CSV of brackets and quotes: one array; an
+// array a line; objects written over several lines each, as jq writes them
+// without -c.
 func sniffInput(data []byte) (inputMode, error) {
-	lines, objects := 0, 0
+	lines, objects, arrays := 0, 0, 0
 	for line := range bytes.Lines(data) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
@@ -52,13 +60,18 @@ func sniffInput(data []byte) (inputMode, error) {
 		}
 		if _, ok := jsonObject(line); ok {
 			objects++
+		} else if bytes.HasPrefix(line, []byte("[")) && json.Valid(allowNonFinite(line)) {
+			arrays++
 		}
 		if lines++; lines == 20 {
 			break
 		}
 	}
-	if objects > 0 && 2*objects >= lines {
+	switch {
+	case objects > 0 && 2*objects >= lines:
 		return inputJSONL, nil
+	case lines > 1 && 2*arrays >= lines:
+		return "", errors.New("an array a line: plot reads JSON Lines of objects, a column a key")
 	}
 	trimmed := bytes.TrimSpace(data)
 	switch {
@@ -103,50 +116,65 @@ func allObjects(vs []json.RawMessage) bool {
 // named by its path, "cpu.user"; an element of an array by its index,
 // "load[0]". A number is kept as written, a string as it is but for the
 // space about it, true and false as words, and null as an empty cell: a
-// gap. Numbers in JSON have a decimal point, never a comma, so nothing is
-// decided of the file's numbers as of a CSV's.
+// gap. NaN and Infinity, which JSON has no word for and Python writes
+// anyway, are read as those words, as a CSV's cell is.
+//
+// A JSON number has a decimal point, never a comma, but a string may hold
+// a number as a person in any place writes one, "1,5", so the strings
+// alone decide the file's mark, as decideDecimal decides a CSV's, or mark
+// says it; the numbers JSON writes are left as they are.
 //
 // A row holds cells only as far as its last key's column, and cell reads
 // past that as empty: padded to every column, a log whose keys differ from
 // line to line held a cell a column a line. Past maxJSONColumns, keys are
-// left out.
+// left out, and past maxJSONArray, an array's elements.
 //
 // What is lost is said in the table's notes, as a cell that is not a number
 // is a gap and said: a line that is not one object -- cut short where a log
 // was rotated mid-write, say, or text among the objects -- which is left
-// out; the keys past maxJSONColumns; and a column given two values in one
-// line, the last kept -- a key written twice, or two paths named alike,
-// {"a.b":1,"a":{"b":2}}. A file with no object is refused.
-func readJSONLines(data []byte) (*table, error) {
-	t := &table{}
+// out; the keys past maxJSONColumns, which the table keeps to say so if
+// one is asked for; the elements past maxJSONArray; and a column given two
+// values in one line, the last kept -- a key written twice, or two paths
+// named alike, {"a.b":1,"a":{"b":2}}. A file with no object is refused.
+func readJSONLines(data []byte, mark decimalMark) (*table, error) {
+	t := &table{dropped: map[string]bool{}}
 	index := map[string]int{}
-	var bad, twice []int
-	dropped := map[string]bool{}
-	var firstDropped string
-	var stamp []int // the line each column last had a value in
+	var bad, twice, cut []int
+	var firstDropped, firstCut string
+	var stamp []int     // the line each column last had a value in
+	var strs [][]string // each line's strings, for decideDecimal
+	var strCols [][]int // each row's columns that hold a string
 	n := 0
 	for line := range bytes.Lines(data) {
 		n++
+		strs = append(strs, nil)
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
 		}
-		fields, ok := jsonObject(line)
+		w, ok := walkLine(line)
 		if !ok {
 			bad = append(bad, n)
 			continue
 		}
+		if w.cut != "" {
+			if len(cut) == 0 {
+				firstCut = w.cut
+			}
+			cut = append(cut, n)
+		}
 		var row []string
+		var cols []int
 		again := false
-		for _, f := range fields {
+		for _, f := range w.fields {
 			j, seen := index[f.name]
 			if !seen {
 				if len(t.names) == maxJSONColumns {
-					if !dropped[f.name] {
-						if len(dropped) == 0 {
+					if !t.dropped[f.name] {
+						if len(t.dropped) == 0 {
 							firstDropped = f.name
 						}
-						dropped[f.name] = true
+						t.dropped[f.name] = true
 					}
 					continue
 				}
@@ -163,11 +191,16 @@ func readJSONLines(data []byte) (*table, error) {
 				row = append(row, "")
 			}
 			row[j] = f.value
+			if f.str {
+				cols = append(cols, j)
+				strs[n-1] = append(strs[n-1], f.value)
+			}
 		}
 		if again {
 			twice = append(twice, n)
 		}
 		t.rows = append(t.rows, row)
+		strCols = append(strCols, cols)
 	}
 	if len(t.rows) == 0 {
 		if len(bad) > 0 {
@@ -175,19 +208,35 @@ func readJSONLines(data []byte) (*table, error) {
 		}
 		return nil, errors.New("no rows to plot")
 	}
-	for j, name := range t.names {
-		if name == "" {
-			t.names[j] = fmt.Sprintf("column %d", j+1)
+	decided, note, err := decideDecimal(strs, ',', mark, "line")
+	if err != nil {
+		return nil, err
+	}
+	if note != "" {
+		t.notes = append(t.notes, note)
+	}
+	if decided == decimalComma {
+		for i, cols := range strCols {
+			for _, j := range cols {
+				t.rows[i][j] = commaToPoint(t.rows[i][j])
+			}
 		}
 	}
+	nameColumns(t.names)
 	switch {
 	case len(bad) == 1:
 		t.notes = append(t.notes, fmt.Sprintf("line %d: not a JSON object, left out", bad[0]))
 	case len(bad) > 1:
 		t.notes = append(t.notes, fmt.Sprintf("%d lines not a JSON object, left out, the first line %d", len(bad), bad[0]))
 	}
-	if len(dropped) > 0 {
-		t.notes = append(t.notes, fmt.Sprintf("%d keys past the first %d left out, the first %q", len(dropped), maxJSONColumns, firstDropped))
+	if len(t.dropped) > 0 {
+		t.notes = append(t.notes, fmt.Sprintf("%d keys past the first %d left out, the first %q", len(t.dropped), maxJSONColumns, firstDropped))
+	}
+	switch {
+	case len(cut) == 1:
+		t.notes = append(t.notes, fmt.Sprintf("line %d: %q's elements past the first %d left out", cut[0], firstCut, maxJSONArray))
+	case len(cut) > 1:
+		t.notes = append(t.notes, fmt.Sprintf("%d lines with an array's elements past the first %d left out, the first line %d, %q", len(cut), maxJSONArray, cut[0], firstCut))
 	}
 	switch {
 	case len(twice) == 1:
@@ -198,34 +247,51 @@ func readJSONLines(data []byte) (*table, error) {
 	return t, nil
 }
 
-// field is one value of a JSON object, named by its path in it.
-type field struct{ name, value string }
-
-// jsonObject is the fields of line, which must be one JSON object and
-// nothing after it, in the order they are written. A key written twice is
-// there twice, and readJSONLines, putting each name in one column, keeps
-// the last, as encoding/json does.
-func jsonObject(line []byte) ([]field, bool) {
-	dec := json.NewDecoder(bytes.NewReader(line))
-	dec.UseNumber()
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return nil, false
-	}
-	var fields []field
-	if err := walkObject(dec, "", 1, &fields); err != nil {
-		return nil, false
-	}
-	if _, err := dec.Token(); err != io.EOF {
-		return nil, false
-	}
-	return fields, true
+// field is one value of a JSON object, named by its path in it; str says
+// it was a string, whose decimal mark the file's strings decide.
+type field struct {
+	name, value string
+	str         bool
 }
 
-// walkObject reads an object's members up to its closing brace, the
-// opening one read already, adding each value under prefix to fields.
-func walkObject(dec *json.Decoder, prefix string, depth int, fields *[]field) error {
-	for dec.More() {
-		tok, err := dec.Token()
+// walker is what reading one line found: its fields, in the order they
+// are written, and the first array cut short at maxJSONArray, if any. A
+// key written twice is there twice, and readJSONLines, putting each name
+// in one column, keeps the last, as encoding/json does.
+type walker struct {
+	dec    *json.Decoder
+	fields []field
+	cut    string
+}
+
+// jsonObject is the fields of line, which must be one JSON object and
+// nothing after it.
+func jsonObject(line []byte) ([]field, bool) {
+	w, ok := walkLine(line)
+	return w.fields, ok
+}
+
+// walkLine reads line, which must be one JSON object and nothing after it.
+func walkLine(line []byte) (*walker, bool) {
+	w := &walker{dec: json.NewDecoder(bytes.NewReader(allowNonFinite(line)))}
+	w.dec.UseNumber()
+	if tok, err := w.dec.Token(); err != nil || tok != json.Delim('{') {
+		return w, false
+	}
+	if err := w.object("", 1, true); err != nil {
+		return w, false
+	}
+	if _, err := w.dec.Token(); err != io.EOF {
+		return w, false
+	}
+	return w, true
+}
+
+// object reads an object's members up to its closing brace, the opening
+// one read already, adding each value under prefix where keep says to.
+func (w *walker) object(prefix string, depth int, keep bool) error {
+	for w.dec.More() {
+		tok, err := w.dec.Token()
 		if err != nil {
 			return err
 		}
@@ -234,46 +300,115 @@ func walkObject(dec *json.Decoder, prefix string, depth int, fields *[]field) er
 		if prefix != "" {
 			name = prefix + "." + key
 		}
-		if err := walkValue(dec, name, depth, fields); err != nil {
+		if err := w.value(name, depth, keep); err != nil {
 			return err
 		}
 	}
-	_, err := dec.Token()
+	_, err := w.dec.Token()
 	return err
 }
 
-// walkValue reads one value, adding it under name to fields: an object's
-// or an array's members each under a name of their own.
-func walkValue(dec *json.Decoder, name string, depth int, fields *[]field) error {
-	tok, err := dec.Token()
+// value reads one value, adding it under name where keep says to: an
+// object's or an array's members each under a name of their own. An
+// array's elements past maxJSONArray are read, to reach what follows, and
+// not kept.
+func (w *walker) value(name string, depth int, keep bool) error {
+	tok, err := w.dec.Token()
 	if err != nil {
 		return err
 	}
-	var value string
+	f := field{name: name}
 	switch v := tok.(type) {
 	case json.Delim:
 		if depth == maxJSONDepth {
 			return errors.New("nested too deep")
 		}
 		if v == '{' {
-			return walkObject(dec, name, depth+1, fields)
+			return w.object(name, depth+1, keep)
 		}
-		for i := 0; dec.More(); i++ {
-			if err := walkValue(dec, name+"["+strconv.Itoa(i)+"]", depth+1, fields); err != nil {
+		for i := 0; w.dec.More(); i++ {
+			if i == maxJSONArray && keep && w.cut == "" {
+				w.cut = name
+			}
+			if err := w.value(name+"["+strconv.Itoa(i)+"]", depth+1, keep && i < maxJSONArray); err != nil {
 				return err
 			}
 		}
-		_, err := dec.Token()
+		_, err := w.dec.Token()
 		return err
 	case json.Number:
-		value = v.String()
+		f.value = v.String()
 	case string:
-		value = strings.TrimSpace(v)
+		f.value, f.str = strings.TrimSpace(v), true
 	case bool:
-		value = strconv.FormatBool(v)
+		f.value = strconv.FormatBool(v)
 	case nil:
-		value = ""
 	}
-	*fields = append(*fields, field{name, value})
+	if keep {
+		w.fields = append(w.fields, f)
+	}
 	return nil
+}
+
+// nonFinite are the words Python's json writes for numbers JSON has none
+// for, which encoding/json refuses: a log holding one lost its line.
+var nonFinite = [][]byte{[]byte("-Infinity"), []byte("Infinity"), []byte("NaN")}
+
+// allowNonFinite is line with each of nonFinite outside a string quoted,
+// so it reads as a string, as the word in a CSV's cell does: NaN a gap,
+// Infinity a cell not a number. A word inside a string, or within a longer
+// one, is left alone, and a line holding none is line itself.
+func allowNonFinite(line []byte) []byte {
+	if !bytes.Contains(line, []byte("NaN")) && !bytes.Contains(line, []byte("Infinity")) {
+		return line
+	}
+	out := make([]byte, 0, len(line)+8)
+	quoted, escaped := false, false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quoted:
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				quoted = false
+			}
+		case c == '"':
+			quoted = true
+		default:
+			if word := nonFiniteAt(line, i); word != nil {
+				out = append(out, '"')
+				out = append(out, word...)
+				out = append(out, '"')
+				i += len(word) - 1
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// nonFiniteAt is the word of nonFinite at line[i], standing alone, or nil.
+func nonFiniteAt(line []byte, i int) []byte {
+	if i > 0 && isWordByte(line[i-1]) {
+		return nil
+	}
+	for _, word := range nonFinite {
+		if bytes.HasPrefix(line[i:], word) {
+			if end := i + len(word); end < len(line) && isWordByte(line[end]) {
+				return nil
+			}
+			return word
+		}
+	}
+	return nil
+}
+
+// isWordByte says c may be part of a bare JSON word or number.
+func isWordByte(c byte) bool {
+	return c == '-' || c == '+' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }

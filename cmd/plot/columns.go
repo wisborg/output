@@ -88,8 +88,9 @@ type sighting struct {
 // point. Cells that show both marks are a file at odds with itself, which
 // is refused rather than read half and half. Where nothing showed it and a
 // cell read as two different numbers -- "1,234" -- the guess is said in
-// note, with the flag that reads it the other way.
-func decideDecimal(records [][]string, delim rune, mark decimalMark) (decided decimalMark, note string, err error) {
+// note, with the flag that reads it the other way. unit is what a record
+// is called in a message: a CSV's row, a JSON Lines file's line.
+func decideDecimal(records [][]string, delim rune, mark decimalMark, unit string) (decided decimalMark, note string, err error) {
 	if mark != decimalAuto {
 		return mark, "", nil
 	}
@@ -114,8 +115,8 @@ func decideDecimal(records [][]string, delim rune, mark decimalMark) (decided de
 	}
 	switch {
 	case point != nil && comma != nil:
-		return "", "", fmt.Errorf("the numbers are written both ways: %q on row %d with a decimal point, %q on row %d with a decimal comma; say --decimal point or --decimal comma",
-			point.cell, point.row, comma.cell, comma.row)
+		return "", "", fmt.Errorf("the numbers are written both ways: %q on %s %d with a decimal point, %q on %s %d with a decimal comma; say --decimal point or --decimal comma",
+			point.cell, unit, point.row, comma.cell, unit, comma.row)
 	case point != nil:
 		return decimalPoint, "", nil
 	case comma != nil:
@@ -440,7 +441,12 @@ func (col column) value(cell string) (float64, bool) {
 // findColumn is the column spec names: a column's name, exactly or in
 // another case, or its number counting from 1. A name wins over a number,
 // so a column called "2024" is found by its name.
-func findColumn(names []string, spec string) (int, error) {
+//
+// A key a JSON Lines file has past maxJSONColumns is said to be left out,
+// rather than no column: it is in the file, and a reader told otherwise
+// looks for a typing mistake.
+func findColumn(t *table, spec string) (int, error) {
+	names := t.names
 	spec = strings.TrimSpace(spec)
 	for j, n := range names {
 		if n == spec {
@@ -454,6 +460,9 @@ func findColumn(names []string, spec string) (int, error) {
 	}
 	if n, err := strconv.Atoi(spec); err == nil && n >= 1 && n <= len(names) {
 		return n - 1, nil
+	}
+	if t.dropped[spec] {
+		return 0, fmt.Errorf("%q is past the first %d columns, and was left out", spec, maxJSONColumns)
 	}
 	return 0, fmt.Errorf("no column %q: the columns are %s", spec, quoteList(names))
 }

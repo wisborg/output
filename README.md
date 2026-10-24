@@ -485,15 +485,22 @@ a column, in the order the keys are first met, and a key inside an object is
 named by its path, `cpu.user`, an array's element by its index, `load[0]`; a
 key a line lacks, and a `null`, is a gap. A number is read as written, and a
 string as a CSV's cell is, so `"12.5"` is a number and
-`"2024-03-05T14:30:00Z"` a date. A line that is not one object — cut short
+`"2024-03-05T14:30:00Z"` a date; `NaN` and `Infinity`, which Python writes
+though JSON has no word for them, are read as those words, so `NaN` is a gap.
+JSON writes its numbers with a point, but a string may hold `"1,5"`: the
+strings alone decide the file's decimal mark, as a CSV's numbers do, or
+`--decimal` says it. A line that is not one object — cut short
 where a log was rotated mid-write, a line of text among them — is left out,
 and `plot` says how many and the first. So is a column given two values in
 one line — a key written twice, or `"a.b"` beside an `"a"` holding `"b"` —
-which keeps the last, and the keys past the first 1,000, which a log keyed by
-user or request can reach. `--delimiter`, `--header` and `--decimal` are for
-CSV, and refused for JSON Lines rather than ignored. A file of one JSON
-array, or of objects written over several lines each, as `jq` writes them
-without `-c`, is refused, saying `jq -c` makes JSON Lines of it.
+which keeps the last; an array's elements past its first 100, so the keys
+after a long one still have columns; and the keys past the first 1,000, which
+a log keyed by user or request can reach, and which `--y` naming one says is
+left out. `--delimiter` and `--header` are for CSV, and refused for JSON
+Lines rather than ignored, but for `auto`, which says nothing. A file of one
+JSON array, or of objects written over several lines each, as `jq` writes
+them without `-c`, is refused, saying `jq -c` makes JSON Lines of it, and so
+is a file of an array a line.
 `--input csv` reads a file as CSV whatever it holds. Each format is one file of the command, read into the same table of
 text, and another format is another reader of it.
 
