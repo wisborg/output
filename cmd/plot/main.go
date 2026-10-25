@@ -124,8 +124,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if len(files) > 1 {
 		return cli.Usagef("one file at a time: %s", strings.Join(files, " "))
 	}
-	set := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	// Every flag is checked whichever way the chart is drawn: --theme pink
 	// with the chart in braille once drew it and exited 0, and the same
 	// command with --out was refused.
@@ -328,7 +326,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if o.out != "" {
 		err = d.writePNG(o.out, o.width, o.height)
 	} else {
-		err = d.writeTerminal(stdout, stderr, terminal.Protocol(o.terminal), o.width, o.height, set["width"], set["height"])
+		err = d.writeTerminal(stdout, stderr, terminal.Protocol(o.terminal), o.width, o.height)
 	}
 	if err != nil {
 		return err
@@ -548,6 +546,10 @@ type drawing struct {
 	getenv func(string) string
 	// highMemory lifts maxBrailleChars and the pictures' DefaultMaxPixels.
 	highMemory bool
+	// sizeOf is the size of the terminal a writer writes to, and whether
+	// it is one: terminal.SizeOf of a file where nil, and a test's own
+	// window otherwise, as a test has no terminal to ask.
+	sizeOf func(io.Writer) (terminal.Size, bool)
 }
 
 // maxBrailleChars is the most characters a braille chart may have without
@@ -649,10 +651,11 @@ func (d drawing) writePNG(path string, width, height int) error {
 // writeTerminal draws the chart on out, as a picture or in braille as
 // terminal.Choose decides for mode, the size of the terminal or of width
 // and height in characters where set.
-func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, width, height int, widthSet, heightSet bool) error {
-	f, isFile := out.(*os.File)
+func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, width, height int) error {
 	ts, tty := terminal.Size{}, false
-	if isFile {
+	if d.sizeOf != nil {
+		ts, tty = d.sizeOf(out)
+	} else if f, isFile := out.(*os.File); isFile {
 		ts, tty = terminal.SizeOf(f)
 	}
 	how, note, err := terminal.Choose(mode, d.getenv, tty)
@@ -663,7 +666,12 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 		fmt.Fprintln(errOut, note+"; --terminal iterm or kitty draws one anyway")
 	}
 	n := len(d.series.yNames)
-	w, h := chartChars(ts, tty, d.getenv, n, how != terminal.Braille, width, height, widthSet, heightSet)
+	w, h := chartChars(ts, tty, d.getenv, n, how != terminal.Braille, width, height)
+	// Said, where --width asked for more: a flag with no visible effect
+	// and no word reads as one ignored.
+	if width > w {
+		fmt.Fprintf(errOut, "--width %d: a picture is held to the window's %d columns\n", width, w)
+	}
 	if how == terminal.Braille {
 		return d.writeBraille(out, w, h)
 	}
@@ -694,15 +702,20 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 // window, or COLUMNS where it is not a terminal, and 24 rows and 10 more a
 // column after the first, no taller than the window less 3; --width and
 // --height say otherwise, 0 being the default, as it is for a PNG, and as
-// diagram has it.
+// diagram has it (a negative one is refused before).
 //
-// A picture's width is held to the window's, where the terminal says it:
-// the width goes into the picture's escape as the columns to show it in,
-// so a --width past the window's edge was a picture the terminal cut off
-// or wrapped, and --width 999999999 a request no terminal should get.
-// diagram holds it so too. A braille chart's is taken as given, as
-// diagram's text is: its lines are only as wide as asked.
-func chartChars(ts terminal.Size, tty bool, getenv func(string) string, n int, picture bool, width, height int, widthSet, heightSet bool) (w, h int) {
+// A picture's width is held to the window's columns, where the terminal
+// says them, however the width was come by: it goes into the picture's
+// escape as the columns to show it in, so a --width past the window's
+// edge was a picture the terminal cut off or wrapped, and --width
+// 999999999 a request for that many columns. A terminal can say its
+// columns and not its rows, which is no terminal to SizeOf, and COLUMNS
+// past them was not held. Where the terminal says nothing -- a picture
+// sent into a pipe with --terminal iterm -- nothing holds it: COLUMNS is
+// then the user's own word for the width. diagram holds it so too. A
+// braille chart's is taken as given, as diagram's text is: its lines are
+// only as wide as asked.
+func chartChars(ts terminal.Size, tty bool, getenv func(string) string, n int, picture bool, width, height int) (w, h int) {
 	cols, rows := ts.Cols, ts.Rows
 	if !tty {
 		cols, rows = envInt(getenv, "COLUMNS", 100), envInt(getenv, "LINES", 0)
@@ -711,13 +724,13 @@ func chartChars(ts terminal.Size, tty bool, getenv func(string) string, n int, p
 	if rows > 0 {
 		h = min(h, rows-3)
 	}
-	if widthSet && width > 0 {
+	if width > 0 {
 		w = width
-		if picture && ts.Cols > 0 {
-			w = min(w, ts.Cols)
-		}
 	}
-	if heightSet && height > 0 {
+	if picture && ts.Cols > 0 {
+		w = min(w, ts.Cols)
+	}
+	if height > 0 {
 		h = height
 	}
 	return w, h

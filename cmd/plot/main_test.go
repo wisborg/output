@@ -657,33 +657,98 @@ func TestPlotJSONLinesAsWritten(t *testing.T) {
 	}
 }
 
-// A picture's --width is held to the window's, where the terminal says
-// it: the terminal is asked to show the picture in that many columns, and
-// past its edge it was cut off or wrapped. A braille chart's is taken as
-// given, as is a width within the window, and one where the terminal says
-// nothing.
+// A picture's width is held to the window's, where the terminal says it,
+// however it was come by: the terminal is asked to show the picture in
+// that many columns, and past its edge it was cut off or wrapped. A
+// braille chart's is taken as given, as is a width within the window, and
+// one where the terminal says nothing, COLUMNS being the user's word then.
 func TestChartCharsHoldsAPictureToTheWindow(t *testing.T) {
 	window := terminal.Size{Cols: 80, Rows: 40}
+	// Columns and no rows is no terminal to SizeOf, but a width still.
+	colsOnly := terminal.Size{Cols: 80}
+	wide := func(name string) string {
+		if name == "COLUMNS" {
+			return "200"
+		}
+		return ""
+	}
 	for _, c := range []struct {
 		name    string
 		ts      terminal.Size
 		tty     bool
+		getenv  func(string) string
 		picture bool
 		width   int
 		want    int
 	}{
-		{"a picture past the window", window, true, true, 200, 80},
-		{"a picture past it by far", window, true, true, 999999999, 80},
-		{"a picture within it", window, true, true, 60, 60},
-		{"braille past the window", window, true, false, 200, 200},
-		{"a picture, no size said", terminal.Size{}, false, true, 200, 200},
+		{"a picture past the window", window, true, noEnv, true, 200, 80},
+		{"a picture past it by far", window, true, noEnv, true, 999999999, 80},
+		{"a picture within it", window, true, noEnv, true, 60, 60},
+		{"braille past the window", window, true, noEnv, false, 200, 200},
+		{"a picture, no size said", terminal.Size{}, false, noEnv, true, 200, 200},
+		{"a picture, no size said, COLUMNS", terminal.Size{}, false, wide, true, 0, 200},
+		{"columns and no rows, COLUMNS past them", colsOnly, false, wide, true, 0, 80},
+		{"columns and no rows, --width past them", colsOnly, false, wide, true, 200, 80},
+		{"columns and no rows, braille", colsOnly, false, wide, false, 0, 200},
 	} {
-		if w, _ := chartChars(c.ts, c.tty, noEnv, 1, c.picture, c.width, 0, true, false); w != c.want {
+		if w, _ := chartChars(c.ts, c.tty, c.getenv, 1, c.picture, c.width, 0); w != c.want {
 			t.Errorf("%s: %d wide, want %d", c.name, w, c.want)
 		}
 	}
 	// Unasked, it is the window's width, and its rows less 3 at most.
-	if w, h := chartChars(window, true, noEnv, 2, true, 0, 0, false, false); w != 80 || h != 34 {
+	if w, h := chartChars(window, true, noEnv, 2, true, 0, 0); w != 80 || h != 34 {
 		t.Errorf("unasked: %d by %d, want 80 by 34", w, h)
+	}
+}
+
+// The picture's escape carries the width chartChars gives, which is the
+// columns the terminal shows it in; drawn into a pipe, nothing holds it,
+// and nothing is said.
+func TestPlotPictureEscapeWidth(t *testing.T) {
+	env := func(name string) string {
+		if name == "COLUMNS" {
+			return "120"
+		}
+		return ""
+	}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--terminal", "iterm", "--width", "50"}, "width=50;"},
+		{[]string{"--terminal", "iterm"}, "width=120;"},
+		{[]string{"--terminal", "iterm", "--width", "300"}, "width=300;"},
+	} {
+		var out, errOut bytes.Buffer
+		if err := run(append(c.args, "-"), strings.NewReader("a,b\n1,2\n2,3\n"), &out, &errOut, env); err != nil {
+			t.Fatalf("%q: %v", c.args, err)
+		}
+		if !strings.Contains(out.String(), c.want) || errOut.Len() > 0 {
+			t.Errorf("%q: escape %.80q, stderr %q, want %q and no word", c.args, out.String(), errOut.String(), c.want)
+		}
+	}
+
+	// In a window of 80 columns, --width 200 is held to them, and said:
+	// a flag with no visible effect and no word reads as one ignored.
+	// Within the window, and unasked, nothing is said.
+	s := series{yNames: []string{"v"}, rows: []seriesRow{{x: 0, ys: []float64{1}, ok: []bool{true}}, {x: 1, ys: []float64{2}, ok: []bool{true}}}}
+	d := drawing{series: s, theme: "dark", getenv: noEnv, sizeOf: func(io.Writer) (terminal.Size, bool) {
+		return terminal.Size{Cols: 80, Rows: 40}, true
+	}}
+	for _, c := range []struct {
+		width      int
+		want, note string
+	}{
+		{200, "width=80;", "--width 200: a picture is held to the window's 80 columns\n"},
+		{60, "width=60;", ""},
+		{0, "width=80;", ""},
+	} {
+		var out, errOut bytes.Buffer
+		if err := d.writeTerminal(&out, &errOut, terminal.ITerm, c.width, 0); err != nil {
+			t.Fatalf("--width %d: %v", c.width, err)
+		}
+		if !strings.Contains(out.String(), c.want) || errOut.String() != c.note {
+			t.Errorf("--width %d in 80 columns: escape %.80q, stderr %q, want %q and %q", c.width, out.String(), errOut.String(), c.want, c.note)
+		}
 	}
 }
