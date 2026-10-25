@@ -83,11 +83,15 @@ type sighting struct {
 // comma, and the first that reads as two different numbers. unit is what
 // a row is called in a message: a CSV's row, a JSON Lines file's line.
 // names, where set, name a sighting's column in a message, where cells
-// of several columns are weighed together.
+// of several columns are weighed together. points and commas count the
+// cells read only one way, so that a column written both ways can be read
+// the way most of it is; add, weighing columns together to refuse them
+// at odds, needs no count.
 type marks struct {
 	point, comma, either *sighting
 	unit                 string
 	names                []string
+	points, commas       int
 }
 
 // see adds cell, on row row and in column col, to what m has seen.
@@ -98,13 +102,26 @@ func (m *marks) see(cell string, row, col int) {
 	p, pok := asPoint(cell)
 	c, cok := asComma(cell)
 	switch {
-	case pok && !cok && m.point == nil:
-		m.point = &sighting{cell, col, row}
-	case cok && !pok && m.comma == nil:
-		m.comma = &sighting{cell, col, row}
+	case pok && !cok:
+		if m.points++; m.point == nil {
+			m.point = &sighting{cell, col, row}
+		}
+	case cok && !pok:
+		if m.commas++; m.comma == nil {
+			m.comma = &sighting{cell, col, row}
+		}
 	case pok && cok && p != c && m.either == nil:
 		m.either = &sighting{cell, col, row}
 	}
+}
+
+// most is the mark most of the cells m has seen read only one way are
+// written with: a comma where more are, and a point otherwise.
+func (m marks) most() decimalMark {
+	if m.commas > m.points {
+		return decimalComma
+	}
+	return decimalPoint
 }
 
 // add is what m and o have seen together, the first of each kind m's.
@@ -514,6 +531,14 @@ func findColumn(t *table, spec string) (int, error) {
 	for j, n := range names {
 		if strings.EqualFold(n, spec) {
 			return j, nil
+		}
+	}
+	// And in another case, as a kept column is found: --y Latency said
+	// there was no column, of a key latency left out. Looked through
+	// only here, where the spec names no kept column.
+	for key := range t.dropped {
+		if strings.EqualFold(key, spec) {
+			return 0, fmt.Errorf("%q is past the first %d columns, and was left out", key, maxJSONColumns)
 		}
 	}
 	if n, err := strconv.Atoi(spec); err == nil && n >= 1 && n <= len(names) {

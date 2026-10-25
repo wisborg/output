@@ -71,8 +71,8 @@ func sniffInput(data []byte) (inputMode, error) {
 		return "", errors.New("JSON objects over several lines each: plot reads JSON Lines, an object a line, which jq -c . writes of them")
 	}
 	lines, objects, arrays := 0, 0, 0
-	for line := range bytes.Lines(data) {
-		line = bytes.TrimSpace(line)
+	for raw := range bytes.Lines(data) {
+		line := bytes.TrimSpace(raw)
 		if len(line) == 0 {
 			continue
 		}
@@ -80,10 +80,16 @@ func sniffInput(data []byte) (inputMode, error) {
 		// counted, a file of them was refused as objects over several
 		// lines. An empty one is not counted: it has no column to give,
 		// and a CSV of one column, "payload" over rows of {}, was read
-		// as JSON Lines of nothing.
-		if w, err := walkLine(line); err == nil && len(w.fields) > 0 || errors.Is(err, errTooDeep) {
+		// as JSON Lines of nothing. Nor one with a tab before or after
+		// it: a TSV, which quotes no cell, of an object and an empty
+		// cell is a whole object once trimmed, and was read as JSON
+		// Lines of that row, every other left out.
+		w, err := walkLine(line)
+		switch {
+		case tabbed(raw):
+		case err == nil && len(w.fields) > 0 || errors.Is(err, errTooDeep):
 			objects++
-		} else if bytes.HasPrefix(line, []byte("[")) && json.Valid(allowNonFinite(line)) {
+		case bytes.HasPrefix(line, []byte("[")) && json.Valid(allowNonFinite(line)):
 			arrays++
 		}
 		if lines++; lines == 20 {
@@ -97,6 +103,13 @@ func sniffInput(data []byte) (inputMode, error) {
 		return "", errors.New("an array a line: plot reads JSON Lines of objects, a column a key")
 	}
 	return inputCSV, nil
+}
+
+// tabbed says line, but for spaces and its line break, begins or ends
+// with a tab.
+func tabbed(line []byte) bool {
+	line = bytes.Trim(line, " \r\n")
+	return bytes.HasPrefix(line, []byte("\t")) || bytes.HasSuffix(line, []byte("\t"))
 }
 
 // overLines says data begins with JSON objects written over several lines
@@ -278,9 +291,11 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 		// with a mark in it, as one without reads the same either way:
 		// every string of every line, messages and routes, was parsed
 		// twice to say nothing.
+		// Nor of one that cannot begin a number, "Request completed.",
+		// which a log has on every line.
 		if mark == decimalAuto {
 			for _, c := range row {
-				if c.str && strings.ContainsAny(c.value, ".,") {
+				if c.str && numberStart(c.value) && strings.ContainsAny(c.value, ".,") {
 					t.seen[c.col].see(c.value, n, int(c.col))
 				}
 			}
@@ -298,8 +313,11 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 	}
 	// Until settleMarks decides it for the columns plotted, each column is
 	// read by what its own strings say -- with a point where they say
-	// nothing, or both -- which is how --list shows it, and how the
-	// columns plotted by default are chosen.
+	// nothing -- which is how --list shows it, and how the columns plotted
+	// by default are chosen. Where they say both, the way most of them
+	// are: read with a point, a column mostly "1,5" was text, so --y
+	// named it text and a chart left it out without a word, where read as
+	// numbers, settleMarks refuses it as written both ways.
 	t.readMark = make([]decimalMark, len(t.names))
 	for j := range t.readMark {
 		t.readMark[j] = mark
@@ -307,10 +325,11 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 			if d, _, err := t.seen[j].decide(decimalPoint); err == nil {
 				t.readMark[j] = d
 			} else {
-				t.readMark[j] = decimalPoint
+				t.readMark[j] = t.seen[j].most()
 			}
 		}
 	}
+	t.rewrite(func(j int32) bool { return t.readMark[j] == decimalComma })
 	nameColumns(t.names)
 	t.notes = bad.note(t.notes, "not a JSON object, left out", "")
 	// Apart from the lines that are no object: a valid one said to be
@@ -326,6 +345,16 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 	t.notes = cut.note(t.notes, fmt.Sprintf("%q cut to its first %d elements", firstCut, maxJSONArray), fmt.Sprintf("an array cut to its first %d elements, the first %q", maxJSONArray, firstCut))
 	t.notes = twice.note(t.notes, "a column given two values, the last kept", "")
 	return t, nil
+}
+
+// numberStart says s begins as a number written in a string may: a
+// digit, a sign or a point. An empty string, "", does not.
+func numberStart(s string) bool {
+	if s == "" {
+		return false
+	}
+	c := s[0]
+	return c >= '0' && c <= '9' || c == '-' || c == '+' || c == '.'
 }
 
 // lineTally is how many lines something was said of, and the first: all a
@@ -366,8 +395,11 @@ type field struct {
 }
 
 // walker is what reading one line found: its fields, in the order they
-// are written, the first array cut short at maxJSONArray, if any, and
-// whether a key was written twice in one object. The last value of a key
+// are written, the first array cut short at maxJSONArray whose elements
+// it keeps, if any, and whether a key was written twice in one object.
+// cuts are every array cut short as it was read, of which one a later
+// value of its key replaced is not said: a note of an array cut, where
+// the key holds a number, sent the reader looking for its elements. The last value of a key
 // written twice is kept, as encoding/json keeps it, in the place of the
 // first, as Python's keeps it: the whole of the earlier ones is gone, so
 // {"a":{"x":1},"a":{"y":2}} has a.y and no a.x, which matching paths
@@ -376,6 +408,7 @@ type walker struct {
 	dec    *json.Decoder
 	fields []field
 	cut    string
+	cuts   []string
 	twice  bool
 }
 
@@ -414,6 +447,12 @@ func walkLine(line []byte) (*walker, error) {
 	}
 	if _, err := w.dec.Token(); err != io.EOF {
 		return w, errNotObject
+	}
+	for _, c := range w.cuts {
+		if slices.ContainsFunc(w.fields, func(f field) bool { return strings.HasPrefix(f.name, c+"[") }) {
+			w.cut = c
+			break
+		}
 	}
 	return w, nil
 }
@@ -514,8 +553,8 @@ func (w *walker) value(name string, depth int, keep bool) error {
 			return w.object(name, false, depth+1, keep)
 		}
 		for i := 0; w.dec.More(); i++ {
-			if i == maxJSONArray && keep && w.cut == "" {
-				w.cut = name
+			if i == maxJSONArray && keep {
+				w.cuts = append(w.cuts, name)
 			}
 			elem, keepElem := "", keep && i < maxJSONArray
 			if keepElem {

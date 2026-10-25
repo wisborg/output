@@ -702,13 +702,19 @@ their own, ids, tags, versions, and decided for the file, a `"3,4"` among
 the ids made `"1.234"` in the column plotted 1234 without a word, while a
 `"2.5"` in one field and a `"1,2"` in another refused a log plotting
 neither. Each column's evidence is kept as it is read (`table.seen`, a
-`marks` a column), the strings kept as written and rewritten as read
-(`table.text`, by `readMark`), and once `--x` and `--y` are settled,
+`marks` a column, its sightings holding the strings as written), each
+column's strings rewritten with a point once its mark is a comma
+(`table.rewrite`, by `readMark`; rewritten as each cell was read, a column
+was matched three or four times over), and once `--x` and `--y` are settled,
 `settleMarks` decides it for those columns together. A point in one and a
 comma in another, or both in one, are refused, naming each, rather than
 guessed between -- the user's decision, as `"1.234"` read wrongly is a
 chart a thousand times out; where they show neither, a point. Until then,
-and for `--list`, each column is read by its own strings -- so the default
+and for `--list`, each column is read by its own strings -- one showing
+both marks the way most of them are, so that a column mostly `"1,5"`
+reads as numbers and is refused when plotted, not taken for text and left
+out without a word; and `--y` naming one half each way, text however
+read, says it is written both ways -- so the default
 x is chosen for being in order read by its own, and where the mark the
 columns plotted settle on puts it out of order, "1,234" and "2,000" read as
 1.234 and 2, the chart is refused, asking for `--x` or `--decimal`: choosing
@@ -717,7 +723,10 @@ break, not a guess's. A sighting holds its column's index, named as a
 message is written, so the name it says is the one `nameColumns` gave.
 Where `--decimal` says the mark, no evidence is kept and `--list` says
 nothing of it; nor is it kept of a string with neither `.` nor `,`, which
-reads alike either way. A column read
+reads alike either way, nor of one beginning other than a number may, a
+digit, a sign or a point, "Request completed.". `--list` says a column's
+mark, written both ways or guessed, only where it holds numbers: a tag
+among words is no number to plot. A column read
 with another mark than its own strings showed is not typed again: its
 strings showed none, so each is a number either way or neither, and only
 its value changes. `--decimal` applies to every string column, and a
@@ -726,12 +735,15 @@ whether a cell is a string is its last value's to say, where a key is
 written twice. `--input auto`
 takes a file for JSON Lines where any of its first 20 lines is a whole
 object holding a value -- `{}` gives no column, and a CSV of a column of
-them was read as JSON Lines of nothing -- not where its first byte is a brace: a log read from its middle
+them was read as JSON Lines of nothing -- and with no tab before or after
+it, not where its first byte is a brace: a log read from its middle
 begins with the end of a line, and was read as CSV of fragments. Nor where
 half are: a log with a traceback of three lines after each object is a
 quarter objects, and was read as CSV too. No CSV holds a line that is a
-whole object -- a cell holding one is quoted -- and the lines that are none
-are left out and said. JSON that is not JSON Lines -- one array, an array a
+whole object -- a cell holding one is quoted -- but a TSV quotes nothing,
+and an object beside an empty cell is one once trimmed: so a line with a
+tab at either end is not counted. The lines that are none are left out
+and said. JSON that is not JSON Lines -- one array, an array a
 line, objects over several lines -- is refused, naming `jq -c` where it
 helps, and looked for before the lines are counted, as an array of objects a
 line has a line that is a whole object; objects over several lines only
@@ -753,7 +765,7 @@ line about a tenth more memory than a dense one would. Nesting is read by
 recursion, so a line deeper than `maxJSONDepth` is left out, and said to
 be nested too deep rather than to be no object, which it is.
 
-Two limits of the JSON Lines reader are known and kept; reviews have
+Four limits of the JSON Lines reader are known and kept; reviews have
 raised each more than once, so here is why. **It is two to three times
 slower than CSV, and takes two to three times the memory**: 300,000 lines
 of a log in 2 s and 330 MB, against 0.9 s and 145 MB as CSV. Each line has a
@@ -769,7 +781,16 @@ keys left out exactly and `--y` say a key was left out rather than that
 there is none. The file is in memory whole already and the names are no
 larger than it, so the set at most doubles what reading takes; a bounded
 one would miscount, or answer "no such column" for a key in the file, or
-need the file read twice.
+need the file read twice. **The default x is chosen before the decimal
+mark is settled**, and a chart is refused where settling it puts that x
+out of order, rather than the mark settled first from the columns the
+default would plot: with `--y` given and `--x` not, column 0 would count
+toward the mark before it is known to be plotted, and a contradiction in a
+column no one plots would refuse the file. The refusal asks for one flag,
+and only where the mark x is read with changed. **`--input auto` decodes
+the first 20 lines twice**, once to choose and once to read: 20 lines
+against a file already in memory, and a cheaper test for a whole object
+would lose a line too deep counting as one.
 
 **A column is a column of numbers when most of its values are, not all.** A
 typed file holds the odd "n.d."; refusing the column for one would refuse the

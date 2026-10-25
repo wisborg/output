@@ -135,6 +135,19 @@ func TestReadJSONLinesStringsAsLeft(t *testing.T) {
 	if _, err := readJSONLines([]byte(`{"v":"1,5","v":2}`+"\n"+`{"w":"0.5"}`+"\n"), decimalAuto); err != nil {
 		t.Errorf("a decimal comma only in a string replaced: %v, want no file written both ways", err)
 	}
+	// A string may begin with a sign or a point, and still say the mark;
+	// one beginning otherwise is passed over, as no number.
+	for _, c := range []struct{ data, want string }{
+		{`{"v":"-1,5"}` + "\n" + `{"v":"-2,5"}`, "-1.5"},
+		{`{"v":"+1,5"}` + "\n" + `{"v":"+2,5"}`, "+1.5"},
+	} {
+		if tb, err := readJSONLines([]byte(c.data), decimalAuto); err != nil || tb.cell(0, 0) != c.want {
+			t.Errorf("%s: %v, want %q", c.data, err, c.want)
+		}
+	}
+	if _, _, err := plot(t, `{"v":".5"}`+"\n"+`{"v":"1,5"}`+"\n"+`{"v":"2,5"}`+"\n", "--y", "v"); err == nil || !strings.Contains(err.Error(), "written both ways") {
+		t.Errorf(`".5" beside "1,5": %v, want them refused as written both ways`, err)
+	}
 	// JSON's numbers say nothing of the mark: 1.5 beside "0,5" is no file
 	// written both ways.
 	if tb, err := readJSONLines([]byte(`{"n":1.5,"s":"0,5"}`+"\n"), decimalAuto); err != nil || tb.cell(0, 1) != "0.5" {
@@ -181,11 +194,28 @@ func TestSettleMarks(t *testing.T) {
 		t.Errorf("v read with x's comma: %v, want its axis in thousands:\n%s", err, out)
 	}
 	// And --list, reading each column by its own strings, says the one at
-	// odds rather than refusing.
+	// odds rather than refusing, listed the way most of it is written.
 	// It names the column once, at its head, and its cells by line.
-	_, errOut, err := plot(t, `{"v":"0,5"}`+"\n"+`{"v":"1.5"}`+"\n", "--list")
-	if err != nil || !strings.Contains(errOut, `"v": numbers written both ways, "1.5" on line 2 with a decimal point`) {
-		t.Errorf("--list of a column at odds: %v, stderr %q", err, errOut)
+	const mostlyComma = `{"v":"0,5"}` + "\n" + `{"v":"1.5"}` + "\n" + `{"v":"3,5"}` + "\n"
+	out, errOut, err := plot(t, mostlyComma, "--list")
+	if err != nil || !strings.Contains(errOut, `"v": numbers written both ways, "1.5" on line 2 with a decimal point`) || !strings.Contains(errOut, "listed with a comma, as most are") || !strings.Contains(out, "number") {
+		t.Errorf("--list of a column at odds: %v, stderr %q\n%s", err, errOut, out)
+	}
+	// Plotted, by name or by default, it is refused as written both ways:
+	// read with a point it was text, --y said so and a chart left it out
+	// without a word.
+	for _, args := range [][]string{{"--y", "v"}, nil} {
+		if _, _, err := plot(t, mostlyComma, args...); err == nil || !strings.Contains(err.Error(), "written both ways") {
+			t.Errorf("%q, a column at odds: %v, want it refused as written both ways", args, err)
+		}
+	}
+	// Half and half, it is text however read; --y says why.
+	if _, _, err := plot(t, `{"t":1,"v":"0,5"}`+"\n"+`{"t":2,"v":"1.5"}`+"\n", "--y", "v"); err == nil || !strings.Contains(err.Error(), "written both ways") {
+		t.Errorf("--y naming a column half each way: %v, want it said to be written both ways", err)
+	}
+	// A text column's marks are no number's, and say nothing.
+	if _, errOut, err := plot(t, `{"t":1,"tag":"a"}`+"\n"+`{"t":2,"tag":"b"}`+"\n"+`{"t":3,"tag":"1,234"}`+"\n", "--list"); err != nil || errOut != "" {
+		t.Errorf("--list, a text column holding \"1,234\": %v, stderr %q, want none", err, errOut)
 	}
 	// A column whose strings show no mark but read two ways is listed
 	// with a point, and the guess said, as a CSV's is.
@@ -321,6 +351,10 @@ func TestSniffInput(t *testing.T) {
 		// {}, was read as JSON Lines of nothing.
 		{"a column of empty objects", "payload\n{}\n{}\n", inputCSV},
 		{"an object holding only an empty one", "x\n{\"a\":{}}\n", inputCSV},
+		// A TSV quotes no cell: an object and an empty cell, or an empty
+		// cell and an object, are a whole object once trimmed.
+		{"a TSV of an object and an empty cell", "payload\tms\n{\"op\":\"put\"}\t\n{\"op\":\"get\"}\t12\n", inputCSV},
+		{"a TSV of an empty cell and an object", "ms\tpayload\n\t{\"op\":\"put\"}\n", inputCSV},
 		{"a CSV cell holding an object", "a,b\n\"{\"\"x\"\":1}\",2\n", inputCSV},
 		{"CSV", "a,b\n1,2\n", inputCSV},
 		{"a brace no line closes", "{a},b\n1,2\n", inputCSV},
@@ -472,6 +506,20 @@ func TestReadJSONLinesSaysOneLine(t *testing.T) {
 	if want := []string{fmt.Sprintf("line 2: \"s\" cut to its first %d elements", maxJSONArray)}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
+	// An array cut and then replaced by its key's later value is not
+	// said to be cut: the key holds a number, and no element of it is a
+	// column. One cut after it, kept, is.
+	long := "[" + strings.Repeat("1,", maxJSONArray) + "1]"
+	for _, c := range []struct{ line, want string }{
+		{`{"a":` + long + `,"a":1,"b":2}`, ""},
+		{`{"a":` + long + `,"a":1,"c":` + long + `}`, "c"},
+		{`{"c":` + long + `,"d":` + long + `}`, "c"},
+	} {
+		w, err := walkLine([]byte(c.line))
+		if err != nil || w.cut != c.want {
+			t.Errorf("%.30s...: cut %q, %v, want %q", c.line, w.cut, err, c.want)
+		}
+	}
 }
 
 // One key past the columns kept is "1 key", not "1 keys".
@@ -486,5 +534,11 @@ func TestReadJSONLinesOneKeyLeftOut(t *testing.T) {
 	}
 	if want := []string{fmt.Sprintf("1 key past the first %d left out, \"k%d\"", maxJSONColumns, maxJSONColumns)}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
+	}
+	// Asked for in another case, it is said to be left out, as a kept
+	// column is found in any case; it was said to be no column.
+	spec := fmt.Sprintf("K%d", maxJSONColumns)
+	if _, err := findColumn(tb, spec); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("\"k%d\" is past the first", maxJSONColumns)) {
+		t.Errorf("findColumn(%q): %v, want it said to be left out", spec, err)
 	}
 }

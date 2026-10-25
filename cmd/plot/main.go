@@ -229,7 +229,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		if err := writeColumns(stdout, t, cols); err != nil {
 			return err
 		}
-		for _, n := range append(t.notes, t.markNotes()...) {
+		for _, n := range append(t.notes, t.markNotes(cols)...) {
 			fmt.Fprintln(stderr, n)
 		}
 		return nil
@@ -445,6 +445,13 @@ func chooseY(t *table, cols []column, x int, spec string) ([]int, error) {
 				return nil, fmt.Errorf("--y: %w", err)
 			}
 			if cols[y].kind != numberColumn {
+				// A JSON Lines column half one mark and half the other is
+				// text read either way, and the marks are the reason.
+				if t.seen != nil {
+					if _, _, err := t.seen[y].decide(decimalPoint); err != nil {
+						return nil, fmt.Errorf("--y: %q holds text: %w", t.names[y], err)
+					}
+				}
 				return nil, fmt.Errorf("--y: %q holds %s, not numbers", t.names[y], cols[y].kind)
 			}
 			for _, had := range ys {

@@ -93,7 +93,7 @@ func (t *table) cell(i, j int) string {
 	if t.sparse != nil {
 		row := t.sparse[i]
 		if k, ok := slices.BinarySearchFunc(row, int32(j), func(c sparseCell, j int32) int { return cmp.Compare(c.col, j) }); ok {
-			return t.text(row[k])
+			return row[k].value
 		}
 		return ""
 	}
@@ -103,14 +103,20 @@ func (t *table) cell(i, j int) string {
 	return ""
 }
 
-// text is c as a column reads it: a string written with a decimal comma
-// rewritten with a point where its column is read with one, and JSON's own
-// numbers, which have a point, as they are.
-func (t *table) text(c sparseCell) string {
-	if c.str && t.readMark[c.col] == decimalComma {
-		return commaToPoint(c.value)
+// rewrite writes the strings of each column comma says is read with a
+// decimal comma with a point, "1,5" as "1.5", once: rewritten each time a
+// cell was read, a column's cells were matched and rewritten three or
+// four times over, by classify, ordered and the chart. JSON's own numbers,
+// which have a point, are left as they are. What a column's strings say
+// of the mark is kept apart, in seen, as written.
+func (t *table) rewrite(comma func(j int32) bool) {
+	for _, row := range t.sparse {
+		for k := range row {
+			if c := &row[k]; c.str && comma(c.col) {
+				c.value = commaToPoint(c.value)
+			}
+		}
 	}
-	return c.value
 }
 
 // settleMarks decides the decimal mark of a JSON Lines file's strings
@@ -120,7 +126,9 @@ func (t *table) text(c sparseCell) string {
 // A column's kind and counts, from classify, stand: one read now with
 // another mark than its own strings' had strings that showed none, so each
 // is a number read either way or neither, and only its value changes,
-// which cell gives.
+// which rewrite makes. The mark changes only from a point to a comma: a
+// column read with a comma had strings that showed one, and with it among
+// the columns used, the mark is a comma or refused.
 //
 // From the columns used alone, not the file: a log's strings are fields
 // of their own, ids, tags, versions, and a "3,4" among a line's ids made
@@ -143,26 +151,40 @@ func (t *table) settleMarks(used []int, mark decimalMark) (note string, err erro
 	if err != nil {
 		return "", err
 	}
+	changed := map[int32]bool{}
 	for _, j := range used {
+		if t.readMark[j] != decided {
+			changed[int32(j)] = true
+		}
 		t.readMark[j] = decided
+	}
+	if decided == decimalComma && len(changed) > 0 {
+		t.rewrite(func(j int32) bool { return changed[j] })
 	}
 	return note, nil
 }
 
 // markNotes are notes of a JSON Lines file's columns whose strings are
-// written with both a decimal point and a comma: --list reads each with a
-// point, and says so, as plotted it would be refused. And of a column
+// written with both a decimal point and a comma: --list reads each the
+// way most of it is, and says so, as plotted it would be refused. And of a column
 // whose strings show no mark but hold one that reads two ways, "1,234":
 // --list reads it with a point, a guess said as a CSV's is. Where
 // --decimal says the mark, there are none: t.seen is not kept, and a note
 // that the column waits for --decimal would be untrue. Each names its
 // column once, at its head, and its cells by their lines alone.
-func (t *table) markNotes() []string {
+//
+// Only of columns of numbers, cols: a tag or a version among words is no
+// number to plot, and a note of its mark sent the reader to a flag for
+// nothing.
+func (t *table) markNotes(cols []column) []string {
 	var notes []string
 	for j, m := range t.seen {
+		if cols[j].kind != numberColumn {
+			continue
+		}
 		if m.point != nil && m.comma != nil {
-			notes = append(notes, fmt.Sprintf("%q: numbers written both ways, %q %s with a decimal point and %q %s with a comma; listed with a point, and plotted only once --decimal says which",
-				t.names[j], m.point.cell, m.where(m.point), m.comma.cell, m.where(m.comma)))
+			notes = append(notes, fmt.Sprintf("%q: numbers written both ways, %q %s with a decimal point and %q %s with a comma; listed with a %s, as most are, and plotted only once --decimal says which",
+				t.names[j], m.point.cell, m.where(m.point), m.comma.cell, m.where(m.comma), t.readMark[j]))
 		} else if _, note, _ := m.decide(decimalPoint); note != "" {
 			notes = append(notes, fmt.Sprintf("%q: %s", t.names[j], note))
 		}
@@ -195,7 +217,7 @@ func (t *table) eachColumn(f func(j int, cells []string)) {
 		for _, row := range t.sparse {
 			for _, c := range row {
 				if c.value != "" {
-					cols[c.col] = append(cols[c.col], t.text(c))
+					cols[c.col] = append(cols[c.col], c.value)
 				}
 			}
 		}
