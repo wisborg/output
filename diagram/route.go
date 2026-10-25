@@ -134,12 +134,7 @@ func (l *layouter) route() {
 		}
 		r.anySide = false
 		if pts == nil {
-			if e.From == e.To {
-				pts = loop(a)
-			} else {
-				pts = path(a, b, nth)
-			}
-			pts = r.offJoints(pts, a, b)
+			pts = r.plain(l.out.nodeAt[e.From], l.out.nodeAt[e.To], i, nth)
 		}
 		r.draw(pts, i)
 		paths[i] = pts
@@ -197,9 +192,6 @@ type router struct {
 	// fields are the cells of the record field each edge's From and To
 	// ports name, the zero Rect where it names none.
 	fields [][2]Rect
-	// joints are where a record's dividers meet its outline, for offJoints
-	// alone: the search asks the nodes' ends.
-	joints map[Point]bool
 }
 
 // oneWay is the node at the end of e with an arrowhead and the node at
@@ -339,12 +331,7 @@ func newRouter(l *layouter) *router {
 	// Room to go round the boxes at the right and the bottom, as the
 	// layout leaves room at the left and the top.
 	w, h = w+colGap, h+rowGap
-	r := &router{edges: l.d.Edges, w: w, h: h, fields: make([][2]Rect, len(l.d.Edges)), joints: map[Point]bool{}}
-	for _, n := range l.out.Nodes {
-		for _, j := range n.joints() {
-			r.joints[j] = true
-		}
-	}
+	r := &router{edges: l.d.Edges, w: w, h: h, fields: make([][2]Rect, len(l.d.Edges))}
 	for i, e := range l.d.Edges {
 		r.fields[i][0], _ = l.out.nodeAt[e.From].field(e.FromPort)
 		r.fields[i][1], _ = l.out.nodeAt[e.To].field(e.ToPort)
@@ -1008,15 +995,36 @@ func path(a, b Rect, nth int) []Point {
 	return []Point{from, {mid, from.Y}, {mid, to.Y}, to}
 }
 
-// offJoints is the plain path pts from a to b with each end that lies
-// where a record's divider meets the outline moved a cell or a few along
-// the side, its first or last stretch with it, as the search never ends a
-// path there: on a record of two fields alike the plain path's end, the
-// middle of a side, is just there, and the line reads as the divider
-// running on. An end with nowhere to go, its side all joints and corners,
-// or whose moved stretches would pass through a box, stays: a line through
-// a box is the worse fault, as it reads as that box's own.
-func (rt *router) offJoints(pts []Point, a, b Rect) []Point {
+// plain is edge i's plain path, from na to nb, drawn where every search
+// has given up: path's, or loop's from a node back into itself, with each
+// end, and the point after it, moved along its side as far as three cells
+// to the cheapest of the ends the node offers it -- off the corners and
+// the joints, beside the field and on the sides the edge asks for where
+// one is near, and not beside a joint where a clear cell is, priced as
+// the search prices them, and a little more for every cell moved. Where
+// the path is that one stretch, its two ends move together. A move that
+// would take a stretch through a box but at the path's own two ends is
+// not made, a line through a box being the worse fault; one that would run
+// a stretch along another's line, or end it where another ends, is made
+// only at joinCost, as the search joins a line only where nothing else
+// will do -- an end beside a joint stays rather than join, and one at a
+// joint moves even so, as the search never ends a line there; where every
+// move
+// would, or none ends where a node offers, the path is drawn as it is --
+// the one line that may end at a joint.
+//
+// It chooses, where it once moved an end only off a joint, a cell or a few
+// along, and after: it took a cell beside the joint as readily as one
+// clear of it, kept no field, and left a loop round a box three or four
+// cells wide ending at its corner.
+func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
+	e := rt.edges[i]
+	var pts []Point
+	if e.From == e.To {
+		pts = loop(na.Rect)
+	} else {
+		pts = path(na.Rect, nb.Rect, nth)
+	}
 	n := len(pts)
 	if n < 2 {
 		return pts
@@ -1042,37 +1050,95 @@ func (rt *router) offJoints(pts []Point, a, b Rect) []Point {
 		}
 		return true
 	}
-	// fine says end k of q is where the search could have ended it: on
-	// its box's outline, off the corners, and not at a joint.
-	fine := func(q []Point, k int) bool {
-		r := a
-		if k > 0 {
-			r = b
+	// apart says the moved point m of q, and the stretches from it to its
+	// neighbours, keep apart from the lines already drawn: no stretch runs
+	// along another edge's line, crossing one at a right angle as any path
+	// may, and an end moved is not where another's ends, but one it may
+	// share with. Moved onto another's line for nothing, an end beside a
+	// joint became one line with an arrowhead at each end, two edges drawn
+	// as one.
+	apart := func(q []Point, m int) bool {
+		if (m == 0 || m == n-1) && !rt.mayEnd(i, rt.heads[q[m].Y][q[m].X], rt.tails[q[m].Y][q[m].X]) {
+			return false
 		}
-		p := q[k]
-		x, y := p.X > r.X && p.X < r.X+r.W-1, p.Y > r.Y && p.Y < r.Y+r.H-1
-		return !rt.joints[p] && ((p.Y == r.Y || p.Y == r.Y+r.H-1) && x || (p.X == r.X || p.X == r.X+r.W-1) && y)
+		for _, o := range []int{m - 1, m + 1} {
+			if o < 0 || o >= n {
+				continue
+			}
+			p, to := q[m], q[o]
+			dx, dy := sign(to.X-p.X), sign(to.Y-p.Y)
+			along := uint8(left | right)
+			if dx == 0 {
+				along = up | down
+			}
+			for {
+				if rt.in(p.X, p.Y) && rt.foreign(i, p.X, p.Y)&along != 0 {
+					return false
+				}
+				if p == to {
+					break
+				}
+				p.X, p.Y = p.X+dx, p.Y+dy
+			}
+		}
+		return true
 	}
-	for _, end := range [][2]int{{0, 1}, {n - 1, n - 2}} {
-		k, next := end[0], end[1]
-		if !rt.joints[pts[k]] {
-			continue
+	from := na.choices(e.FromSide, rt.fields[i][0])
+	to := nb.choices(e.ToSide, rt.fields[i][1])
+	priceJoints(from)
+	priceJoints(to)
+	// cost is what ending at q[k], leaving towards q[next], costs among
+	// cs, and whether cs offers it at all.
+	cost := func(cs []endChoice, q []Point, k, next int) (int, bool) {
+		way := wayOut(q[k], q[next])
+		for _, c := range cs {
+			if c.at == q[k] && c.way == way {
+				return c.cost, true
+			}
 		}
-		for _, d := range []int{1, -1, 2, -2, 3, -3} {
-			// The end's stretch moved d cells across its way: where the
-			// path is that stretch alone, its other end with it.
+		return 0, false
+	}
+	type move struct{ k, next int }
+	moves := []move{{0, 1}, {n - 1, n - 2}}
+	if n == 2 {
+		moves = moves[:1] // one stretch: both ends move together
+	}
+	for _, mv := range moves {
+		var best []Point
+		least := math.MaxInt
+		for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
 			q := append([]Point(nil), pts...)
-			for _, m := range []int{k, next} {
-				if pts[k].X == pts[next].X {
+			for _, m := range []int{mv.k, mv.next} {
+				if pts[mv.k].X == pts[mv.next].X {
 					q[m].X += d
 				} else {
 					q[m].Y += d
 				}
 			}
-			if fine(q, k) && (n > 2 || fine(q, next)) && clear(q, k) && clear(q, next) {
-				pts = q
-				break
+			c, ok := 0, true
+			for _, k := range []move{{0, 1}, {n - 1, n - 2}} {
+				if k.k != mv.k && n > 2 {
+					continue
+				}
+				cs := from
+				if k.k > 0 {
+					cs = to
+				}
+				ck, okk := cost(cs, q, k.k, k.next)
+				c, ok = c+ck, ok && okk
 			}
+			if !ok || d != 0 && !(clear(q, mv.k) && clear(q, mv.next)) {
+				continue
+			}
+			if d != 0 && !(apart(q, mv.k) && apart(q, mv.next)) {
+				c += joinCost
+			}
+			if c += abs(d) * portCost; c < least {
+				best, least = q, c
+			}
+		}
+		if best != nil {
+			pts = best
 		}
 	}
 	return pts

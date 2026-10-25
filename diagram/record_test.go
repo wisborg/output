@@ -423,44 +423,99 @@ func TestRecordJoints(t *testing.T) {
 }
 
 // The plain path drawn where every search fails ends where the search
-// could have, not where a divider meets the outline: between a record of
-// two fields alike and a box below it, the plain path runs down the middle,
-// right under the divider. Moved a cell along, it stays straight and on
-// both boxes' sides; and so does a loop's end.
+// could have: not where a divider meets the outline, nor beside it where
+// its side has a cell clear of one, nor at a corner -- between a record of
+// two fields alike and a box below it, the plain path runs down the
+// middle, right under the divider. Moved along, it stays straight and on
+// both boxes' sides; moved, it keeps to a field its edge asks for; with a
+// box either side of the line, every move would run through one, the
+// worse fault, and it stays.
 func TestPlainPathMissesJoints(t *testing.T) {
-	r := &PlacedNode{Node: &Node{ID: "r", Record: []Field{{Label: "ab"}, {Label: "cd"}}}, Rect: Rect{10, 10, 11, 3}}
-	placeFields(r, r.Node.Record, Rect{11, 11, 9, 1}, true)
-	below, narrow := Rect{10, 20, 11, 3}, Rect{13, 20, 4, 3}
-	l := &layouter{d: &Diagram{}, out: &Layout{Nodes: []PlacedNode{*r}, nodeAt: map[string]PlacedNode{"r": *r}}, rect: map[string]Rect{"r": r.Rect}}
-	rt := newRouter(l)
-	plain := path(r.Rect, below, 0)
-	if !rt.joints[plain[0]] {
-		t.Fatalf("the plain path starts at %v, no joint: the test no longer tests anything", plain[0])
+	rec := &PlacedNode{Node: &Node{ID: "r", Record: []Field{{Port: "a", Label: "ab"}, {Port: "c", Label: "cd"}}}, Rect: Rect{10, 10, 11, 3}}
+	placeFields(rec, rec.Node.Record, Rect{11, 11, 9, 1}, true)
+	nodes := map[string]PlacedNode{
+		"r":      *rec,
+		"below":  {Node: &Node{ID: "below"}, Rect: Rect{10, 20, 11, 3}},
+		"narrow": {Node: &Node{ID: "narrow"}, Rect: Rect{13, 20, 4, 3}},
 	}
+	router := func(edges []Edge, extra ...PlacedNode) *router {
+		l := &layouter{d: &Diagram{Edges: edges}, out: &Layout{nodeAt: map[string]PlacedNode{}}, rect: map[string]Rect{}}
+		for id, n := range nodes {
+			l.out.Nodes, l.out.nodeAt[id], l.rect[id] = append(l.out.Nodes, n), n, n.Rect
+		}
+		l.out.Nodes = append(l.out.Nodes, extra...)
+		return newRouter(l)
+	}
+	joint := map[Point]bool{}
+	for _, j := range rec.joints() {
+		joint[j] = true
+	}
+	if ideal := path(rec.Rect, nodes["below"].Rect, 0); !joint[ideal[0]] {
+		t.Fatalf("the plain path starts at %v, no joint: the test no longer tests anything", ideal[0])
+	}
+	besideJ := func(p Point) bool {
+		return joint[Point{p.X - 1, p.Y}] || joint[Point{p.X + 1, p.Y}] || joint[Point{p.X, p.Y - 1}] || joint[Point{p.X, p.Y + 1}]
+	}
+	between := func(p Point, box Rect) bool { return p.X > box.X && p.X < box.X+box.W-1 }
+	// Into a box four cells wide, a straight line has two columns, one
+	// under the joint and one beside it: beside it is the one place left.
 	for _, c := range []struct {
-		pts  []Point
-		a, b Rect
-	}{
-		{plain, r.Rect, below}, {path(below, r.Rect, 0), below, r.Rect},
-		// A box whose corner is a cell right of the joint: the end moves left.
-		{path(r.Rect, narrow, 0), r.Rect, narrow},
-	} {
-		got := rt.offJoints(c.pts, c.a, c.b)
+		e      Edge
+		beside bool
+	}{{Edge{From: "r", To: "below"}, false}, {Edge{From: "below", To: "r"}, false}, {Edge{From: "r", To: "narrow"}, true}} {
+		rt := router([]Edge{c.e})
+		got := rt.plain(nodes[c.e.From], nodes[c.e.To], 0, 0)
 		first, last := got[0], got[len(got)-1]
-		between := func(p Point, box Rect) bool { return p.X > box.X && p.X < box.X+box.W-1 }
-		if rt.joints[first] || rt.joints[last] || first.X != last.X || !between(first, c.a) || !between(last, c.b) {
-			t.Errorf("%v moved off the joints: %v", c.pts, got)
+		if joint[first] || joint[last] || !c.beside && (besideJ(first) || besideJ(last)) || first.X != last.X || !between(first, nodes[c.e.From].Rect) || !between(last, nodes[c.e.To].Rect) {
+			t.Errorf("%s to %s: %v, at or beside a joint, bent, or off a side", c.e.From, c.e.To, got)
 		}
 	}
-	if got := rt.offJoints(plain, r.Rect, below); abs(got[0].X-plain[0].X) != 1 {
-		t.Errorf("moved to %v, want a cell from %v", got[0], plain[0])
+	// Asked for the field a, left of the divider, or c, right of it, the
+	// end moves into it.
+	for _, port := range []string{"a", "c"} {
+		rt := router([]Edge{{From: "r", FromPort: port, To: "below"}})
+		f, _ := rec.field(port)
+		if got := rt.plain(nodes["r"], nodes["below"], 0, 0); got[0].X < f.X || got[0].X >= f.X+f.W || besideJ(got[0]) || !keepsFields(got, rec.Rect, nodes["below"].Rect, rt.fields[0]) {
+			t.Errorf("from r:%s, %v, not beside the field at %v", port, got, f)
+		}
 	}
 	// With a box either side of the line, every move would run through
-	// one, the worse fault: the path stays at the joint.
-	l.out.Nodes = append(l.out.Nodes, PlacedNode{Node: &Node{ID: "left"}, Rect: Rect{11, 15, 4, 2}}, PlacedNode{Node: &Node{ID: "right"}, Rect: Rect{16, 15, 4, 2}})
-	rt = newRouter(l)
-	if got := rt.offJoints(plain, r.Rect, below); !reflect.DeepEqual(got, plain) {
-		t.Errorf("moved through a box beside the line: %v, want %v", got, plain)
+	// one: the path stays at the joint.
+	rt := router([]Edge{{From: "r", To: "below"}}, PlacedNode{Node: &Node{ID: "left"}, Rect: Rect{11, 15, 4, 2}}, PlacedNode{Node: &Node{ID: "right"}, Rect: Rect{16, 15, 4, 2}})
+	if got, ideal := rt.plain(nodes["r"], nodes["below"], 0, 0), path(rec.Rect, nodes["below"].Rect, 0); !reflect.DeepEqual(got, ideal) {
+		t.Errorf("moved through a box beside the line: %v, want %v", got, ideal)
+	}
+	// Where the cells two along from the joint each have another edge's
+	// line down them, an end there would join it: the end stays beside the
+	// joint, which reads as running into the divider, rather than draw two
+	// edges as one line, which reads as a connection that is not there.
+	edges := []Edge{{From: "r", To: "below", Head: true}, {From: "below", To: "r", Head: true}, {From: "below", To: "r", Head: true}}
+	rt = router(edges)
+	rt.draw([]Point{{13, 20}, {13, 12}}, 1)
+	rt.draw([]Point{{17, 20}, {17, 12}}, 2)
+	got := rt.plain(nodes["r"], nodes["below"], 0, 0)
+	if x := got[0].X; x == 13 || x == 17 || joint[got[0]] {
+		t.Errorf("with lines down 13 and 17, the plain path from r is %v: on another's line, or at the joint", got)
+	}
+	// And where those lines run only through the gap, ending at neither
+	// box, a stretch moved onto one would still run along it.
+	rt = router(edges)
+	rt.draw([]Point{{13, 14}, {13, 18}}, 1)
+	rt.draw([]Point{{17, 14}, {17, 18}}, 2)
+	if got := rt.plain(nodes["r"], nodes["below"], 0, 0); got[0].X == 13 || got[0].X == 17 || joint[got[0]] {
+		t.Errorf("with lines through the gap at 13 and 17, the plain path from r is %v: along another's line, or at the joint", got)
+	}
+	// A loop round a box three or four cells wide ended at its corner.
+	for _, w := range []int{3, 4} {
+		nodes["thin"] = PlacedNode{Node: &Node{ID: "thin"}, Rect: Rect{30, 10, w, 3}}
+		rt := router([]Edge{{From: "thin", To: "thin"}})
+		got := rt.plain(nodes["thin"], nodes["thin"], 0, 0)
+		r := nodes["thin"].Rect
+		for _, p := range []Point{got[0], got[len(got)-1]} {
+			if (p.X == r.X || p.X == r.X+r.W-1) && (p.Y == r.Y || p.Y == r.Y+r.H-1) {
+				t.Errorf("a loop round a box %d wide ends at its corner: %v", w, got)
+			}
+		}
 	}
 }
 

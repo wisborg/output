@@ -585,8 +585,21 @@ one leaving a record by a joint -- the middle, or a cell from it once lines
 between the same two nodes are set apart -- is drawn along rows and columns
 instead (`keepClearOfJoints`, before routing, as the other lines are routed
 round the straight ones); a braille stub does not slide beside a joint; and
-the plain path drawn where every search fails is moved a cell along
-(`offJoints`), unless the move would take it through a box. `TestStraightLinesMissRecordJointsAtRandom` found the set-apart
+the plain path drawn where every search fails (`plain`) keeps its shape and
+slides each end up to three cells along its side to the cheapest of the
+node's ends, priced as the search prices them -- off the corners and the
+joints, keeping a field asked for, clear of a joint where it can -- never
+through a box, and onto another's line only at `joinCost`, as the search
+joins one only where nothing else will do: an end beside a joint stays
+rather than join, an end at one moves even so, and where every move would
+take it through a box it stays, the one line that may end at a joint. It
+once moved an end only off a joint, a cell along, and so took a cell
+beside the joint as readily as one clear of it, kept no field, and left a
+loop round a box three or four cells wide at its corner; the first
+version of `plain` slid an end beside a joint onto another edge's line,
+drawing two edges as one, which the layout rules do not see -- a join is
+allowed on a fallback path -- and the comparison of drawings before and
+after did. `TestStraightLinesMissRecordJointsAtRandom` found the set-apart
 and sliding cases that a lone line between two middles did not show; it runs
 down and across, so the joints on a record's left and right are held as well
 as those on its top and bottom. `PlacedNode.joints` is the one answer to
