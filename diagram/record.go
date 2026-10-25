@@ -116,28 +116,6 @@ func (f PlacedField) Lines() (lines []string, top int) {
 	return lines, f.Rect.Y + (f.Rect.H-len(lines))/2
 }
 
-// joints is where n's dividers meet its outline: the cells no line ends
-// at, and ends beside only where its field has no other cell, as it reads
-// as running into the divider. The one answer
-// to it, which the router, the straight lines and the text drawing's stubs
-// all ask; a divider's end inside the box, on another divider, is none,
-// and an invisible record, whose dividers are not drawn, has none.
-func (n PlacedNode) joints() []Point {
-	if n.Node != nil && n.Node.Invisible {
-		return nil
-	}
-	r := n.Rect
-	var js []Point
-	for _, d := range n.Dividers {
-		for _, p := range d {
-			if p.X == r.X || p.X == r.X+r.W-1 || p.Y == r.Y || p.Y == r.Y+r.H-1 {
-				js = append(js, p)
-			}
-		}
-	}
-	return js
-}
-
 // besideJoint says p is a cell from one of the joints js, across or up and
 // down: the one test of it, which the router asks of an end and the text
 // drawing of a braille stub's cell.

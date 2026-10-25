@@ -71,6 +71,12 @@ type PlacedNode struct {
 	// to the other in cells: on the outline, or on the divider it meets,
 	// so a drawing joins them.
 	Dividers [][2]Point
+	// endAt and jointAt are where on the outline a line may end, and
+	// where the dividers meet it, relative to Rect, as settle worked them
+	// out when the node was placed: see ends and joints.
+	endAt   []end
+	jointAt []Point
+	settled bool
 }
 
 // PlacedField is a field of a record and the cells it takes.
@@ -1061,6 +1067,7 @@ func (l *layouter) placeNode(n *Node, x, y int, s size) {
 	if len(n.Record) > 0 {
 		place(&pn, n.Record, l.fields[n], Rect{x + 1, y + 1, s.w - 2, s.h - 2}, l.recordRow())
 	}
+	pn.settle()
 	l.out.Nodes = append(l.out.Nodes, pn)
 	l.out.nodeAt[n.ID] = pn
 	l.rect[n.ID] = r

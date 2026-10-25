@@ -122,7 +122,10 @@ from reality is a test failure.
   `placement.go` — the costs and the local search that choose orthogonal
   edges' label places together;
   `scale.go` — cells to a picture's units; `text.go` — the text drawing;
-  `width.go` — `Width`, the one measure of a label in cells; `record.go` —
+  `width.go` — `Width`, the one measure of a label in cells; `ends.go` --
+  where on a node a line may end, worked out once as it is placed
+  (`settle`), relative to its box, and priced for joints (`priceJoints`),
+  the one answer every way a line is drawn asks; `record.go` —
   a record's fields sized and placed, and which outline cells are beside a
   field.
 - `diagram/dot/` — the DOT lexer, parser and colours; `record.go` reads a
