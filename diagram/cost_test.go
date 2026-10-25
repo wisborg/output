@@ -29,7 +29,7 @@ func routerFor(boxes map[string]Rect) *router {
 	for id, rc := range boxes {
 		l.out.Nodes = append(l.out.Nodes, PlacedNode{Node: &Node{ID: id}, Rect: rc})
 	}
-	return newRouter(l)
+	return newRouter(l, edgeFields(l))
 }
 
 // box is a node of no shape in particular at r, as find asks of its ends.

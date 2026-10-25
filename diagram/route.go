@@ -86,13 +86,14 @@ func (l *layouter) route() {
 	// straight lines it draws, which they may cross but not follow, turn
 	// on or end beside; the straight edges' own paths, for the text
 	// drawing alone, are found afterwards on a page without those lines.
-	r := newRouter(l)
+	fields := edgeFields(l)
+	r := newRouter(l, fields)
 	r.avoidStraight(l, straight)
 	switched := false
 	for _, i := range order {
 		if straight[i] && !switched {
 			switched = true
-			r = newRouter(l)
+			r = newRouter(l, fields)
 			for k, p := range paths {
 				if p != nil {
 					r.draw(p, k)
@@ -320,7 +321,22 @@ func (rt *router) split(i, x, y int) (foreign, shared uint8) {
 	return foreign, shared
 }
 
-func newRouter(l *layouter) *router {
+// edgeFields is the cells of the record field each edge's From and To
+// ports name, the zero Rect where one names none: worked out once a
+// layout, as each router -- two, where some edges are drawn straight --
+// asks them all.
+func edgeFields(l *layouter) [][2]Rect {
+	fields := make([][2]Rect, len(l.d.Edges))
+	for i, e := range l.d.Edges {
+		fields[i][0], _ = l.out.nodeAt[e.From].field(e.FromPort)
+		fields[i][1], _ = l.out.nodeAt[e.To].field(e.ToPort)
+	}
+	return fields
+}
+
+// newRouter is a router for the page l has laid out, with the fields of
+// its edges' ports as edgeFields has them.
+func newRouter(l *layouter, fields [][2]Rect) *router {
 	w, h := 0, 0
 	for _, r := range l.rect {
 		w, h = max(w, r.X+r.W), max(h, r.Y+r.H)
@@ -331,11 +347,7 @@ func newRouter(l *layouter) *router {
 	// Room to go round the boxes at the right and the bottom, as the
 	// layout leaves room at the left and the top.
 	w, h = w+colGap, h+rowGap
-	r := &router{edges: l.d.Edges, w: w, h: h, fields: make([][2]Rect, len(l.d.Edges))}
-	for i, e := range l.d.Edges {
-		r.fields[i][0], _ = l.out.nodeAt[e.From].field(e.FromPort)
-		r.fields[i][1], _ = l.out.nodeAt[e.To].field(e.ToPort)
-	}
+	r := &router{edges: l.d.Edges, w: w, h: h, fields: fields}
 	grid := func() [][]bool {
 		g := make([][]bool, h)
 		for y := range g {

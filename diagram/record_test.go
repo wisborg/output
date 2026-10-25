@@ -212,7 +212,7 @@ func TestRecordPortsShareOnlyTheirOwn(t *testing.T) {
 			l.out.Nodes = append(l.out.Nodes, pn)
 			l.out.nodeAt[id] = pn
 		}
-		if got := newRouter(l).sharing(0, 1); got != c.share {
+		if got := newRouter(l, edgeFields(l)).sharing(0, 1); got != c.share {
 			t.Errorf("%s:%s -> %s:%s and %s:%s -> %s:%s: share %v, want %v", c.a.From, c.a.FromPort, c.a.To, c.a.ToPort,
 				c.b.From, c.b.FromPort, c.b.To, c.b.ToPort, got, c.share)
 		}
@@ -444,7 +444,7 @@ func TestPlainPathMissesJoints(t *testing.T) {
 			l.out.Nodes, l.out.nodeAt[id], l.rect[id] = append(l.out.Nodes, n), n, n.Rect
 		}
 		l.out.Nodes = append(l.out.Nodes, extra...)
-		return newRouter(l)
+		return newRouter(l, edgeFields(l))
 	}
 	joint := map[Point]bool{}
 	for _, j := range rec.joints() {

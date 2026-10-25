@@ -131,7 +131,7 @@ func TestEndsMatchOutline(t *testing.T) {
 			if e.Invisible {
 				continue
 			}
-			rt := newRouter(l)
+			rt := newRouter(l, edgeFields(l))
 			for k, o := range lay.Edges {
 				if k != i && len(o.Points) > 1 {
 					rt.draw(o.Points, k)
