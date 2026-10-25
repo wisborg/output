@@ -478,9 +478,9 @@ window; in any other terminal, in tmux, or into a pipe, it is braille; with
 `--out` it is a PNG.
 
 It reads JSON Lines, an object a line, as logs and many tools write them,
-where any of a file's first 20 lines is a whole object — so a log read from
-its middle, cut line first, or one with a traceback between its objects, is
-still one — or where `--input jsonl` says.
+where any of a file's first 20 lines is a whole object holding a value — so
+a log read from its middle, cut line first, or one with a traceback between
+its objects, is still one — or where `--input jsonl` says.
 Each key is
 a column, in the order the keys are first met, and a key inside an object is
 named by its path, `cpu.user`, an array's element by its index, `load[0]`; a
@@ -497,11 +497,12 @@ between: `"1.234"` is 1.234 or 1234 by which. Where they show neither, it is
 a point, as JSON's own numbers have; and an x chosen for being in order, but
 in order no longer read with the mark the others show, is refused, asking for
 `--x` or `--decimal`. `--list` reads each column by its own strings, and says
-one written both ways. A line that is not one object — cut short
+one written both ways, and one whose `"1,234"` it read with a point by guess. A line that is not one object — cut short
 where a log was rotated mid-write, a line of text among them — is left out,
 and `plot` says how many and the first. So is a column given two values in
 one line — a key written twice, or `"a.b"` beside an `"a"` holding `"b"` —
-which keeps the last; an array's elements past its first 100, so the keys
+which keeps the last, as JSON does: a key's last value replaces the whole of
+its first, so `{"a":{"x":1},"a":{"y":2}}` has `a.y` and no `a.x`; an array's elements past its first 100, so the keys
 after a long one still have columns; and the keys past the first 1,000, which
 a log keyed by user or request can reach, and which `--y` naming one says is
 left out. `--delimiter` and `--header` are for CSV, and refused for JSON

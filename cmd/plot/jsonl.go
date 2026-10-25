@@ -43,14 +43,14 @@ const maxJSONColumns = 1000
 const maxJSONArray = 100
 
 // sniffInput is what --input auto takes data for: JSON Lines where any of
-// its first 20 lines, blank ones aside, reads as a whole object, and CSV
-// otherwise. Any, not the first: a log read from its middle, tail -c,
-// begins with the end of a line, and some begin with a banner, which read
-// as CSV gave columns named after JSON's fragments. Nor most: a log with a
-// traceback of three lines after each object is a quarter objects, and was
-// read so too. A CSV holds no line that is a whole object -- a cell holding
-// one is quoted, its quotes doubled -- and the lines that are none are left
-// out and said, as a cut line is.
+// its first 20 lines, blank ones aside, reads as a whole object holding a
+// value, and CSV otherwise. Any, not the first: a log read from its
+// middle, tail -c, begins with the end of a line, and some begin with a
+// banner, which read as CSV gave columns named after JSON's fragments. Nor
+// most: a log with a traceback of three lines after each object is a
+// quarter objects, and was read so too. A CSV holds no line that is a
+// whole object -- a cell holding one is quoted, its quotes doubled -- and
+// the lines that are none are left out and said, as a cut line is.
 //
 // JSON that is not JSON Lines of objects is refused, saying what to make
 // of it, where it was read as CSV of brackets and quotes: one array; an
@@ -78,8 +78,10 @@ func sniffInput(data []byte) (inputMode, error) {
 		}
 		// Too deep is an object still, which readJSONLines says of; not
 		// counted, a file of them was refused as objects over several
-		// lines.
-		if _, err := walkLine(line); err == nil || errors.Is(err, errTooDeep) {
+		// lines. An empty one is not counted: it has no column to give,
+		// and a CSV of one column, "payload" over rows of {}, was read
+		// as JSON Lines of nothing.
+		if w, err := walkLine(line); err == nil && len(w.fields) > 0 || errors.Is(err, errTooDeep) {
 			objects++
 		} else if bytes.HasPrefix(line, []byte("[")) && json.Valid(allowNonFinite(line)) {
 			arrays++
@@ -233,7 +235,7 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 		// repeat or are left out: grown by append, a row of six cells
 		// held room for eight.
 		row := make([]sparseCell, 0, len(w.fields))
-		again := false
+		again := w.twice
 		for _, f := range w.fields {
 			j, seen := index[f.name]
 			if !seen {
@@ -252,10 +254,11 @@ func readJSONLines(data []byte, mark decimalMark) (*table, error) {
 				t.seen = append(t.seen, marks{unit: "line"})
 				stamp, at = append(stamp, 0), append(at, 0)
 			}
-			// Written twice in the line, the last value wins, and with it
-			// whether the cell is a string: a number after a string was
-			// taken for one and rewritten with a decimal comma, 1.500 as
-			// 1500.
+			// A path given twice in the line -- "a.b" beside an "a"
+			// holding "b", as a key written twice the walker has settled
+			// already -- the last value wins, and with it whether the
+			// cell is a string: a number after a string was taken for
+			// one and rewritten with a decimal comma, 1.500 as 1500.
 			c := sparseCell{col: int32(j), value: f.value, str: f.str}
 			if stamp[j] == n {
 				row[at[j]], again = c, true
@@ -363,13 +366,23 @@ type field struct {
 }
 
 // walker is what reading one line found: its fields, in the order they
-// are written, and the first array cut short at maxJSONArray, if any. A
-// key written twice is there twice, and readJSONLines, putting each name
-// in one column, keeps the last, as encoding/json does.
+// are written, the first array cut short at maxJSONArray, if any, and
+// whether a key was written twice in one object. The last value of a key
+// written twice is kept, as encoding/json keeps it, in the place of the
+// first, as Python's keeps it: the whole of the earlier ones is gone, so
+// {"a":{"x":1},"a":{"y":2}} has a.y and no a.x, which matching paths
+// alone, in readJSONLines, kept beside it.
 type walker struct {
 	dec    *json.Decoder
 	fields []field
 	cut    string
+	twice  bool
+}
+
+// span is the fields one key of an object added, w.fields[start:end].
+type span struct {
+	key        string
+	start, end int
 }
 
 // errTooDeep is a line nested past maxJSONDepth: a JSON object, but none
@@ -410,23 +423,76 @@ func walkLine(line []byte) (*walker, error) {
 // top says it is the line's own object, whose keys are named alone; an
 // object's under the key "" are named ".a", not "a", which is another
 // key's.
+//
+// A name is made only where it is kept: past maxJSONArray, a sample of a
+// million readings made a million names to throw away.
 func (w *walker) object(prefix string, top bool, depth int, keep bool) error {
+	var spans []span
 	for w.dec.More() {
 		tok, err := w.dec.Token()
 		if err != nil {
 			return err
 		}
 		key, _ := tok.(string)
-		name := key
-		if !top {
+		name := ""
+		switch {
+		case !keep:
+		case top:
+			name = key
+		default:
 			name = prefix + "." + key
 		}
+		start := len(w.fields)
 		if err := w.value(name, depth, keep); err != nil {
 			return err
 		}
+		if keep {
+			spans = append(spans, span{key, start, len(w.fields)})
+		}
 	}
+	w.replace(spans)
 	_, err := w.dec.Token()
 	return err
+}
+
+// replace keeps, of each key in spans written more than once, the fields
+// of its last value in the place of its first, and says the line has a
+// key written twice. spans are an object's keys in order, their fields
+// together at the end of w.fields. A key repeats rarely, so it is looked
+// for pair by pair where an object is small, and through a map only where
+// it is not.
+func (w *walker) replace(spans []span) {
+	repeats := false
+	if len(spans) <= 16 {
+		for i := range spans {
+			for _, s := range spans[i+1:] {
+				repeats = repeats || s.key == spans[i].key
+			}
+		}
+	} else {
+		keys := make(map[string]bool, len(spans))
+		for _, s := range spans {
+			repeats = repeats || keys[s.key]
+			keys[s.key] = true
+		}
+	}
+	if !repeats {
+		return
+	}
+	w.twice = true
+	final := make(map[string]int, len(spans))
+	for i, s := range spans {
+		final[s.key] = i
+	}
+	start := spans[0].start
+	kept := make([]field, 0, len(w.fields)-start)
+	for _, s := range spans {
+		if j, ok := final[s.key]; ok {
+			kept = append(kept, w.fields[spans[j].start:spans[j].end]...)
+			delete(final, s.key)
+		}
+	}
+	w.fields = append(w.fields[:start], kept...)
 }
 
 // value reads one value, adding it under name where keep says to: an
@@ -451,7 +517,11 @@ func (w *walker) value(name string, depth int, keep bool) error {
 			if i == maxJSONArray && keep && w.cut == "" {
 				w.cut = name
 			}
-			if err := w.value(name+"["+strconv.Itoa(i)+"]", depth+1, keep && i < maxJSONArray); err != nil {
+			elem, keepElem := "", keep && i < maxJSONArray
+			if keepElem {
+				elem = name + "[" + strconv.Itoa(i) + "]"
+			}
+			if err := w.value(elem, depth+1, keepElem); err != nil {
 				return err
 			}
 		}

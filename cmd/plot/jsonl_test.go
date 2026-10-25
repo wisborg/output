@@ -68,6 +68,48 @@ func TestReadJSONLinesKeys(t *testing.T) {
 	if want := []string{"2 lines: a column given two values, the last kept; the first line 1"}; !reflect.DeepEqual(tb.notes, want) {
 		t.Errorf("notes %q, want %q", tb.notes, want)
 	}
+	// The last value replaces the whole of the first, in the first's
+	// place: a.x of the first object was kept beside a.y of the last, and
+	// a's 1 beside a.b, with no word. In an object nested, and in one too
+	// large to look for repeats pair by pair, the same.
+	many := `{"k0":0`
+	for i := 1; i < 20; i++ {
+		many += fmt.Sprintf(`,"k%d":%d`, i, i)
+	}
+	many += `,"k3":{"z":9}}`
+	for _, c := range []struct {
+		line  string
+		names []string
+		row   []string
+	}{
+		{`{"a":{"x":1},"t":0,"a":{"y":2}}`, []string{"a.y", "t"}, []string{"2", "0"}},
+		{`{"a":1,"a":{"b":2}}`, []string{"a.b"}, []string{"2"}},
+		{`{"a":{"b":2},"a":1}`, []string{"a"}, []string{"1"}},
+		{`{"o":{"k":1,"j":3,"k":2}}`, []string{"o.k", "o.j"}, []string{"2", "3"}},
+		{many, nil, nil},
+	} {
+		tb, err := readJSONLines([]byte(c.line), decimalAuto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.names == nil {
+			if len(tb.names) != 20 || tb.names[3] != "k3.z" || tb.cell(0, 3) != "9" {
+				t.Errorf("%s: names %q, want k3.z fourth, holding 9", c.line, tb.names)
+			}
+		} else if !reflect.DeepEqual(tb.names, c.names) || !reflect.DeepEqual(grid(tb)[0], c.row) {
+			t.Errorf("%s: names %q, row %q, want %q, %q", c.line, tb.names, grid(tb)[0], c.names, c.row)
+		}
+		if want := []string{"line 1: a column given two values, the last kept"}; !reflect.DeepEqual(tb.notes, want) {
+			t.Errorf("%s: notes %q, want %q", c.line, tb.notes, want)
+		}
+	}
+
+	// The line's own fields hold the kept value once, not once a repeat,
+	// which readJSONLines would merge without a sign.
+	if w, err := walkLine([]byte(`{"a":1,"t":0,"a":2,"a":3}`)); err != nil || !reflect.DeepEqual(w.fields, []field{{name: "a", value: "3"}, {name: "t", value: "0"}}) || !w.twice {
+		t.Errorf("fields %+v, %v, want a 3 once, then t", w.fields, err)
+	}
+
 	// The key "" holds an object whose x is ".x", not the line's own x.
 	tb, err = readJSONLines([]byte(`{"x":1,"":{"x":2}}`), decimalAuto)
 	if err != nil {
@@ -144,6 +186,11 @@ func TestSettleMarks(t *testing.T) {
 	_, errOut, err := plot(t, `{"v":"0,5"}`+"\n"+`{"v":"1.5"}`+"\n", "--list")
 	if err != nil || !strings.Contains(errOut, `"v": numbers written both ways, "1.5" on line 2 with a decimal point`) {
 		t.Errorf("--list of a column at odds: %v, stderr %q", err, errOut)
+	}
+	// A column whose strings show no mark but read two ways is listed
+	// with a point, and the guess said, as a CSV's is.
+	if _, errOut, err := plot(t, `{"v":"1,234"}`+"\n"+`{"v":"2"}`+"\n", "--list"); err != nil || !strings.Contains(errOut, `"v": "1,234" on line 1 read as 1234, with a decimal point; --decimal comma reads it the other way`) {
+		t.Errorf("--list of a column guessed at: %v, stderr %q", err, errOut)
 	}
 	// With --decimal saying, there is nothing to say: the note claimed a
 	// point and that --decimal was still wanted.
@@ -248,10 +295,11 @@ starting up
 	}
 }
 
-// auto takes a file for JSON Lines where at least half its first lines
-// are whole objects, whatever the first is -- a log read from its middle
-// begins with the end of a line -- and anything else for CSV. JSON that is
-// not JSON Lines is refused, saying jq -c makes it so where it would.
+// auto takes a file for JSON Lines where any of its first 20 lines is a
+// whole object holding a value, whatever the rest are -- a log read from its
+// middle begins with the end of a line, and a Python log has a traceback
+// after each object -- and anything else for CSV. JSON that is not JSON
+// Lines is refused, saying jq -c makes it so where it would.
 func TestSniffInput(t *testing.T) {
 	for _, c := range []struct {
 		name, data string
@@ -269,6 +317,10 @@ func TestSniffInput(t *testing.T) {
 		// Three whole lines and then cut ones decode as three objects,
 		// and were refused as objects over several lines.
 		{"whole lines, then cut ones", "{\"v\":1}\n{\"v\":2}\n{\"v\":3}\n{\"v\"\n{\"v\"\n{\"v\"\n{\"v\"\n", inputJSONL},
+		// An empty object gives no column: a CSV of payloads, rows of
+		// {}, was read as JSON Lines of nothing.
+		{"a column of empty objects", "payload\n{}\n{}\n", inputCSV},
+		{"an object holding only an empty one", "x\n{\"a\":{}}\n", inputCSV},
 		{"a CSV cell holding an object", "a,b\n\"{\"\"x\"\":1}\",2\n", inputCSV},
 		{"CSV", "a,b\n1,2\n", inputCSV},
 		{"a brace no line closes", "{a},b\n1,2\n", inputCSV},

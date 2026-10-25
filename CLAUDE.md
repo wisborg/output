@@ -687,7 +687,10 @@ a gap and said: a log cut mid-line by rotation is ordinary, and refusing
 the file for it would refuse every such log. A column given two values in
 one line, and keys past `maxJSONColumns` and an array's elements past
 `maxJSONArray`, are said too: each element is a column, and a long array
-took every column, losing the keys after it. `NaN` and `Infinity`, which
+took every column, losing the keys after it. A key written twice in one
+object keeps its last value, in its first's place, as Python does, and
+the whole of the first is gone (`walker.replace`): matched by path alone,
+`{"a":{"x":1},"a":{"y":2}}` kept `a.x` beside `a.y` without a word. `NaN` and `Infinity`, which
 encoding/json refuses and Python writes, are quoted before decoding
 (`allowNonFinite`) where a value stands, never a key, so they read as the
 words a CSV's cell would be, and lose no line. A JSON number has a point,
@@ -722,7 +725,8 @@ number is never rewritten, as `commaToPoint` would make `1.250` 1250;
 whether a cell is a string is its last value's to say, where a key is
 written twice. `--input auto`
 takes a file for JSON Lines where any of its first 20 lines is a whole
-object, not where its first byte is a brace: a log read from its middle
+object holding a value -- `{}` gives no column, and a CSV of a column of
+them was read as JSON Lines of nothing -- not where its first byte is a brace: a log read from its middle
 begins with the end of a line, and was read as CSV of fragments. Nor where
 half are: a log with a traceback of three lines after each object is a
 quarter objects, and was read as CSV too. No CSV holds a line that is a

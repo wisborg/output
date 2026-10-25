@@ -151,16 +151,20 @@ func (t *table) settleMarks(used []int, mark decimalMark) (note string, err erro
 
 // markNotes are notes of a JSON Lines file's columns whose strings are
 // written with both a decimal point and a comma: --list reads each with a
-// point, and says so, as plotted it would be refused. Where --decimal says
-// the mark, there are none: t.seen is not kept, and a note that the
-// column waits for --decimal would be untrue. Each names its column once,
-// at its head, and its cells by their lines alone.
+// point, and says so, as plotted it would be refused. And of a column
+// whose strings show no mark but hold one that reads two ways, "1,234":
+// --list reads it with a point, a guess said as a CSV's is. Where
+// --decimal says the mark, there are none: t.seen is not kept, and a note
+// that the column waits for --decimal would be untrue. Each names its
+// column once, at its head, and its cells by their lines alone.
 func (t *table) markNotes() []string {
 	var notes []string
 	for j, m := range t.seen {
 		if m.point != nil && m.comma != nil {
 			notes = append(notes, fmt.Sprintf("%q: numbers written both ways, %q %s with a decimal point and %q %s with a comma; listed with a point, and plotted only once --decimal says which",
 				t.names[j], m.point.cell, m.where(m.point), m.comma.cell, m.where(m.comma)))
+		} else if _, note, _ := m.decide(decimalPoint); note != "" {
+			notes = append(notes, fmt.Sprintf("%q: %s", t.names[j], note))
 		}
 	}
 	return notes
@@ -374,7 +378,7 @@ func readTable(data []byte, delim rune, header headerMode, dates dateOrder, mark
 		}
 		records[i] = rec
 	}
-	decided, note, err := decideDecimal(records, csvDecimal(delim), mark)
+	decided, note, err := decideDecimal(records, delim, mark)
 	if err != nil {
 		return nil, err
 	}

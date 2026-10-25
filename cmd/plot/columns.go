@@ -160,11 +160,12 @@ func (m marks) decide(fallback decimalMark) (decided decimalMark, note string, e
 	return decided, note, nil
 }
 
-// decideDecimal is the decimal mark a CSV of records is written with:
-// mark where the caller gave one; else the mark its cells show, as decide
-// has it; else fallback, the guess: a comma where it is delimited by
-// semicolons -- the delimiter of the places that write one -- and a point
-// otherwise.
+// decideDecimal is the decimal mark a CSV of records, delimited by delim,
+// is written with: mark where the caller gave one; else the mark its cells
+// show, as decide has it; else the guess, csvDecimal's: a comma where it
+// is delimited by semicolons -- the delimiter of the places that write one
+// -- and a point otherwise. It takes delim, not the guess: two marks side
+// by side, swapped, compiled and took the guess for the user's --decimal.
 //
 // It is decided for the file, not for each column or each cell. One program
 // in one place wrote it, and read cell by cell, "1,234,567" was thousands
@@ -173,7 +174,7 @@ func (m marks) decide(fallback decimalMark) (decided decimalMark, note string, e
 // "1.234.567" only with a comma; "1.5", "1,234,567", "1,234.5" only with a
 // point. (JSON Lines decides it from the columns plotted alone, as
 // table.settleMarks says why.)
-func decideDecimal(records [][]string, fallback, mark decimalMark) (decided decimalMark, note string, err error) {
+func decideDecimal(records [][]string, delim rune, mark decimalMark) (decided decimalMark, note string, err error) {
 	if mark != decimalAuto {
 		return mark, "", nil
 	}
@@ -183,7 +184,7 @@ func decideDecimal(records [][]string, fallback, mark decimalMark) (decided deci
 			m.see(cell, i+1, j)
 		}
 	}
-	return m.decide(fallback)
+	return m.decide(csvDecimal(delim))
 }
 
 // parseNumber is cell as a number: as Go reads a float -- "12", "-0.5",

@@ -90,7 +90,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.x, "x", "", "the column to plot against, by name or number from 1, or 0 for the row (default: the first column, where it holds dates or numbers in order; the row otherwise)")
 	fs.StringVar(&o.y, "y", "", "the columns to plot, by name or number from 1, comma-separated, each in a strip of its own (default: every column of numbers but x, up to "+strconv.Itoa(maxDefaultColumns)+")")
 	fs.BoolVar(&o.list, "list", false, "list the columns, what each holds and how many values, and plot nothing")
-	fs.StringVar(&o.input, "input", string(inputAuto), "how the file is written: auto, csv, or jsonl (JSON Lines, an object a line); auto takes a file for JSON Lines where at least half its first lines are objects")
+	fs.StringVar(&o.input, "input", string(inputAuto), "how the file is written: auto, csv, or jsonl (JSON Lines, an object a line); auto takes a file for JSON Lines where any of its first 20 lines is an object holding a value")
 	fs.StringVar(&o.delimiter, "delimiter", "auto", "what separates values: auto, tab, or a character such as , ; or |")
 	fs.StringVar(&o.header, "header", string(headerAuto), "whether the first row names the columns: auto, yes or no")
 	fs.StringVar(&o.dates, "dates", string(datesAuto), "how a date in numbers alone, 03/04/2024, orders day and month: auto, dmy or mdy; auto tells from a day past the 12th")
@@ -266,6 +266,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if x >= 0 {
 		used = append([]int{x}, ys...)
 	}
+	var xMark decimalMark
+	if x >= 0 && t.readMark != nil {
+		xMark = t.readMark[x]
+	}
 	note, err := t.settleMarks(used, mark)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
@@ -279,7 +283,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	// longer. Refused rather than plotted against: choosing x and settling
 	// the mark wait on each other, and a guess between them is a chart
 	// against an x its rule would not have chosen.
-	if o.x == "" && x >= 0 && cols[x].kind == numberColumn && !ordered(t, x, cols[x]) {
+	// Only where the mark x is read with changed: unchanged, it is the
+	// order chooseX saw, and every CSV made a second pass over its rows to
+	// find so.
+	if o.x == "" && x >= 0 && cols[x].kind == numberColumn && t.readMark != nil && t.readMark[x] != xMark && !ordered(t, x, cols[x]) {
 		return fmt.Errorf("%s: %q is in order read with a decimal point, as its own strings show no mark, but not with the decimal comma the columns plotted show: say --x, or --decimal", name, t.names[x])
 	}
 	if x >= 0 && cols[x].ambiguous {
