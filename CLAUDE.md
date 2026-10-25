@@ -591,7 +591,15 @@ and sliding cases that a lone line between two middles did not show; it runs
 down and across, so the joints on a record's left and right are held as well
 as those on its top and bottom. `PlacedNode.joints` is the one answer to
 where the joints are, which the router, the straight lines and the stubs all
-ask.
+ask, and a node's ends (`ends.go`) the one answer to where a line may end on
+it -- its outline but the corners and the joints, each marked if beside a
+joint -- worked out once as the node is placed, relative to its box so that
+trimming the page moves them with it. The search's `outline` walks them in
+place, as kept, rather than a copy: copied twice a search, every layout took
+a node's outline twice over in memory. `TestEndsMatchOutline` holds the
+search to the outline it had before, kept as `outlineBefore`, cell for
+cell, cost for cost and in the same order, which decides between paths
+that cost the same.
 `Node.Field` is the one lookup of a port, which the layout, the DOT reader
 and `diagram`'s note of an unknown port all use: three lookups had come to
 disagree on a divided field's port, which Graphviz does not have and none

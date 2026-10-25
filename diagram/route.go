@@ -128,7 +128,7 @@ func (l *layouter) route() {
 				continue
 			}
 			r.anySide = try.anySide
-			if pts = r.find(a, b, e.Tail, i, try.strict); pts != nil {
+			if pts = r.find(l.out.nodeAt[e.From], l.out.nodeAt[e.To], e.Tail, i, try.strict); pts != nil {
 				break
 			}
 		}
@@ -187,23 +187,18 @@ type router struct {
 	tails [][][]int   // the same for the tails
 	near  [][]bool    // beside a box
 	slant [][]bool    // a straight line a picture draws crosses here at an angle
-	// bare are the nodes drawn without an outline -- plain text -- whose
-	// every cell a line may end at, its corners too: there is no corner
-	// for a line to be mistaken for. A one-letter label is a box a cell
-	// wide and a row tall, which has no outline cell but its corners, and
-	// every edge into it fell back to the plain path through the boxes.
-	bare map[Rect]bool
-	// search is the arrays find keeps its work in, kept for the next.
+	// search is the arrays find keeps its work in, kept for the next;
+	// kept is the ends outline keeps, for the next call.
 	search search
+	kept   []endChoice
 	// anySide has find end a path at any side of its boxes, an end off
 	// the sides its edge asks for at missCost.
 	anySide bool
 	// fields are the cells of the record field each edge's From and To
 	// ports name, the zero Rect where it names none.
 	fields [][2]Rect
-	// joints are where a record's dividers meet its outline: no line ends
-	// there, as none ends at a corner, since one that did would read as
-	// running into the divider.
+	// joints are where a record's dividers meet its outline, for offJoints
+	// alone: the search asks the nodes' ends.
 	joints map[Point]bool
 }
 
@@ -344,13 +339,10 @@ func newRouter(l *layouter) *router {
 	// Room to go round the boxes at the right and the bottom, as the
 	// layout leaves room at the left and the top.
 	w, h = w+colGap, h+rowGap
-	r := &router{edges: l.d.Edges, w: w, h: h, bare: map[Rect]bool{}, fields: make([][2]Rect, len(l.d.Edges)), joints: map[Point]bool{}}
+	r := &router{edges: l.d.Edges, w: w, h: h, fields: make([][2]Rect, len(l.d.Edges)), joints: map[Point]bool{}}
 	for _, n := range l.out.Nodes {
 		for _, j := range n.joints() {
 			r.joints[j] = true
-		}
-		if n.Node.Outline() == Plain {
-			r.bare[n.Rect] = true
 		}
 	}
 	for i, e := range l.d.Edges {
@@ -693,87 +685,46 @@ func keepsFields(pts []Point, a, b Rect, fields [2]Rect) bool {
 		(fields[1] == Rect{} || besideField(b, fields[1], pts[n-1], wayOut(pts[n-1], pts[n-2])))
 }
 
-// outline is r's outline cells edge i may end at -- not its corners, nor
-// where a record's divider meets it, nor a cell another edge ends at but
-// one it may share with -- each with the
-// way out of the box there, on sides alone where sides is not zero, and
-// beside field alone where it is not the zero Rect -- or, under anySide,
-// anywhere, those off them at missCost; a cell beside a joint at
-// jointCost. Where strict is false, any but a corner, each with what
-// ending there costs.
-func (rt *router) outline(r Rect, i int, strict bool, sides Side, field Rect) (cells []Point, out, costs []int) {
-	// asked says each cell is on the sides and beside the field asked for.
-	var asked []bool
-	add := func(p Point, way int) {
-		if !rt.in(p.X, p.Y) || rt.joints[p] {
-			return
+// outline is the cells of n's outline edge i may end at, as n's ends say
+// -- not its corners, unless it is plain text, nor its joints -- each with
+// the way out of the box there: those on the page, on the sides and beside
+// the field asked for (under anySide, any, those off them at missCost),
+// and not where another edge's line runs or ends, but one it may share
+// with (where strict is false, there too, at joinCost); then priced for
+// the joints over those kept, as priceJoints says why.
+func (rt *router) outline(n PlacedNode, i int, strict bool, sides Side, field Rect) (cells []Point, out, costs []int) {
+	es, o := n.endsFrom()
+	kept := rt.kept[:0]
+	for _, e := range es {
+		e.at = Point{e.at.X + o.X, e.at.Y + o.Y}
+		if !rt.in(e.at.X, e.at.Y) {
+			continue
 		}
-		cost, ok := 0, true
-		if sides != 0 && sides&wayside[way] == 0 || field != (Rect{}) && !besideField(r, field, p, way) {
-			if !rt.anySide {
-				return
-			}
-			cost, ok = missCost, false
+		// Most edges ask for neither a side nor a field, and every end is
+		// as asked for, at no cost.
+		c := endChoice{at: e.at, way: e.way, asked: true, besideJoint: e.besideJoint}
+		if sides != 0 || field != (Rect{}) {
+			c = n.choice(e, sides, field)
 		}
-		if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) || rt.foreign(i, p.X, p.Y) != 0 {
+		if !c.asked && !rt.anySide {
+			continue
+		}
+		if !rt.mayEnd(i, rt.heads[c.at.Y][c.at.X], rt.tails[c.at.Y][c.at.X]) || rt.foreign(i, c.at.X, c.at.Y) != 0 {
 			if strict {
-				return
+				continue
 			}
-			cost += joinCost
+			c.cost += joinCost
 		}
-		for k, c := range cells {
-			if c == p {
-				// A box one row tall has its top and its bottom in the
-				// same cells: a line may end there from above or below.
-				// The second way is kept beside the first, not over it.
-				if out[k] != way {
-					cells, out, costs, asked = append(cells, p), append(out, way), append(costs, cost), append(asked, ok)
-				}
-				return
-			}
-		}
-		cells, out, costs, asked = append(cells, p), append(out, way), append(costs, cost), append(asked, ok)
+		kept = append(kept, c)
 	}
-	corner := 1
-	if rt.bare[r] {
-		corner = 0
+	priceJoints(kept)
+	rt.kept = kept
+	if len(kept) == 0 {
+		return nil, nil, nil
 	}
-	for x := r.X + corner; x < r.X+r.W-corner; x++ {
-		add(Point{x, r.Y}, 0)
-		add(Point{x, r.Y + r.H - 1}, 1)
-	}
-	for y := r.Y + corner; y < r.Y+r.H-corner; y++ {
-		add(Point{r.X, y}, 2)
-		add(Point{r.X + r.W - 1, y}, 3)
-	}
-	if len(rt.joints) == 0 {
-		return cells, out, costs
-	}
-	// An end beside a joint is allowed, as a field two cells wide has
-	// nowhere else, but costs jointCost, so a line takes a cell further
-	// along where there is one. A cell beside a joint costs it only where its side has a cell
-	// that is not, among those as asked for as it is: the cost picks a cell
-	// along a side, and never turns a line to another side -- under
-	// rankdir=LR every cell of a field a row tall is beside one, and a
-	// line between two records went round their tops for it.
-	group := func(k int) int { // a side, as asked for or not
-		if asked[k] {
-			return out[k] + 4
-		}
-		return out[k]
-	}
-	beside := make([]bool, len(cells))
-	var clear [8]bool
-	for k, p := range cells {
-		beside[k] = besideJoint(rt.joints, p)
-		if !beside[k] {
-			clear[group(k)] = true
-		}
-	}
-	for k := range cells {
-		if beside[k] && clear[group(k)] {
-			costs[k] += jointCost
-		}
+	cells, out, costs = make([]Point, len(kept)), make([]int, len(kept)), make([]int, len(kept))
+	for k, c := range kept {
+		cells[k], out[k], costs[k] = c.at, c.way, c.cost
 	}
 	return cells, out, costs
 }
@@ -800,14 +751,15 @@ func offMiddle(p Point, r Rect, way int) int {
 	return abs(p.Y - (r.Y + r.H/2))
 }
 
-// find is the cheapest path from an outline cell of a to one of b, as the
-// router's rules allow, its corners only; nil where there is none. Where
+// find is the cheapest path from an outline cell of na to one of nb, as
+// the router's rules allow, its corners only; nil where there is none. Where
 // strict is false, a path the rules forbid -- along another's line, turning
 // on it, ending beside another's end -- is allowed at joinCost a cell; one
 // through a box never is.
-func (rt *router) find(a, b Rect, tail bool, i int, strict bool) []Point {
-	starts, outs, startCosts := rt.outline(a, i, strict, rt.edges[i].FromSide, rt.fields[i][0])
-	goals, ins, endCosts := rt.outline(b, i, strict, rt.edges[i].ToSide, rt.fields[i][1])
+func (rt *router) find(na, nb PlacedNode, tail bool, i int, strict bool) []Point {
+	a, b := na.Rect, nb.Rect
+	starts, outs, startCosts := rt.outline(na, i, strict, rt.edges[i].FromSide, rt.fields[i][0])
+	goals, ins, endCosts := rt.outline(nb, i, strict, rt.edges[i].ToSide, rt.fields[i][1])
 	if len(starts) == 0 || len(goals) == 0 {
 		return nil
 	}

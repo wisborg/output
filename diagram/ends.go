@@ -58,6 +58,18 @@ func (n PlacedNode) ends() []end {
 	return es
 }
 
+// endsFrom is n's ends as kept, each relative to the cell it returns --
+// its Rect's corner where settled, the page's own where they had to be
+// worked out on the spot -- without the copy ends makes: the router asks
+// for them twice a search, and copied, every search took a node's whole
+// outline twice over in memory.
+func (n PlacedNode) endsFrom() ([]end, Point) {
+	if !n.settled {
+		return n.workEnds(), Point{}
+	}
+	return n.endAt, Point{n.Rect.X, n.Rect.Y}
+}
+
 // joints is where n's dividers meet its outline: the cells no line ends
 // at, and ends beside only where its field has no other cell, as it reads
 // as running into the divider. A divider's end inside the box, on another
@@ -139,13 +151,20 @@ func (n PlacedNode) choices(sides Side, field Rect) []endChoice {
 	es := n.ends()
 	cs := make([]endChoice, len(es))
 	for k, e := range es {
-		asked := (sides == 0 || sides&wayside[e.way] != 0) && (field == Rect{} || besideField(n.Rect, field, e.at, e.way))
-		cs[k] = endChoice{at: e.at, way: e.way, asked: asked, besideJoint: e.besideJoint}
-		if !asked {
-			cs[k].cost = missCost
-		}
+		cs[k] = n.choice(e, sides, field)
 	}
 	return cs
+}
+
+// choice is the end e of n, in the page's cells, as an end asking for
+// sides and field sees it.
+func (n PlacedNode) choice(e end, sides Side, field Rect) endChoice {
+	asked := (sides == 0 || sides&wayside[e.way] != 0) && (field == Rect{} || besideField(n.Rect, field, e.at, e.way))
+	c := endChoice{at: e.at, way: e.way, asked: asked, besideJoint: e.besideJoint}
+	if !asked {
+		c.cost = missCost
+	}
+	return c
 }
 
 // priceJoints charges jointCost to each of cs beside a joint where its

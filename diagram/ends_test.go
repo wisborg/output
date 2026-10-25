@@ -34,36 +34,78 @@ func TestEndsFollowTheNode(t *testing.T) {
 	}
 }
 
-// outlineByEnds is what outline will be once it reads the nodes' ends: the
-// edge's choices on the page, on the sides and beside the field asked for
-// unless anySide, and clear of others' lines and ends unless not strict,
-// then priced for joints over those kept.
-func outlineByEnds(rt *router, n PlacedNode, i int, strict bool, sides Side, field Rect) (cells []Point, out, costs []int) {
-	var kept []endChoice
-	for _, c := range n.choices(sides, field) {
-		if !rt.in(c.at.X, c.at.Y) {
-			continue
+// outlineBefore is outline as it was before it asked the nodes' ends,
+// kept as the rule they are held to: the router's own map of every
+// node's joints, and of the plain-text nodes, whose corners a line may end
+// at, asked cell by cell along r's outline.
+func outlineBefore(rt *router, joints map[Point]bool, bare bool, r Rect, i int, strict bool, sides Side, field Rect) (cells []Point, out, costs []int) {
+	var asked []bool
+	add := func(p Point, way int) {
+		if !rt.in(p.X, p.Y) || joints[p] {
+			return
 		}
-		if !c.asked && !rt.anySide {
-			continue
-		}
-		if !rt.mayEnd(i, rt.heads[c.at.Y][c.at.X], rt.tails[c.at.Y][c.at.X]) || rt.foreign(i, c.at.X, c.at.Y) != 0 {
-			if strict {
-				continue
+		cost, ok := 0, true
+		if sides != 0 && sides&wayside[way] == 0 || field != (Rect{}) && !besideField(r, field, p, way) {
+			if !rt.anySide {
+				return
 			}
-			c.cost += joinCost
+			cost, ok = missCost, false
 		}
-		kept = append(kept, c)
+		if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) || rt.foreign(i, p.X, p.Y) != 0 {
+			if strict {
+				return
+			}
+			cost += joinCost
+		}
+		for k, c := range cells {
+			if c == p {
+				if out[k] != way {
+					cells, out, costs, asked = append(cells, p), append(out, way), append(costs, cost), append(asked, ok)
+				}
+				return
+			}
+		}
+		cells, out, costs, asked = append(cells, p), append(out, way), append(costs, cost), append(asked, ok)
 	}
-	priceJoints(kept)
-	for _, c := range kept {
-		cells, out, costs = append(cells, c.at), append(out, c.way), append(costs, c.cost)
+	corner := 1
+	if bare {
+		corner = 0
+	}
+	for x := r.X + corner; x < r.X+r.W-corner; x++ {
+		add(Point{x, r.Y}, 0)
+		add(Point{x, r.Y + r.H - 1}, 1)
+	}
+	for y := r.Y + corner; y < r.Y+r.H-corner; y++ {
+		add(Point{r.X, y}, 2)
+		add(Point{r.X + r.W - 1, y}, 3)
+	}
+	if len(joints) == 0 {
+		return cells, out, costs
+	}
+	group := func(k int) int {
+		if asked[k] {
+			return out[k] + 4
+		}
+		return out[k]
+	}
+	beside := make([]bool, len(cells))
+	var clear [8]bool
+	for k, p := range cells {
+		beside[k] = joints[Point{p.X - 1, p.Y}] || joints[Point{p.X + 1, p.Y}] || joints[Point{p.X, p.Y - 1}] || joints[Point{p.X, p.Y + 1}]
+		if !beside[k] {
+			clear[group(k)] = true
+		}
+	}
+	for k := range cells {
+		if beside[k] && clear[group(k)] {
+			costs[k] += jointCost
+		}
 	}
 	return cells, out, costs
 }
 
-// The ends a node keeps, chosen from as an edge asks and priced for its
-// joints, are the cells outline offers the search today: each cell, each
+// outline, reading the ends a node keeps, offers the search the cells it
+// offered before it did, by the rule outlineBefore keeps: each cell, each
 // way out, each cost, and in the same order, which decides between two
 // paths that cost the same. Asked on a page where every other edge's line
 // is drawn, so that cells taken by other lines are left out, or charged,
@@ -77,8 +119,12 @@ func TestEndsMatchOutline(t *testing.T) {
 			t.Fatal(err)
 		}
 		l := &layouter{d: d, out: lay, rect: map[string]Rect{}}
+		joints := map[Point]bool{}
 		for _, n := range lay.Nodes {
 			l.rect[n.Node.ID] = n.Rect
+			for _, j := range n.joints() {
+				joints[j] = true
+			}
 		}
 		for i, e := range d.Edges {
 			if e.Invisible {
@@ -99,10 +145,10 @@ func TestEndsMatchOutline(t *testing.T) {
 				for _, strict := range []bool{true, false} {
 					for _, any := range []bool{false, true} {
 						rt.anySide = any
-						wc, wo, wk := rt.outline(n.Rect, i, strict, end.sides, end.field)
-						gc, gout, gk := outlineByEnds(rt, n, i, strict, end.sides, end.field)
+						wc, wo, wk := outlineBefore(rt, joints, n.Node.Outline() == Plain, n.Rect, i, strict, end.sides, end.field)
+						gc, gout, gk := rt.outline(n, i, strict, end.sides, end.field)
 						if !reflect.DeepEqual(wc, gc) || !reflect.DeepEqual(wo, gout) || !reflect.DeepEqual(wk, gk) {
-							t.Fatalf("seed %d, edge %d at %s, strict %v, any side %v:\noutline %v %v %v\nby ends %v %v %v",
+							t.Fatalf("seed %d, edge %d at %s, strict %v, any side %v:\nbefore %v %v %v\noutline %v %v %v",
 								seed, i, end.node, strict, any, wc, wo, wk, gc, gout, gk)
 						}
 						compared++

@@ -32,6 +32,9 @@ func routerFor(boxes map[string]Rect) *router {
 	return newRouter(l)
 }
 
+// box is a node of no shape in particular at r, as find asks of its ends.
+func box(r Rect) PlacedNode { return PlacedNode{Node: &Node{}, Rect: r} }
+
 // roundTop is whether pts goes round the top of the box between a and b.
 func roundTop(pts []Point) bool {
 	for _, p := range pts {
@@ -77,7 +80,7 @@ func TestRouteCostsChooseTheWay(t *testing.T) {
 			}
 			c.put(r, row)
 			for _, strict := range []bool{true, false} {
-				pts := r.find(a, b, false, 0, strict)
+				pts := r.find(box(a), box(b), false, 0, strict)
 				if pts == nil {
 					t.Fatalf("%s, above %v, strict %v: no path", c.name, above, strict)
 				}
@@ -100,7 +103,7 @@ func TestRelaxedRouteJoinsOnlyWhereItMust(t *testing.T) {
 	a, b := Rect{2, 2, 3, 3}, Rect{14, 2, 3, 3}
 	r := routerFor(map[string]Rect{"a": a, "b": b})
 	r.heads[3][14] = []int{1} // on b's side facing a, its one cell
-	pts := r.find(a, b, false, 0, false)
+	pts := r.find(box(a), box(b), false, 0, false)
 	if pts == nil || pts[len(pts)-1] == (Point{14, 3}) {
 		t.Errorf("%v ends at another's arrowhead", pts)
 	}
@@ -109,7 +112,7 @@ func TestRelaxedRouteJoinsOnlyWhereItMust(t *testing.T) {
 	r = routerFor(map[string]Rect{"a": a, "b": b})
 	r.slant[3][15] = true      // where the one turn right then down would be
 	r.heads[11][14] = []int{1} // and down then right ends at an arrowhead
-	pts = r.find(a, b, false, 0, false)
+	pts = r.find(box(a), box(b), false, 0, false)
 	for _, p := range pts[1 : len(pts)-1] {
 		if r.slant[p.Y][p.X] {
 			t.Errorf("%v turns on a picture's straight line", pts)
@@ -125,10 +128,10 @@ func TestRelaxedRouteJoinsOnlyWhereItMust(t *testing.T) {
 			}
 		}
 	}
-	if pts := r.find(a, b, false, 0, true); pts != nil {
+	if pts := r.find(box(a), box(b), false, 0, true); pts != nil {
 		t.Errorf("a strict path %v past another's arrowheads", pts)
 	}
-	if pts := r.find(a, b, false, 0, false); pts == nil {
+	if pts := r.find(box(a), box(b), false, 0, false); pts == nil {
 		t.Errorf("no relaxed path where every way in passes an arrowhead")
 	}
 }
