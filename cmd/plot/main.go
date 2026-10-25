@@ -97,7 +97,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.StringVar(&o.xDate, "x-date", "", "read the x column as dates written as numbers: unix (seconds since 1970), unix-ms (milliseconds) or yyyymmdd (20240305), which a number alone cannot say it is")
 	fs.StringVar(&o.decimal, "decimal", string(decimalAuto), "how the file marks a number's fraction: auto, point (1,234.5) or comma (1.234,5); auto tells from the file's numbers, and where they cannot say, takes a comma in a file delimited by semicolons and a point otherwise; in JSON Lines, the strings of the columns plotted, as JSON writes its numbers with a point, and those at odds are refused")
 	fs.StringVar(&o.out, "out", "", "write the chart to this PNG rather than drawing it in the terminal")
-	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default, or 0: the terminal's, or 100); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageWidth)+")")
+	fs.IntVar(&o.width, "width", 0, "the chart's width: in characters in the terminal (default, or 0: the terminal's, or 100; a picture no wider than the window); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageWidth)+")")
 	fs.IntVar(&o.height, "height", 0, "the chart's height: in lines in the terminal (default, or 0: 24, and 10 more for each further column, held to the terminal's); in pixels in a PNG (default, or 0: "+strconv.Itoa(imageHeight)+", and 300 more for each further column)")
 	fs.StringVar(&o.terminal, "terminal", string(terminal.Auto), "how the chart is shown in the terminal: auto (a picture where the terminal shows one, braille otherwise), iterm, kitty or braille")
 	fs.StringVar(&o.theme, "theme", "auto", "the picture's palette: auto (light for a PNG; the terminal's own in a terminal), light or dark")
@@ -663,21 +663,7 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 		fmt.Fprintln(errOut, note+"; --terminal iterm or kitty draws one anyway")
 	}
 	n := len(d.series.yNames)
-	cols, rows := ts.Cols, ts.Rows
-	if !tty {
-		cols, rows = envInt(d.getenv, "COLUMNS", 100), envInt(d.getenv, "LINES", 0)
-	}
-	w, h := cols, 24+10*(n-1)
-	if rows > 0 {
-		h = min(h, rows-3)
-	}
-	// 0 is the default, as it is for a PNG, and as diagram has it.
-	if widthSet && width > 0 {
-		w = width
-	}
-	if heightSet && height > 0 {
-		h = height
-	}
+	w, h := chartChars(ts, tty, d.getenv, n, how != terminal.Braille, width, height, widthSet, heightSet)
 	if how == terminal.Braille {
 		return d.writeBraille(out, w, h)
 	}
@@ -701,6 +687,40 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 		return err
 	}
 	return terminal.Write(out, how, buf.Bytes(), w)
+}
+
+// chartChars is how many characters wide and high a chart of n columns is
+// drawn in a terminal of size ts, tty saying it is one: as wide as the
+// window, or COLUMNS where it is not a terminal, and 24 rows and 10 more a
+// column after the first, no taller than the window less 3; --width and
+// --height say otherwise, 0 being the default, as it is for a PNG, and as
+// diagram has it.
+//
+// A picture's width is held to the window's, where the terminal says it:
+// the width goes into the picture's escape as the columns to show it in,
+// so a --width past the window's edge was a picture the terminal cut off
+// or wrapped, and --width 999999999 a request no terminal should get.
+// diagram holds it so too. A braille chart's is taken as given, as
+// diagram's text is: its lines are only as wide as asked.
+func chartChars(ts terminal.Size, tty bool, getenv func(string) string, n int, picture bool, width, height int, widthSet, heightSet bool) (w, h int) {
+	cols, rows := ts.Cols, ts.Rows
+	if !tty {
+		cols, rows = envInt(getenv, "COLUMNS", 100), envInt(getenv, "LINES", 0)
+	}
+	w, h = cols, 24+10*(n-1)
+	if rows > 0 {
+		h = min(h, rows-3)
+	}
+	if widthSet && width > 0 {
+		w = width
+		if picture && ts.Cols > 0 {
+			w = min(w, ts.Cols)
+		}
+	}
+	if heightSet && height > 0 {
+		h = height
+	}
+	return w, h
 }
 
 // writeBraille draws the chart in braille on out, width by height

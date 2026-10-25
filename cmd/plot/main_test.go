@@ -21,6 +21,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/wisborg/output/chart/picture"
+	"github.com/wisborg/output/chart/terminal"
 	"github.com/wisborg/output/internal/cli"
 )
 
@@ -653,5 +654,36 @@ func TestPlotJSONLinesAsWritten(t *testing.T) {
 	}
 	if _, _, err := plot(t, b.String(), "--y", fmt.Sprint("k", maxJSONColumns)); err == nil || !strings.Contains(err.Error(), "left out") {
 		t.Errorf("--y naming a key left out: %v, want it said to be left out", err)
+	}
+}
+
+// A picture's --width is held to the window's, where the terminal says
+// it: the terminal is asked to show the picture in that many columns, and
+// past its edge it was cut off or wrapped. A braille chart's is taken as
+// given, as is a width within the window, and one where the terminal says
+// nothing.
+func TestChartCharsHoldsAPictureToTheWindow(t *testing.T) {
+	window := terminal.Size{Cols: 80, Rows: 40}
+	for _, c := range []struct {
+		name    string
+		ts      terminal.Size
+		tty     bool
+		picture bool
+		width   int
+		want    int
+	}{
+		{"a picture past the window", window, true, true, 200, 80},
+		{"a picture past it by far", window, true, true, 999999999, 80},
+		{"a picture within it", window, true, true, 60, 60},
+		{"braille past the window", window, true, false, 200, 200},
+		{"a picture, no size said", terminal.Size{}, false, true, 200, 200},
+	} {
+		if w, _ := chartChars(c.ts, c.tty, noEnv, 1, c.picture, c.width, 0, true, false); w != c.want {
+			t.Errorf("%s: %d wide, want %d", c.name, w, c.want)
+		}
+	}
+	// Unasked, it is the window's width, and its rows less 3 at most.
+	if w, h := chartChars(window, true, noEnv, 2, true, 0, 0, false, false); w != 80 || h != 34 {
+		t.Errorf("unasked: %d by %d, want 80 by 34", w, h)
 	}
 }

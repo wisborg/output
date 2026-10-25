@@ -525,10 +525,11 @@ a narrow terminal, and is cut to the width in the terminal's columns, a
 CJK character taking two, as a table's cells are:
 `plot --terminal braille --width 50 examples/summer-weather.csv`.
 
-`--width` and `--height` in the terminal are taken as given, not held to the
-window. A picture's pixels are held to a few thousand across, but the
-terminal is still asked to show it as many columns wide as `--width` says,
-past the window's edge if that is wider.
+`--width` and `--height` in the terminal are taken as given, but for a
+picture's width, which is held to the window's where the terminal says it:
+the terminal is asked to show a picture in that many columns, and one past
+the window's edge was cut off or wrapped, as `diagram` holds its pictures
+too. A braille chart wider than the window is drawn as wide as asked.
 
 ### Memory
 
