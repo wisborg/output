@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -161,4 +162,73 @@ func TestEndsMatchOutline(t *testing.T) {
 		t.Fatal("nothing compared")
 	}
 	t.Log(fmt.Sprint(compared, " outlines compared"))
+}
+
+// A braille stub chooses among the node's ends, as a path does: off a
+// joint, and off the cells beside one where its side has a cell clear of
+// both -- above a record of two fields alike, the line reaching it over
+// the divider, the nearest cells are the joint and its neighbours -- and,
+// into plain text one row tall, by its side, where it once had no cell
+// off the corners and drew a small arrow at an angle.
+func TestStubsChooseAmongTheEnds(t *testing.T) {
+	r := &PlacedNode{Node: &Node{ID: "r", Record: []Field{{Label: "ab"}, {Label: "cd"}}}, Rect: Rect{10, 10, 11, 3}}
+	placeFields(r, r.Node.Record, Rect{11, 11, 9, 1}, true)
+	if js := r.joints(); len(js) != 2 || js[0] != (Point{15, 10}) {
+		t.Fatalf("joints %v: the test no longer tests anything", js)
+	}
+	free := func(Point) bool { return true }
+	at, arrow, ok := stub(*r, Point{15, 5}, 0, 1, free)
+	if !ok || arrow != '▼' || at.Y != 9 || abs(at.X-15) <= 1 {
+		t.Errorf("a stub into r from above its divider: %v %c %v, want one off the joint and its neighbours", at, arrow, ok)
+	}
+	// Only the joint's neighbours free: the stub takes one, as a line
+	// into a field two cells wide does.
+	at, _, ok = stub(*r, Point{15, 5}, 0, 1, func(p Point) bool { return abs(p.X-15) == 1 })
+	if !ok || abs(at.X-15) != 1 {
+		t.Errorf("only beside the joint free: %v %v, want a stub there", at, ok)
+	}
+	// A steep line from above and to the left ends by the top, the side it
+	// runs more towards, even where the top's nearest cells are taken and a
+	// cell on the left would be nearer.
+	box := PlacedNode{Node: &Node{ID: "b"}, Rect: Rect{10, 10, 11, 5}}
+	at, arrow, ok = stub(box, Point{8, 9}, 0.2, 1, func(p Point) bool { return p.Y != 9 || p.X >= 15 })
+	if !ok || arrow != '▼' || at != (Point{15, 9}) {
+		t.Errorf("a steep line from above and to the left: %v %c %v, want the top's first free cell, 15,9", at, arrow, ok)
+	}
+	label := PlacedNode{Node: &Node{ID: "a", Shape: Plain, Label: "a"}, Rect: Rect{30, 10, 1, 1}}
+	for _, c := range []struct {
+		near   Point
+		dx, dy float64
+		want   Point
+		arrow  rune
+	}{
+		{Point{25, 10}, 1, 0.2, Point{29, 10}, '▶'},
+		{Point{35, 10}, -1, 0.2, Point{31, 10}, '◀'},
+		{Point{30, 5}, 0.1, 1, Point{30, 9}, '▼'},
+	} {
+		if at, arrow, ok := stub(label, c.near, c.dx, c.dy, free); !ok || at != c.want || arrow != c.arrow {
+			t.Errorf("into a one-letter label from %v: %v %c %v, want %v %c", c.near, at, arrow, ok, c.want, c.arrow)
+		}
+	}
+}
+
+// Drawn in braille, straight lines into labels of one letter end in a stub
+// and an arrowhead, as into any box, in every direction: no small arrow at
+// an angle, hard to read, is left.
+func TestBrailleStubsIntoOneLetterLabels(t *testing.T) {
+	for _, dir := range []Direction{Down, Right, Up, Left} {
+		d := &Diagram{Straight: true, Direction: dir, Root: Group{Items: []Item{{Node: &Node{ID: "source", Shape: Plain}}}}}
+		for _, id := range []string{"a", "b", "c"} {
+			d.Root.Items = append(d.Root.Items, Item{Node: &Node{ID: id, Shape: Plain}})
+			d.Edges = append(d.Edges, Edge{From: "source", To: id, Head: true})
+		}
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(lay.Text(TextOptions{Braille: BrailleThin}), "\n")
+		if strings.ContainsAny(text, "↗↘↙↖") || strings.Count(text, "▲")+strings.Count(text, "▼")+strings.Count(text, "◀")+strings.Count(text, "▶") != 3 {
+			t.Errorf("%v: a small arrow at an angle, or not an arrowhead each:\n%s", dir, text)
+		}
+	}
 }

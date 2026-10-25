@@ -116,13 +116,6 @@ func (f PlacedField) Lines() (lines []string, top int) {
 	return lines, f.Rect.Y + (f.Rect.H-len(lines))/2
 }
 
-// besideJoint says p is a cell from one of the joints js, across or up and
-// down: the one test of it, which the router asks of an end and the text
-// drawing of a braille stub's cell.
-func besideJoint(js map[Point]bool, p Point) bool {
-	return js[Point{p.X - 1, p.Y}] || js[Point{p.X + 1, p.Y}] || js[Point{p.X, p.Y - 1}] || js[Point{p.X, p.Y + 1}]
-}
-
 // field is the cells of n's field named port, and whether it has one.
 func (n PlacedNode) field(port string) (Rect, bool) {
 	if n.Node == nil {

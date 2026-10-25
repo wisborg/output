@@ -674,18 +674,13 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 		return func() { straightHeads(c, e, cells, x1-x0, y1-y0) }
 	}
 	return func() {
-		// A cell is free for a stub where no line, word or box is, nor
-		// a record's divider meeting the outline beside it, which the
-		// stub would read as running on from.
-		joints := map[Point]bool{}
-		for _, j := range append(from.joints(), to.joints()...) {
-			joints[j] = true
-		}
+		// A cell is free for a stub where no line, word or box is; which
+		// cells beside a node a stub may take at all -- none across from
+		// a record's divider meeting the outline -- its ends say.
 		free := func(p Point) bool {
-			return c.in(p.X, p.Y) && c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 && !inBox(p.X, p.Y) &&
-				!besideJoint(joints, p)
+			return c.in(p.X, p.Y) && c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 && !inBox(p.X, p.Y)
 		}
-		headAt, headArrow, headOK := stub(to.Rect, last, x1-x0, y1-y0, free)
+		headAt, headArrow, headOK := stub(to, last, x1-x0, y1-y0, free)
 		if headOK {
 			c.text[headAt.Y][headAt.X] = headArrow // for the tail to keep clear of
 		}
@@ -693,7 +688,7 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 		// alone would add a line beside the others and say nothing.
 		tailAt, tailArrow, tailOK := Point{}, rune(0), false
 		if e.Edge.Tail {
-			tailAt, tailArrow, tailOK = stub(from.Rect, first, x0-x1, y0-y1, free)
+			tailAt, tailArrow, tailOK = stub(from, first, x0-x1, y0-y1, free)
 		}
 		if headOK {
 			c.text[headAt.Y][headAt.X] = 0
@@ -867,51 +862,57 @@ func straightHeads(c *textCanvas, e PlacedEdge, cells []Point, dx, dy float64) {
 	}
 }
 
-// stub is the cell a straight line, reaching box r at cell near and
-// heading (dx, dy) in cells, ends in by r's side, and the arrowhead into
-// r there: by the side near is beyond, or where it is beyond two, a
-// corner, the one the line runs more towards as drawn; the free cell
-// along that side, off its corners, nearest near. False where the side
-// has none free.
-func stub(r Rect, near Point, dx, dy float64, free func(Point) bool) (Point, rune, bool) {
+// stub is the cell a straight line, reaching node n at cell near and
+// heading (dx, dy) in cells, ends in by n's side, and the arrowhead into
+// n there: by the side near is beyond, or where it is beyond two, a
+// corner, the one the line runs more towards as drawn; then, of the
+// node's ends on that side, each a cell out, the free one cheapest as
+// priceJoints prices them, nearest near among those alike. False where
+// the side has none free.
+//
+// The ends are the router's, so a stub keeps off a joint and, where the
+// side has a cell clear of one, from beside it, as a path does; and a
+// plain-text node's corners are among them, so a line into a label one
+// row tall ends in a stub and an arrowhead as any does, where once it
+// ended in a small arrow at an angle, hard to read.
+func stub(n PlacedNode, near Point, dx, dy float64, free func(Point) bool) (Point, rune, bool) {
+	r := n.Rect
 	left, right := near.X < r.X, near.X > r.X+r.W-1
 	above, below := near.Y < r.Y, near.Y > r.Y+r.H-1
 	across := math.Abs(dx)*cellAspect >= math.Abs(dy)
-	var cells []Point
+	var way int
 	var arrow rune
-	down := func(x int) {
-		for y := r.Y + 1; y <= r.Y+r.H-2; y++ {
-			cells = append(cells, Point{x, y})
-		}
-	}
-	along := func(y int) {
-		for x := r.X + 1; x <= r.X+r.W-2; x++ {
-			cells = append(cells, Point{x, y})
-		}
-	}
 	switch {
 	case left && (across || !above && !below):
-		down(r.X - 1)
-		arrow = '▶'
+		way, arrow = 2, '▶'
 	case right && (across || !above && !below):
-		down(r.X + r.W)
-		arrow = '◀'
+		way, arrow = 3, '◀'
 	case above:
-		along(r.Y - 1)
-		arrow = '▼'
+		way, arrow = 0, '▼'
 	default:
-		along(r.Y + r.H)
-		arrow = '▲'
+		way, arrow = 1, '▲'
 	}
-	sort.SliceStable(cells, func(i, j int) bool {
-		return abs(cells[i].X-near.X)+abs(cells[i].Y-near.Y) < abs(cells[j].X-near.X)+abs(cells[j].Y-near.Y)
-	})
-	for _, p := range cells {
-		if free(p) {
-			return p, arrow, true
+	var cs []endChoice
+	for _, c := range n.choices(0, Rect{}) {
+		if c.way != way {
+			continue
+		}
+		c.at = Point{c.at.X + ways[way].dx, c.at.Y + ways[way].dy}
+		if free(c.at) {
+			cs = append(cs, c)
 		}
 	}
-	return Point{}, arrow, false
+	priceJoints(cs)
+	sort.SliceStable(cs, func(i, j int) bool {
+		if cs[i].cost != cs[j].cost {
+			return cs[i].cost < cs[j].cost
+		}
+		return abs(cs[i].at.X-near.X)+abs(cs[i].at.Y-near.Y) < abs(cs[j].at.X-near.X)+abs(cs[j].at.Y-near.Y)
+	})
+	if len(cs) == 0 {
+		return Point{}, arrow, false
+	}
+	return cs[0].at, arrow, true
 }
 
 // brailleDot is the bit of a braille character for the dot in column col

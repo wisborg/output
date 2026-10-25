@@ -584,7 +584,13 @@ line, not only the search's: a straight
 one leaving a record by a joint -- the middle, or a cell from it once lines
 between the same two nodes are set apart -- is drawn along rows and columns
 instead (`keepClearOfJoints`, before routing, as the other lines are routed
-round the straight ones); a braille stub does not slide beside a joint; and
+round the straight ones); a braille stub (`stub`) chooses among the node's
+ends on the side the line reaches, each a cell out, priced as the search
+prices them, so it never sits across from a joint and sits beside one only
+where its side has no clear cell free -- and, a plain-text node's corners
+being among its ends, a line into a label of a letter or two ends in a stub
+and an arrowhead as into any box, where it once had no cell off the corners
+and ended in a small arrow at an angle, hard to read; and
 the plain path drawn where every search fails (`plain`) keeps its shape and
 slides each end up to three cells along its side to the cheapest of the
 node's ends, priced as the search prices them -- off the corners and the
