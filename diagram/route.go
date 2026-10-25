@@ -1010,25 +1010,30 @@ func path(a, b Rect, nth int) []Point {
 // plain is edge i's plain path, from na to nb, drawn where every search
 // has given up: path's, or loop's from a node back into itself, with each
 // end, and the point after it, moved along its side as far as three cells
-// to the cheapest of the ends the node offers it -- off the corners and
-// the joints, beside the field and on the sides the edge asks for where
-// one is near, and not beside a joint where a clear cell is, priced as
-// the search prices them, and a little more for every cell moved. Where
-// the path is that one stretch, its two ends move together. A move that
-// would take a stretch through a box but at the path's own two ends is
-// not made, a line through a box being the worse fault; one that would run
-// a stretch along another's line, or end it where another ends, is made
-// only at joinCost, as the search joins a line only where nothing else
-// will do -- an end beside a joint stays rather than join, and one at a
-// joint moves even so, as the search never ends a line there; where every
-// move
-// would, or none ends where a node offers, the path is drawn as it is --
-// the one line that may end at a joint.
+// to where it costs least. Where the path is that one stretch, its two
+// ends move together.
 //
-// It chooses, where it once moved an end only off a joint, a cell or a few
-// along, and after: it took a cell beside the joint as readily as one
-// clear of it, kept no field, and left a loop round a box three or four
-// cells wide ending at its corner.
+// Each end is priced as the search prices it, by outline asked as the
+// search's last try asks -- any side, and others' lines and ends allowed
+// at joinCost -- so that off the corners and the joints, beside the field
+// and on the sides asked for, and clear of a joint where it can be, are
+// one rule with the search's; and the cells of the stretches either side
+// of each point it moves as a step of the search is: running along
+// another's line, meeting one where it turns or ends, or passing the cell
+// before another's arrowhead, at joinCost a cell, crossing one at a right
+// angle free. A cell moved costs a little, so that not moving wins a tie;
+// not moving is priced as any move is, so a plain path on another's line,
+// a cell from a free one, takes the free one. A move that takes the path
+// through more of the boxes than it ran through is not made, a line
+// through a box being the worse fault; where every move would, or no end
+// is offered, the path is drawn as it is -- the one line that may still
+// end at a joint.
+//
+// It chooses, where offJoints once moved an end only off a joint, a cell
+// or a few along, after the fact: that took a cell beside the joint as
+// readily as one clear of it, kept no field, left a loop round a box three
+// or four cells wide at its corner, and drew a plain path along another's
+// line, two edges as one, where a cell over was free.
 func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 	e := rt.edges[i]
 	var pts []Point
@@ -1041,74 +1046,59 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 	if n < 2 {
 		return pts
 	}
-	// clear says the stretches of q from point m to its neighbours pass
-	// through no box but at the path's own two ends.
-	clear := func(q []Point, m int) bool {
-		for _, o := range []int{m - 1, m + 1} {
-			if o < 0 || o >= n {
-				continue
-			}
-			p, to := q[m], q[o]
-			dx, dy := sign(to.X-p.X), sign(to.Y-p.Y)
-			for {
-				if p != q[0] && p != q[n-1] && rt.in(p.X, p.Y) && rt.box[p.Y][p.X] {
-					return false
-				}
-				if p == to {
-					break
-				}
-				p.X, p.Y = p.X+dx, p.Y+dy
-			}
-		}
-		return true
+	// The ends each node offers this edge, and at what cost.
+	type at struct {
+		p   Point
+		way int
 	}
-	// apart says the moved point m of q, and the stretches from it to its
-	// neighbours, keep apart from the lines already drawn: no stretch runs
-	// along another edge's line, crossing one at a right angle as any path
-	// may, and an end moved is not where another's ends, but one it may
-	// share with. Moved onto another's line for nothing, an end beside a
-	// joint became one line with an arrowhead at each end, two edges drawn
-	// as one.
-	apart := func(q []Point, m int) bool {
-		if (m == 0 || m == n-1) && !rt.mayEnd(i, rt.heads[q[m].Y][q[m].X], rt.tails[q[m].Y][q[m].X]) {
-			return false
+	offered := func(nd PlacedNode, sides Side, field Rect) map[at]int {
+		rt.anySide = true
+		cells, out, costs := rt.outline(nd, i, false, sides, field)
+		rt.anySide = false
+		m := make(map[at]int, len(cells))
+		for k, c := range cells {
+			m[at{c, out[k]}] = costs[k]
 		}
-		for _, o := range []int{m - 1, m + 1} {
-			if o < 0 || o >= n {
-				continue
-			}
-			p, to := q[m], q[o]
-			dx, dy := sign(to.X-p.X), sign(to.Y-p.Y)
-			along := uint8(left | right)
-			if dx == 0 {
-				along = up | down
-			}
-			for {
-				if rt.in(p.X, p.Y) && rt.foreign(i, p.X, p.Y)&along != 0 {
-					return false
-				}
-				if p == to {
-					break
-				}
-				p.X, p.Y = p.X+dx, p.Y+dy
-			}
-		}
-		return true
+		return m
 	}
-	from := na.choices(e.FromSide, rt.fields[i][0])
-	to := nb.choices(e.ToSide, rt.fields[i][1])
-	priceJoints(from)
-	priceJoints(to)
-	// cost is what ending at q[k], leaving towards q[next], costs among
-	// cs, and whether cs offers it at all.
-	cost := func(cs []endChoice, q []Point, k, next int) (int, bool) {
-		way := wayOut(q[k], q[next])
-		for _, c := range cs {
-			if c.at == q[k] && c.way == way {
-				return c.cost, true
+	from := offered(na, e.FromSide, rt.fields[i][0])
+	to := offered(nb, e.ToSide, rt.fields[i][1])
+	// walk is what the stretches of q either side of the points ms cost
+	// as steps of the search, and how many of their cells are in a box but
+	// the path's own two ends. Each stretch is walked once.
+	walk := func(q []Point, ms ...int) (cost, boxed int) {
+		done := map[int]bool{}
+		for _, m := range ms {
+			for _, lo := range []int{m - 1, m} {
+				if lo < 0 || lo+1 >= n || done[lo] {
+					continue
+				}
+				done[lo] = true
+				p, end := q[lo], q[lo+1]
+				w := wayOut(p, end)
+				along := uint8(left | right)
+				if ways[w].dx == 0 {
+					along = up | down
+				}
+				for ; ; p = step(p, end) {
+					if p != q[0] && p != q[n-1] && rt.in(p.X, p.Y) {
+						if rt.box[p.Y][p.X] {
+							boxed++
+						}
+						if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) {
+							cost += joinCost
+						}
+						if f := rt.foreign(i, p.X, p.Y); f != 0 && f != (up|down|left|right)&^along {
+							cost += joinCost
+						}
+					}
+					if p == end {
+						break
+					}
+				}
 			}
 		}
-		return 0, false
+		return cost, boxed
 	}
 	type move struct{ k, next int }
 	moves := []move{{0, 1}, {n - 1, n - 2}}
@@ -1117,7 +1107,7 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 	}
 	for _, mv := range moves {
 		var best []Point
-		least := math.MaxInt
+		least, inBoxes := math.MaxInt, 0
 		for _, d := range []int{0, 1, -1, 2, -2, 3, -3} {
 			q := append([]Point(nil), pts...)
 			for _, m := range []int{mv.k, mv.next} {
@@ -1128,24 +1118,30 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 				}
 			}
 			c, ok := 0, true
-			for _, k := range []move{{0, 1}, {n - 1, n - 2}} {
-				if k.k != mv.k && n > 2 {
-					continue
-				}
-				cs := from
-				if k.k > 0 {
-					cs = to
-				}
-				ck, okk := cost(cs, q, k.k, k.next)
-				c, ok = c+ck, ok && okk
+			if mv.k == 0 || n == 2 {
+				cf, okf := from[at{q[0], wayOut(q[0], q[1])}]
+				c, ok = c+cf, ok && okf
 			}
-			if !ok || d != 0 && !(clear(q, mv.k) && clear(q, mv.next)) {
+			if mv.k == n-1 || n == 2 {
+				ct, okt := to[at{q[n-1], wayOut(q[n-1], q[n-2])}]
+				c, ok = c+ct, ok && okt
+			}
+			// Not moving comes first, and is walked whether offered or not:
+			// a move may take the path through no more of the boxes than
+			// it already ran through. The plain path's shape is drawn
+			// through whatever is in the way, and an end kept at a joint
+			// because the stretch beyond it crossed a box, moved or not,
+			// was kept there for nothing.
+			cw, boxed := walk(q, mv.k, mv.next)
+			if d == 0 {
+				inBoxes = boxed
+			} else if boxed > inBoxes {
 				continue
 			}
-			if d != 0 && !(apart(q, mv.k) && apart(q, mv.next)) {
-				c += joinCost
+			if !ok {
+				continue
 			}
-			if c += abs(d) * portCost; c < least {
+			if c += cw + abs(d)*portCost; c < least {
 				best, least = q, c
 			}
 		}

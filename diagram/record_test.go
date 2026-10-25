@@ -505,6 +505,43 @@ func TestPlainPathMissesJoints(t *testing.T) {
 	if got := rt.plain(nodes["r"], nodes["below"], 0, 0); got[0].X == 13 || got[0].X == 17 || joint[got[0]] {
 		t.Errorf("with lines through the gap at 13 and 17, the plain path from r is %v: along another's line, or at the joint", got)
 	}
+	// Not moving is priced as a move is: a plain path between two boxes,
+	// down the column another edge's line takes the other way, was drawn
+	// along it -- a to b and b to a as one line with an arrowhead at each
+	// end -- where a cell over was free.
+	nodes["top"] = PlacedNode{Node: &Node{ID: "top"}, Rect: Rect{40, 2, 11, 3}}
+	nodes["bottom"] = PlacedNode{Node: &Node{ID: "bottom"}, Rect: Rect{40, 12, 11, 3}}
+	rt = router([]Edge{{From: "top", To: "bottom", Head: true}, {From: "bottom", To: "top", Head: true}})
+	other := path(nodes["bottom"].Rect, nodes["top"].Rect, 0)
+	rt.draw(other, 1)
+	if got := rt.plain(nodes["top"], nodes["bottom"], 0, 0); got[0].X == other[0].X {
+		t.Errorf("the plain path %v runs along the other edge's line %v", got, other)
+	}
+	// And where the other line runs only through the gap, ending at
+	// neither box and with no arrowhead there, so that only the line in
+	// the cells between says so.
+	rt = router([]Edge{{From: "top", To: "bottom", Head: true}, {From: "bottom", To: "top", Head: true}})
+	gap := []Point{{other[0].X, 10}, {other[0].X, 6}}
+	rt.line(gap[0], gap[1], 1)
+	if got := rt.plain(nodes["top"], nodes["bottom"], 0, 0); got[0].X == gap[0].X {
+		t.Errorf("the plain path %v runs along the other edge's line %v in the gap", got, gap)
+	}
+	// A stretch moved is priced cell by cell as the search's steps are: it
+	// does not pass the cell before another's arrowhead, cutting it off,
+	// where a move as cheap the other way passes none.
+	edges = append(edges, Edge{From: "x", To: "y", Head: true})
+	rt = router(edges)
+	rt.heads[16][17] = []int{3}
+	if got := rt.plain(nodes["r"], nodes["below"], 0, 0); got[0].X == 17 || joint[got[0]] {
+		t.Errorf("with an arrowhead's cell at 17,16, the plain path from r is %v: through it, or at the joint", got)
+	}
+	// A box in the gap that the plain path crosses whether it moves or not
+	// does not keep the end at the joint: a move is refused only for
+	// taking the path through more of the boxes than it crossed already.
+	rt = router([]Edge{{From: "r", To: "below"}}, PlacedNode{Node: &Node{ID: "across"}, Rect: Rect{11, 15, 9, 2}})
+	if got := rt.plain(nodes["r"], nodes["below"], 0, 0); joint[got[0]] {
+		t.Errorf("with a box across the gap, the plain path stays at the joint: %v", got)
+	}
 	// A loop round a box three or four cells wide ended at its corner.
 	for _, w := range []int{3, 4} {
 		nodes["thin"] = PlacedNode{Node: &Node{ID: "thin"}, Rect: Rect{30, 10, w, 3}}

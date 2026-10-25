@@ -119,7 +119,7 @@ deps:
 	    bad=$$(go list -deps $$1 | grep '^github.com/wisborg/output' | grep -vxE "$$2" || true); \
 	    if [ -n "$$bad" ]; then echo "deps: FAILED -- $$1 imports:"; echo "$$bad" | sed 's/^/  /'; fail=1; fi; \
 	  }; \
-	  check "./chart/terminal ./internal/memory ./internal/fuzzcorpus" ''; \
+	  check "./chart/terminal ./internal/memory ./internal/fuzzcorpus ./diagram/internal/layoutcheck" ''; \
 	  check "./chart ./diagram ./diagram/dot ./diagram/svg" "$$rw"; \
 	  check "./internal/canvas" "$$img"; \
 	  check "./chart/picture ./diagram/picture" "$$rw|$$img"; \
@@ -137,6 +137,7 @@ deps:
 	  own "./internal/cli" "$$m/internal/cli"; \
 	  own "./internal/memory" "$$m/internal/memory"; \
 	  own "./internal/fuzzcorpus" "$$m/internal/fuzzcorpus"; \
+	  own "./diagram/internal/layoutcheck" "$$m/diagram/internal/layoutcheck"; \
 	  own "./diagram" "$$m/diagram|$$m/internal/memory"; \
 	  own "./diagram/dot" "$$m/diagram/dot|$$m/diagram|$$m/internal/memory"; \
 	  own "./diagram/svg" "$$m/diagram/svg|$$m/diagram|$$m/internal/memory"; \

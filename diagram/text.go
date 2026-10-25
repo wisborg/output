@@ -676,7 +676,10 @@ func drawTextStraight(c *textCanvas, lay *Layout, e PlacedEdge) func() {
 	return func() {
 		// A cell is free for a stub where no line, word or box is; which
 		// cells beside a node a stub may take at all -- none across from
-		// a record's divider meeting the outline -- its ends say.
+		// a record's divider meeting the outline -- its ends say. Another
+		// node's joints are never across from one: boxes are laid out at
+		// least rowGap apart, three cells, and a stub is one out from its
+		// own.
 		free := func(p Point) bool {
 			return c.in(p.X, p.Y) && c.lines[p.Y][p.X] == 0 && c.text[p.Y][p.X] == 0 && !inBox(p.X, p.Y)
 		}
