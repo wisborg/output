@@ -96,7 +96,8 @@ from reality is a test failure.
 - `diagram/internal/layoutcheck/` — `Check`, for tests alone: the
   promises any correct layout keeps of its lines -- along rows and
   columns, through no box, ending on the outline, off the corners and the
-  joints, `SidesDropped` said truly -- worked out from the boxes and paths
+  joints, `SidesDropped` said truly, a record two cells or more from any
+  other box -- worked out from the boxes and paths
   alone, never by asking the router, so that it still judges when the
   router and its own answer are wrong together. It takes plain data, not
   a `diagram.Layout`, as `diagram`'s own tests import it; each test
@@ -587,7 +588,10 @@ instead (`keepClearOfJoints`, before routing, as the other lines are routed
 round the straight ones); a braille stub (`stub`) chooses among the node's
 ends on the side the line reaches, each a cell out, priced as the search
 prices them, so it never sits across from a joint and sits beside one only
-where its side has no clear cell free -- and, a plain-text node's corners
+where its side has no clear cell free -- it looks at its own node's ends
+alone, and another's joints are never beside it because a box with joints
+stands two cells or more from any other, which `layoutcheck` holds -- and,
+a plain-text node's corners
 being among its ends, a line into a label of a letter or two ends in a stub
 and an arrowhead as into any box, where it once had no cell off the corners
 and ended in a small arrow at an angle, hard to read; and
@@ -596,15 +600,18 @@ slides each end up to three cells along its side to where it costs least,
 by the search's own rules: each end priced by `outline` as the search's
 last try asks it -- any side, others' lines and ends at `joinCost` -- and
 the stretches either side of each point moved priced cell by cell as the
-search's steps are, a line run along, met where it turns or ends, or the
-cell before another's arrowhead at `joinCost`, a right-angle crossing
-free. Not moving is priced the same way, so a plain path along another's
+search's steps are, each cell once, the corner the two share among them:
+a line run along, met where it turns or ends, a straight line a picture
+draws turned on, or the cell before another's arrowhead at `joinCost`, a
+right-angle crossing free. Not moving is priced the same way, so a plain path along another's
 line takes a free cell beside it; and a move is refused only for taking
 the path through more of the boxes than it crossed already, the plain
 shape being drawn through whatever is in the way. An end beside a joint
 stays rather than join; an end at one moves even so, as the search never
 ends a line there; where every move would cross more boxes, it stays, the
-one line that may end at a joint. It once moved an end only off a joint, a
+one line that may end at a joint -- and `layoutcheck` allows it there
+alone, counting the boxes as `plain` does, so that an end kept at a joint
+for a box crossed moved or not fails it. It once moved an end only off a joint, a
 cell along, and so took a cell beside the joint as readily as one clear of
 it, kept no field, and left a loop round a box three or four cells wide at
 its corner. The versions of `plain` before this one priced ends by a rule

@@ -542,6 +542,45 @@ func TestPlainPathMissesJoints(t *testing.T) {
 	if got := rt.plain(nodes["r"], nodes["below"], 0, 0); joint[got[0]] {
 		t.Errorf("with a box across the gap, the plain path stays at the joint: %v", got)
 	}
+	// A plain path that turns: out of tall's right side at (50, 6), along
+	// to its corner at (60, 6), down to (60, 18) and on into low. Moving
+	// its tail moves that corner up or down the column.
+	nodes["tall"] = PlacedNode{Node: &Node{ID: "tall"}, Rect: Rect{40, 2, 11, 9}}
+	nodes["low"] = PlacedNode{Node: &Node{ID: "low"}, Rect: Rect{70, 14, 11, 9}}
+	turn := Point{60, 6}
+	if ideal := path(nodes["tall"].Rect, nodes["low"].Rect, 0); len(ideal) != 4 || ideal[1] != turn {
+		t.Fatalf("the plain path from tall to low is %v, turning at no %v: the test no longer tests anything", ideal, turn)
+	}
+	edges = []Edge{{From: "tall", To: "low", Head: true}, {From: "x", To: "y", Head: true}}
+	// It does not turn on a straight line a picture draws, as the search
+	// does not, but may cross one.
+	rt = router(edges)
+	rt.slant[turn.Y][turn.X] = true
+	if got := rt.plain(nodes["tall"], nodes["low"], 0, 0); got[1] == turn {
+		t.Errorf("the plain path %v turns on a straight line at %v", got, turn)
+	}
+	// Asking outline as the search's last try does, it leaves the router
+	// as it found it, mid-try or not.
+	for _, any := range []bool{false, true} {
+		rt.anySide = any
+		if rt.plain(nodes["tall"], nodes["low"], 0, 0); rt.anySide != any {
+			t.Errorf("anySide %v before the plain path, %v after", any, rt.anySide)
+		}
+	}
+	// A corner is one cell and is priced once, though both its stretches
+	// pass it. On the cell before another's arrowhead it costs one join,
+	// the same as each move down, which runs past the cell before an
+	// arrowhead of its own, and each move up, whose column runs on past
+	// the corner's; not moving is the cheapest. Charged twice, the corner came
+	// to two joins and the end moved for nothing.
+	rt = router(edges)
+	rt.heads[turn.Y][turn.X] = []int{1}
+	for d := 1; d <= 3; d++ {
+		rt.heads[turn.Y+d][55] = []int{1}
+	}
+	if got := rt.plain(nodes["tall"], nodes["low"], 0, 0); got[1] != turn {
+		t.Errorf("with the corner before an arrowhead and every move past one, the plain path %v turns elsewhere than %v", got, turn)
+	}
 	// A loop round a box three or four cells wide ended at its corner.
 	for _, w := range []int{3, 4} {
 		nodes["thin"] = PlacedNode{Node: &Node{ID: "thin"}, Rect: Rect{30, 10, w, 3}}

@@ -896,13 +896,14 @@ func stub(n PlacedNode, near Point, dx, dy float64, free func(Point) bool) (Poin
 		way, arrow = 1, '▲'
 	}
 	var cs []endChoice
-	for _, c := range n.choices(0, Rect{}) {
-		if c.way != way {
+	es, o := n.endsFrom()
+	for _, e := range es {
+		if e.way != way {
 			continue
 		}
-		c.at = Point{c.at.X + ways[way].dx, c.at.Y + ways[way].dy}
-		if free(c.at) {
-			cs = append(cs, c)
+		e.at = Point{e.at.X + o.X + ways[way].dx, e.at.Y + o.Y + ways[way].dy}
+		if free(e.at) {
+			cs = append(cs, choice(n.Rect, e, 0, Rect{}))
 		}
 	}
 	priceJoints(cs)

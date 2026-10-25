@@ -104,6 +104,19 @@ func Check(lay Layout, o Options) []string {
 		}
 		return Box{}, false
 	}
+	// A box with joints has two cells or more between it and any other:
+	// a braille stub, a cell out from its own box, then never sits beside
+	// another's joint, and the stubs look only at their own node's.
+	for i, a := range lay.Boxes {
+		for _, b := range lay.Boxes[i+1:] {
+			if a.Invisible || b.Invisible || len(joints(a))+len(joints(b)) == 0 {
+				continue
+			}
+			if gap := max(b.Rect.X-(a.Rect.X+a.Rect.W), a.Rect.X-(b.Rect.X+b.Rect.W), b.Rect.Y-(a.Rect.Y+a.Rect.H), a.Rect.Y-(b.Rect.Y+b.Rect.H)); gap < 2 {
+				bad = append(bad, fmt.Sprintf("%s and %s: %d cells apart, and one has joints", a.ID, b.ID, gap))
+			}
+		}
+	}
 	for _, e := range lay.Edges {
 		n := len(e.Points)
 		if n == 0 {
@@ -256,12 +269,13 @@ func keepsField(r, f Rect, at, next Point) bool {
 }
 
 // boxedIn says the end of the plain path pts at its start, or its end,
-// has nowhere off a joint to go: no move of it a cell to three along its
-// side, the point after it moved with it, puts it on its box's outline off
-// the corners and the joints -- the other end too, where the path is that
-// one stretch -- with the stretches either side of each moved point
-// passing through no box but at the path's own two ends. The plain path
-// then stays where it is, a line through a box being the worse fault.
+// has nowhere off a joint to go: every move of it a cell to three along
+// its side, the point after it moved with it, that puts it on its box's
+// outline off the corners and the joints -- the other end too, where the
+// path is that one stretch -- takes the stretches either side of the
+// points moved through more cells of the boxes than they cross where they
+// are. The plain path's shape is drawn through whatever is in the way, so
+// a box it crosses moved or not keeps no end at a joint.
 func boxedIn(pts []Point, start bool, boxes []Box, owner map[string]Box, e Edge, joint map[Point]bool) bool {
 	n := len(pts)
 	k, next := n-1, n-2
@@ -275,27 +289,32 @@ func boxedIn(pts []Point, start bool, boxes []Box, owner map[string]Box, e Edge,
 		}
 		return onOutline(r, q[m]) && !corner(r, q[m]) && !joint[q[m]]
 	}
-	clear := func(q []Point, m int) bool {
-		for _, o := range []int{m - 1, m + 1} {
-			if o < 0 || o >= n {
-				continue
-			}
-			lo, hi := min(m, o), max(m, o)
-			through := false
-			cells(q[lo:hi+1], func(p Point, _ bool) {
-				if p == q[0] || p == q[n-1] {
-					return
+	// boxed counts the cells of the stretches either side of k and next
+	// in a box but the path's own two ends, each cell once.
+	boxed := func(q []Point) int {
+		seen, through := map[Point]bool{}, 0
+		for _, m := range []int{k, next} {
+			for _, lo := range []int{m - 1, m} {
+				if lo < 0 || lo+1 >= n {
+					continue
 				}
-				for _, b := range boxes {
-					through = through || !b.Invisible && in(b.Rect, p)
-				}
-			})
-			if through {
-				return false
+				cells(q[lo:lo+2], func(p Point, _ bool) {
+					if seen[p] || p == q[0] || p == q[n-1] {
+						return
+					}
+					seen[p] = true
+					for _, b := range boxes {
+						if !b.Invisible && in(b.Rect, p) {
+							through++
+							break
+						}
+					}
+				})
 			}
 		}
-		return true
+		return through
 	}
+	now := boxed(pts)
 	for _, d := range []int{1, -1, 2, -2, 3, -3} {
 		q := append([]Point(nil), pts...)
 		for _, m := range []int{k, next} {
@@ -305,7 +324,7 @@ func boxedIn(pts []Point, start bool, boxes []Box, owner map[string]Box, e Edge,
 				q[m].Y += d
 			}
 		}
-		if fine(q, k) && (n > 2 || fine(q, next)) && clear(q, k) && clear(q, next) {
+		if fine(q, k) && (n > 2 || fine(q, next)) && boxed(q) <= now {
 			return false
 		}
 	}

@@ -59,10 +59,37 @@ func TestCheck(t *testing.T) {
 // Drawn plain, an end stays at a joint where every move along the side
 // runs through a box: a box either side of the line, the worse fault.
 func TestCheckPlainBoxedIn(t *testing.T) {
-	boxes := append(page(), Box{ID: "left", Rect: Rect{21, 6, 3, 2}}, Box{ID: "right", Rect: Rect{25, 6, 3, 2}})
+	boxes := append(page(), Box{ID: "left", Rect: Rect{21, 7, 3, 2}}, Box{ID: "right", Rect: Rect{25, 7, 3, 2}})
 	e := Edge{From: "r", To: "t", Points: []Point{{24, 4}, {24, 10}}}
 	if got := Check(Layout{Boxes: boxes, Edges: []Edge{e}}, Options{Plain: true}); len(got) != 0 {
 		t.Errorf("boxed in, said %q", got)
+	}
+	// A box across the whole gap is crossed whether the end moves or not,
+	// and keeps it at the joint for nothing.
+	boxes = append(page(), Box{ID: "across", Rect: Rect{18, 7, 13, 2}})
+	got := strings.Join(Check(Layout{Boxes: boxes, Edges: []Edge{e}}, Options{Plain: true}), "\n")
+	if !strings.Contains(got, "where a divider of r meets") {
+		t.Errorf("a box crossed moved or not, said %q", got)
+	}
+}
+
+// A box with joints stands two cells or more from any other, so that a
+// stub a cell out from its own box is never beside another's joint; boxes
+// without joints may stand closer.
+func TestCheckBoxesStandApart(t *testing.T) {
+	for _, c := range []struct {
+		near Rect
+		want string
+	}{
+		{Rect{20, 6, 9, 3}, "r and near: 1 cells apart"},
+		{Rect{30, 0, 3, 3}, "r and near: 1 cells apart"},
+		{Rect{20, 7, 9, 2}, ""},
+		{Rect{0, 4, 7, 1}, ""}, // beside a and m, neither with joints
+	} {
+		got := strings.Join(Check(Layout{Boxes: append(page(), Box{ID: "near", Rect: c.near})}, Options{}), "\n")
+		if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
+			t.Errorf("a box at %v: said %q, want %q", c.near, got, c.want)
+		}
 	}
 }
 

@@ -699,12 +699,7 @@ func (rt *router) outline(n PlacedNode, i int, strict bool, sides Side, field Re
 		if !rt.in(e.at.X, e.at.Y) {
 			continue
 		}
-		// Most edges ask for neither a side nor a field, and every end is
-		// as asked for, at no cost.
-		c := endChoice{at: e.at, way: e.way, asked: true, besideJoint: e.besideJoint}
-		if sides != 0 || field != (Rect{}) {
-			c = n.choice(e, sides, field)
-		}
+		c := choice(n.Rect, e, sides, field)
 		if !c.asked && !rt.anySide {
 			continue
 		}
@@ -1052,9 +1047,10 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 		way int
 	}
 	offered := func(nd PlacedNode, sides Side, field Rect) map[at]int {
+		was := rt.anySide
 		rt.anySide = true
 		cells, out, costs := rt.outline(nd, i, false, sides, field)
-		rt.anySide = false
+		rt.anySide = was
 		m := make(map[at]int, len(cells))
 		for k, c := range cells {
 			m[at{c, out[k]}] = costs[k]
@@ -1065,15 +1061,20 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 	to := offered(nb, e.ToSide, rt.fields[i][1])
 	// walk is what the stretches of q either side of the points ms cost
 	// as steps of the search, and how many of their cells are in a box but
-	// the path's own two ends. Each stretch is walked once.
+	// the path's own two ends. Each cell is priced once, a corner the two
+	// stretches meet at among them, as the search prices each cell it
+	// steps to once.
 	walk := func(q []Point, ms ...int) (cost, boxed int) {
-		done := map[int]bool{}
+		turns := map[Point]bool{}
+		for _, t := range q[1 : n-1] {
+			turns[t] = true
+		}
+		done := map[Point]bool{}
 		for _, m := range ms {
 			for _, lo := range []int{m - 1, m} {
-				if lo < 0 || lo+1 >= n || done[lo] {
+				if lo < 0 || lo+1 >= n {
 					continue
 				}
-				done[lo] = true
 				p, end := q[lo], q[lo+1]
 				w := wayOut(p, end)
 				along := uint8(left | right)
@@ -1081,14 +1082,22 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 					along = up | down
 				}
 				for ; ; p = step(p, end) {
-					if p != q[0] && p != q[n-1] && rt.in(p.X, p.Y) {
+					if !done[p] && p != q[0] && p != q[n-1] && rt.in(p.X, p.Y) {
+						done[p] = true
 						if rt.box[p.Y][p.X] {
 							boxed++
 						}
 						if !rt.mayEnd(i, rt.heads[p.Y][p.X], rt.tails[p.Y][p.X]) {
 							cost += joinCost
 						}
-						if f := rt.foreign(i, p.X, p.Y); f != 0 && f != (up|down|left|right)&^along {
+						// Turning on another's line, or on a straight one a
+						// picture draws, joins it; passing over either at
+						// a right angle does not.
+						f := rt.foreign(i, p.X, p.Y)
+						switch {
+						case turns[p] && (f != 0 || rt.slant[p.Y][p.X]):
+							cost += joinCost
+						case f != 0 && f != (up|down|left|right)&^along:
 							cost += joinCost
 						}
 					}

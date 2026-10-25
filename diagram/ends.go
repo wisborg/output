@@ -44,15 +44,13 @@ func (n *PlacedNode) settle() {
 // one, has them worked out on the spot, so that it is never taken for one
 // without joints.
 func (n PlacedNode) ends() []end {
-	if !n.settled {
-		return n.workEnds()
-	}
-	if len(n.endAt) == 0 {
+	kept, o := n.endsFrom()
+	if len(kept) == 0 {
 		return nil
 	}
-	es := make([]end, len(n.endAt))
-	for k, e := range n.endAt {
-		e.at = Point{e.at.X + n.Rect.X, e.at.Y + n.Rect.Y}
+	es := make([]end, len(kept))
+	for k, e := range kept {
+		e.at = Point{e.at.X + o.X, e.at.Y + o.Y}
 		es[k] = e
 	}
 	return es
@@ -106,9 +104,12 @@ func (n PlacedNode) workJoints() []Point {
 }
 
 func (n PlacedNode) workEnds() []end {
-	joint := map[Point]bool{}
-	for _, j := range n.workJoints() {
-		joint[j] = true
+	var joint map[Point]bool // nil, and every lookup false, for most nodes
+	if js := n.workJoints(); len(js) > 0 {
+		joint = make(map[Point]bool, len(js))
+		for _, j := range js {
+			joint[j] = true
+		}
 	}
 	r := n.Rect
 	var es []end
@@ -138,29 +139,20 @@ func (n PlacedNode) workEnds() []end {
 // and what ending at it costs -- missCost where it is not, before what a
 // caller adds of its own.
 type endChoice struct {
-	at          Point
-	way         int
-	asked       bool
-	besideJoint bool
-	cost        int
+	end
+	asked bool
+	cost  int
 }
 
-// choices is n's ends for an end asking for sides and field, zero for
-// anywhere, in ends' order.
-func (n PlacedNode) choices(sides Side, field Rect) []endChoice {
-	es := n.ends()
-	cs := make([]endChoice, len(es))
-	for k, e := range es {
-		cs[k] = n.choice(e, sides, field)
+// choice is the end e of the node whose box is r, in the page's cells, as
+// an end asking for sides and field, zero for anywhere, sees it. Most
+// edges ask for neither, and every end is as asked for, at no cost.
+func choice(r Rect, e end, sides Side, field Rect) endChoice {
+	if sides == 0 && field == (Rect{}) {
+		return endChoice{end: e, asked: true}
 	}
-	return cs
-}
-
-// choice is the end e of n, in the page's cells, as an end asking for
-// sides and field sees it.
-func (n PlacedNode) choice(e end, sides Side, field Rect) endChoice {
-	asked := (sides == 0 || sides&wayside[e.way] != 0) && (field == Rect{} || besideField(n.Rect, field, e.at, e.way))
-	c := endChoice{at: e.at, way: e.way, asked: asked, besideJoint: e.besideJoint}
+	asked := (sides == 0 || sides&wayside[e.way] != 0) && (field == Rect{} || besideField(r, field, e.at, e.way))
+	c := endChoice{end: e, asked: asked}
 	if !asked {
 		c.cost = missCost
 	}
