@@ -63,6 +63,43 @@ func grid(side int) *diagram.Diagram {
 	return d
 }
 
+// records is a flow of nodes records of two to four fields, each field
+// with a port, and edges edges between them picked by a fixed sequence,
+// every other one by a port at each end; laid out in dir, straight or
+// not. Where lines end on a record -- off its joints, beside its fields --
+// is worked out by the router, the plain paths and the braille stubs, and
+// none of the other benchmarks has a record.
+func records(nodes, edges int, dir diagram.Direction, straight bool) *diagram.Diagram {
+	d := &diagram.Diagram{Direction: dir, Straight: straight}
+	labels := []string{"id", "name", "created at", "x"}
+	fields := make([]int, nodes)
+	for i := range nodes {
+		n := &diagram.Node{ID: fmt.Sprintf("r%d", i)}
+		fields[i] = 2 + i%3
+		for k := range fields[i] {
+			n.Record = append(n.Record, diagram.Field{Port: fmt.Sprintf("p%d", k), Label: labels[(i+k)%len(labels)]})
+		}
+		d.Root.Items = append(d.Root.Items, diagram.Item{Node: n})
+	}
+	x := uint64(1)
+	for len(d.Edges) < edges {
+		x ^= x << 13
+		x ^= x >> 7
+		x ^= x << 17
+		a, c := int(x%uint64(nodes)), int((x>>20)%uint64(nodes))
+		if a == c {
+			continue
+		}
+		e := diagram.Edge{From: fmt.Sprintf("r%d", a), To: fmt.Sprintf("r%d", c), Head: true}
+		if len(d.Edges)%2 == 0 {
+			e.FromPort = fmt.Sprintf("p%d", int(x>>40)%fields[a])
+			e.ToPort = fmt.Sprintf("p%d", int(x>>48)%fields[c])
+		}
+		d.Edges = append(d.Edges, e)
+	}
+	return d
+}
+
 func layout(b *testing.B, d *diagram.Diagram) {
 	b.Helper()
 	for b.Loop() {
@@ -92,6 +129,30 @@ func BenchmarkLayoutLabels(b *testing.B) {
 func BenchmarkLayoutGrid(b *testing.B) {
 	for _, side := range []int{4, 8} {
 		b.Run(fmt.Sprintf("side=%d", side), func(b *testing.B) { layout(b, grid(side)) })
+	}
+}
+
+// BenchmarkLayoutRecords is flows of records, half their edges by ports,
+// down and across, straight and not, and drawn as text in braille: the
+// cost of choosing where lines end on records, which the plain boxes of
+// the other benchmarks never ask.
+func BenchmarkLayoutRecords(b *testing.B) {
+	for _, edges := range []int{50, 100} {
+		for _, dir := range []diagram.Direction{diagram.Down, diagram.Right} {
+			for _, straight := range []bool{false, true} {
+				name := fmt.Sprintf("edges=%d/dir=%v/straight=%v", edges, map[diagram.Direction]string{diagram.Down: "down", diagram.Right: "right"}[dir], straight)
+				d := records(edges/2, edges, dir, straight)
+				b.Run(name, func(b *testing.B) {
+					for b.Loop() {
+						lay, err := d.Layout()
+						if err != nil {
+							b.Fatal(err)
+						}
+						lay.Text(diagram.TextOptions{Braille: diagram.BrailleThin})
+					}
+				})
+			}
+		}
 	}
 }
 

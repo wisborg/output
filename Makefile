@@ -160,7 +160,9 @@ bench:
 FUZZTIME ?= 1m
 
 # The fuzz targets read what a stranger may write -- DOT, a CSV for plot,
-# a table's cell -- and write it every way a command or a table does. `go test` replays only
+# a table's cell -- and write it every way a command or a table does;
+# FuzzLayout lays out diagrams of records and ports made from its bytes,
+# which DOT text rarely mutates into. `go test` replays only
 # their seeds and testdata/fuzz/, which hold the inputs that once broke
 # something: a second at most, so the everyday run stays quick.
 #
@@ -173,7 +175,7 @@ FUZZTIME ?= 1m
 # seconds -- for after a change likelier than most to break an edge
 # case. An input that breaks a target is written to testdata/fuzz/ and
 # committed with its fix, replayed for good. go test fuzzes one target of one package at a time, hence a loop.
-FUZZ      := diagram/dot:FuzzParse cmd/plot:FuzzPlot table:FuzzWriteMarkdown
+FUZZ      := diagram/dot:FuzzParse diagram:FuzzLayout cmd/plot:FuzzPlot table:FuzzWriteMarkdown
 FUZZCACHE  = $(shell go env GOCACHE)/fuzz/github.com/wisborg/output
 
 ## fuzz: search for DOT, CSV and cells that break a writer, FUZZTIME each (1m)

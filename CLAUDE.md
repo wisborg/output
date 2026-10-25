@@ -93,6 +93,15 @@ from reality is a test failure.
   does. The standard `flag` package reads
   `-out` and `--out` alike; pflag would list them the same but read `-out`
   as `-o -u -t`, breaking command lines already written.
+- `diagram/internal/layoutcheck/` — `Check`, for tests alone: the
+  promises any correct layout keeps of its lines -- along rows and
+  columns, through no box, ending on the outline, off the corners and the
+  joints, `SidesDropped` said truly -- worked out from the boxes and paths
+  alone, never by asking the router, so that it still judges when the
+  router and its own answer are wrong together. It takes plain data, not
+  a `diagram.Layout`, as `diagram`'s own tests import it; each test
+  package converts (`checkView`). A rule it holds is a gate; a line moved
+  a cell, or a path changed, is not wrong for being different.
 - `internal/fuzzcorpus/` — `Strings`, for tests alone: reads a fuzz
   target's kept inputs from `testdata/corpus/`, skipping unless
   `FUZZ_CORPUS` is set, which `make fuzz-replay` does.
@@ -827,7 +836,12 @@ The characteristic bug here is output that *looks* right, so a test asserting
   edges 130 ms, 200 edges a second and 300 edges three: about seven times
   the time for twice the edges, which is why dot's default limit is 300.
 - Input a stranger writes is fuzzed. `FuzzParse` (in `diagram/dot`) reads
-  DOT and draws it as text, braille, colour and SVG, `FuzzPlot` (in
+  DOT and draws it as text, braille, colour and SVG, and holds the layout
+  to `layoutcheck`'s promises; `FuzzLayout` (in `diagram`) lays out
+  diagrams of records, ports and sides made from its bytes, as
+  `randomDiagram` makes them -- DOT text rarely mutates into a record
+  with a port -- an odd first byte having every search give up so the
+  plain paths are checked too; `FuzzPlot` (in
   `cmd/plot`) charts a CSV or JSON Lines and lists it, and lists it read
   as JSON Lines, and `FuzzWriteMarkdown` (in
   `table`) writes a cell as Markdown; each checks no panic and the promises

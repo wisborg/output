@@ -330,9 +330,19 @@ func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
 		return []rune(text[p.Y])[p.X]
 	}
 	for _, n := range lay.Nodes {
+		// An invisible record's dividers are not drawn, so there is none
+		// for a line to run on from.
+		if n.Node.Invisible {
+			continue
+		}
 		r := n.Rect
 		for _, dv := range n.Dividers {
 			for _, j := range dv {
+				// A divider's end inside the box, on another divider, is no
+				// joint: nothing outside is across from it.
+				if j.X != r.X && j.X != r.X+r.W-1 && j.Y != r.Y && j.Y != r.Y+r.H-1 {
+					continue
+				}
 				// The cell across from it, and the line that would run on
 				// from the divider there.
 				out, on := Point{j.X, r.Y - 1}, "│┼┬┴"
