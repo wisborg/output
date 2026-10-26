@@ -102,9 +102,13 @@ from reality is a test failure.
   alone, never by asking the router, so that it still judges when the
   router and its own answer are wrong together. It takes plain data, not
   a `diagram.Layout`, as `diagram`'s own tests import it; each test
-  package converts (`checkView`). An edge drawn plain, every search having
-  given up on it, is held to what a plain path keeps -- `Edge.Plain`, from
-  the layout's own unexported mark, which only `diagram`'s tests can read. A rule it holds is a gate; a line moved
+  package converts (`checkView`). Where a test makes every search give up,
+  each edge is held to what a plain path keeps by `Edge.Plain`, from the
+  layout's own unexported mark, which only `diagram`'s tests can read;
+  anywhere else an edge drawn plain fails (`checkLayout`), so that the
+  mark, the router's own answer, never excuses a path the router should
+  have found. `FuzzParse`, which cannot read it, fails on one the same
+  way, through the path's own faults. A rule it holds is a gate; a line moved
   a cell, or a path changed, is not wrong for being different.
 - `internal/fuzzcorpus/` — `Strings`, for tests alone: reads a fuzz
   target's kept inputs from `testdata/corpus/`, skipping unless

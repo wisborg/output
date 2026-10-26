@@ -383,12 +383,11 @@ func newRouter(l *layouter, fields [][2]Rect) *router {
 				}
 			}
 		}
-		offs, o := n.offJoints()
-		for _, p := range offs {
+		for _, p := range n.outsideJoints() {
 			if r.offJoint == nil {
 				r.offJoint = grid()
 			}
-			if p = (Point{p.X + o.X, p.Y + o.Y}); r.in(p.X, p.Y) {
+			if r.in(p.X, p.Y) {
 				r.offJoint[p.Y][p.X] = true
 			}
 		}

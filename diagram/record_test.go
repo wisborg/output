@@ -314,16 +314,17 @@ func TestStraightLinesMissRecordJoints(t *testing.T) {
 			}
 		}
 	}
-	noEndBesideJoints(t, lay, lay.Text(TextOptions{Braille: BrailleThin}))
+	noEndBesideJoints(t, lay, TextOptions{Braille: BrailleThin})
 }
 
-// noEndBesideJoints checks text, a drawing of lay, has nothing in the cell
+// noEndBesideJoints checks lay drawn as text with o has nothing in the cell
 // outside each record's outline across from where a divider meets it: no
 // arrowhead -- a braille line's stub carries one -- and no line running
 // straight on from it, which would each read as the divider running on. A
 // braille line's dots passing at a slant read as nothing of the kind.
-func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
+func noEndBesideJoints(t *testing.T, lay *Layout, o TextOptions) {
 	t.Helper()
+	text := lay.Text(o)
 	at := func(p Point) rune {
 		if p.Y < 0 || p.Y >= len(text) || p.X < 0 || p.X >= len([]rune(text[p.Y])) {
 			return ' '
@@ -332,10 +333,12 @@ func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
 	}
 	// A plain path, drawn where every search gave up, is drawn through
 	// whatever is in the way, and may turn across from a joint: the cells
-	// it takes are no line the search drew.
+	// it takes are no line the search drew. A straight edge drawn in
+	// braille draws no cell of its path.
 	plain := map[Point]bool{}
 	for _, e := range lay.Edges {
-		for k := 1; e.plain && k < len(e.Points); k++ {
+		drawn := e.plain && !(e.Straight && o.Braille != BrailleOff)
+		for k := 1; drawn && k < len(e.Points); k++ {
 			for p := e.Points[k-1]; ; p = step(p, e.Points[k]) {
 				plain[p] = true
 				if p == e.Points[k] {
@@ -411,8 +414,8 @@ func TestStraightLinesMissRecordJointsAtRandom(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, text := range [][]string{lay.Text(), lay.Text(TextOptions{Braille: BrailleThin})} {
-			noEndBesideJoints(t, lay, text)
+		for _, o := range []TextOptions{{}, {Braille: BrailleThin}} {
+			noEndBesideJoints(t, lay, o)
 		}
 		if t.Failed() {
 			t.Fatalf("seed %d", seed)
@@ -624,9 +627,8 @@ func TestPlainPathMissesJoints(t *testing.T) {
 	}
 	rt = router([]Edge{{From: "src", To: "dst", Head: true}})
 	got = rt.plain(nodes["src"], nodes["dst"], 0, 0)
-	offs, _ := rec.offJoints()
 	for _, p := range got[1 : len(got)-1] {
-		if slices.Contains(offs, p) {
+		if slices.Contains(rec.outsideJoints(), p) {
 			t.Errorf("the plain path %v turns straight out from one of r's joints, at %v", got, p)
 		}
 	}

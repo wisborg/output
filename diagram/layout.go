@@ -72,12 +72,10 @@ type PlacedNode struct {
 	// so a drawing joins them.
 	Dividers [][2]Point
 	// endAt and jointAt are where on the outline a line may end, and
-	// where the dividers meet it, and offAt the cell straight out from each
-	// of those, relative to Rect, as settle worked them out when the node
-	// was placed: see ends, joints and offJoints.
+	// where the dividers meet it, relative to Rect, as settle worked them
+	// out when the node was placed: see ends and joints.
 	endAt   []end
 	jointAt []Point
-	offAt   []Point
 	settled bool
 }
 

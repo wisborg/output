@@ -41,10 +41,23 @@ func checkView(lay *Layout) layoutcheck.Layout {
 }
 
 // checkLayout fails t for every promise lay breaks, as layoutcheck has
-// them, with the drawing to see it by.
-func checkLayout(t *testing.T, lay *Layout, o layoutcheck.Options) {
+// them, with the drawing to see it by. Where forced, every search was
+// made to give up, and each path is held to what a plain path keeps, by
+// the layout's own mark of it. Where not, an edge drawn plain fails:
+// every edge of a diagram made at random has a path the rules allow, and
+// one that lost it -- to a rule made stricter, say -- is drawn through
+// whatever is in the way, which the mark would otherwise excuse.
+func checkLayout(t *testing.T, lay *Layout, forced bool) {
 	t.Helper()
-	bad := layoutcheck.Check(checkView(lay), o)
+	var bad []string
+	if !forced {
+		for _, e := range lay.Edges {
+			if e.plain {
+				bad = append(bad, fmt.Sprintf("%s -> %s: drawn plain, every search having found no path", e.Edge.From, e.Edge.To))
+			}
+		}
+	}
+	bad = append(bad, layoutcheck.Check(checkView(lay), layoutcheck.Options{})...)
 	for _, b := range bad {
 		t.Error(b)
 	}
@@ -144,7 +157,7 @@ func TestLayoutKeepsItsPromisesAtRandom(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed %d: %v", seed, err)
 		}
-		checkLayout(t, lay, layoutcheck.Options{})
+		checkLayout(t, lay, false)
 		recordsHold(t, lay)
 		again, err := d.Layout()
 		if err != nil {
@@ -164,7 +177,7 @@ func TestLayoutKeepsItsPromisesAtRandom(t *testing.T) {
 				t.Errorf("a grid's boxes moved by its edges:\n%s\n\nwithout them:\n%s", strings.Join(lay.Text(), "\n"), strings.Join(alone.Text(), "\n"))
 			}
 		}
-		noEndBesideJoints(t, lay, lay.Text(TextOptions{Braille: BrailleThin}))
+		noEndBesideJoints(t, lay, TextOptions{Braille: BrailleThin})
 		if t.Failed() {
 			t.Fatalf("seed %d", seed)
 		}
@@ -207,8 +220,8 @@ func TestPlainPathsKeepTheirPromisesAtRandom(t *testing.T) {
 		// Each edge says it was drawn plain, and is held to what a plain
 		// path keeps: told of every path at once, the check could not see
 		// an edge the layout failed to mark.
-		checkLayout(t, lay, layoutcheck.Options{})
-		noEndBesideJoints(t, lay, lay.Text(TextOptions{Braille: BrailleThin}))
+		checkLayout(t, lay, true)
+		noEndBesideJoints(t, lay, TextOptions{Braille: BrailleThin})
 		if t.Failed() {
 			t.Fatalf("seed %d", seed)
 		}
@@ -283,11 +296,11 @@ func checkRandomLayout(t *testing.T, s string) {
 	if err != nil {
 		return
 	}
-	checkLayout(t, lay, layoutcheck.Options{})
+	checkLayout(t, lay, plain)
 	recordsHold(t, lay)
 	again, err := d.LayoutWith(LayoutOptions{MaxCells: 40000})
 	if err != nil || !reflect.DeepEqual(lay.Text(), again.Text()) {
 		t.Errorf("laid out twice, drawn differently, or refused the second time: %v", err)
 	}
-	noEndBesideJoints(t, lay, lay.Text(TextOptions{Braille: BrailleThin}))
+	noEndBesideJoints(t, lay, TextOptions{Braille: BrailleThin})
 }
