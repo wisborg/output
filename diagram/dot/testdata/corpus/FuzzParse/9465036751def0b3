@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{rows=2suBgrAph cluster{label=\"000000\"style=lAne dbA[label=\"\\r00000\"]dbB[label=\"0000000\"]}{dbC[label=\"\\r000\"]}0->dbB[]dbA->dbC[label=\"00000\"style=dAshed]suBgrAph cluster0{1}}")

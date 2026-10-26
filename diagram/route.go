@@ -183,6 +183,10 @@ type router struct {
 	tails [][][]int   // the same for the tails
 	near  [][]bool    // beside a box
 	slant [][]bool    // a straight line a picture draws crosses here at an angle
+	// offJoint is a cell straight out from a record's joint, where a line
+	// turning, or one joining it, would run on from the divider: ─┐├. It
+	// is nil on a page with no joints, as most are, and every cell clear.
+	offJoint [][]bool
 	// search is the arrays find keeps its work in, kept for the next;
 	// kept is the ends outline keeps, for the next call.
 	search search
@@ -376,6 +380,24 @@ func newRouter(l *layouter, fields [][2]Rect) *router {
 					r.box[y][x] = r.box[y][x] || inside
 					r.near[y][x] = r.near[y][x] || !inside
 				}
+			}
+		}
+		for _, j := range n.joints() {
+			if r.offJoint == nil {
+				r.offJoint = grid()
+			}
+			switch {
+			case j.Y == b.Y:
+				j.Y--
+			case j.Y == b.Y+b.H-1:
+				j.Y++
+			case j.X == b.X:
+				j.X--
+			default:
+				j.X++
+			}
+			if r.in(j.X, j.Y) {
+				r.offJoint[j.Y][j.X] = true
 			}
 		}
 	}
@@ -838,8 +860,10 @@ func (rt *router) find(na, nb PlacedNode, tail bool, i int, strict bool) []Point
 			cost := int(it.cost) + stepCost
 			if turning {
 				// Out of the box straight; not at the first cell where the
-				// tail has a head; and never on another's line.
-				if atStart || !s.settled {
+				// tail has a head; not straight out from a record's joint,
+				// where a stretch would run on from the divider, in any try,
+				// as a line ends at no joint; and never on another's line.
+				if atStart || !s.settled || rt.offJoint != nil && rt.offJoint[s.y][s.x] {
 					continue
 				}
 				if rt.foreign(i, s.x, s.y) != 0 || rt.slant[s.y][s.x] {
@@ -1091,11 +1115,12 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 							cost += joinCost
 						}
 						// Turning on another's line, or on a straight one a
-						// picture draws, joins it; passing over either at
-						// a right angle does not.
+						// picture draws, joins it, and turning straight out
+						// from a joint runs on from the divider; passing over
+						// a line at a right angle does neither.
 						f := rt.foreign(i, p.X, p.Y)
 						switch {
-						case turns[p] && (f != 0 || rt.slant[p.Y][p.X]):
+						case turns[p] && (f != 0 || rt.slant[p.Y][p.X] || rt.offJoint != nil && rt.offJoint[p.Y][p.X]):
 							cost += joinCost
 						case f != 0 && f != (up|down|left|right)&^along:
 							cost += joinCost

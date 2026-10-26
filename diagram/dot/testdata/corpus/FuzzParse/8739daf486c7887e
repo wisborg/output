@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{rows=2n A0[00000000000000]suBgrAph cluster{label=\"000000000\"style=lAne dbA[label=\"\\n000\"]A000}0->A00[]dbA->A01}")

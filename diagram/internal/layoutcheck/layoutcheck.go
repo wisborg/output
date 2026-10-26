@@ -89,10 +89,12 @@ func Check(lay Layout, o Options) []string {
 	}
 	box := map[string]Box{}
 	joint := map[Point]bool{}
+	offJoint := map[Point]string{} // the cell straight out from a joint, and whose
 	for _, b := range lay.Boxes {
 		box[b.ID] = b
 		for _, j := range joints(b) {
 			joint[j] = true
+			offJoint[out(b.Rect, j)] = b.ID
 		}
 	}
 	// inBox is the visible box p lies in, if any.
@@ -152,6 +154,16 @@ func Check(lay Layout, o Options) []string {
 				say(e, "%s at %v, where a divider of %s meets its outline", end.what, end.at, end.b.ID)
 			}
 		}
+		// A turn straight out from a joint, or another line's joining there,
+		// runs on from the divider: ─┐├. A line passing along the side is
+		// clear of it.
+		if !o.Plain {
+			for _, t := range turns(e.Points) {
+				if id, ok := offJoint[t]; ok {
+					say(e, "turns at %v, straight out from a joint of %s", t, id)
+				}
+			}
+		}
 		if !o.Plain {
 			cells(e.Points, func(p Point, end bool) {
 				if b, ok := inBox(p); ok && !(end && (b.ID == e.From || b.ID == e.To)) {
@@ -169,6 +181,41 @@ func Check(lay Layout, o Options) []string {
 		}
 	}
 	return bad
+}
+
+// out is the cell straight out from r at j, on its outline off the
+// corners.
+func out(r Rect, j Point) Point {
+	switch {
+	case j.Y == r.Y:
+		j.Y--
+	case j.Y == r.Y+r.H-1:
+		j.Y++
+	case j.X == r.X:
+		j.X--
+	default:
+		j.X++
+	}
+	return j
+}
+
+// turns is the points pts turns at: a point between two stretches, of a
+// row and a column, each of some length, a stretch of none between them
+// skipped.
+func turns(pts []Point) []Point {
+	var ts []Point
+	var prev Point // the point before, where the path last moved
+	have := false
+	for k := 1; k < len(pts); k++ {
+		if pts[k] == pts[k-1] {
+			continue
+		}
+		if have && (prev.X == pts[k-1].X) != (pts[k-1].X == pts[k].X) {
+			ts = append(ts, pts[k-1])
+		}
+		prev, have = pts[k-1], true
+	}
+	return ts
 }
 
 // Joints is where b's dividers meet its outline -- none for an invisible

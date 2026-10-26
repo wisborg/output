@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{splines=line columns=1A[0]000B[]0-00-01[]10C[]1-02-07[]00->2[]01 7X}")

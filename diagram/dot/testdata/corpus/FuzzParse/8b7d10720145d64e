@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digraph{splines=line\tcolumns=3node[shape=ellipse]n cache[shape=cylinder]db[shape=cylinder]worqker;ueue[shape ]mail\tapi->cache[label=\"get\"]cache->api[label=\"hit\"]api b->d[l\"\"]api r than e[label=\"enqueue\"]q->worker\tworker->db[label=\"write\"]worker->mail[label=\"notify\"]db->cache[label=\"invalidate\"e]}")

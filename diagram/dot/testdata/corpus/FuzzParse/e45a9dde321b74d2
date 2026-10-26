@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{node[0\"\"]0[]00[]1[]2[]7\"8\"010A 01[]02[]9[]B[]C-00-01-02")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digraph{rows=2node[shape=cylinder]{dbA[label=\"dbA\\nprimary\"]dbB[label=\"dbB\\nreplica\"r\"\"]//\n}subgraph cluster{label=\"us-west-2\"style=lane s=2dbC[label=\"dbC\\nreplica\"r\"\"]//\n}dyA->dbB[label\"\"]dbA->dbC[label=\"async\"e]//\nsubgraph clusterd{label=\"Legend\"style=legend\ty[label=\"healthy\"r\"\"]s[label=\"working, with warnings\"r\"\"]g[label=\"error\"r\"\"]sync F[label=\"synchronous replication\"shape=plain e]a[label=\"asynchronous replication\"shape=plain e]}}")

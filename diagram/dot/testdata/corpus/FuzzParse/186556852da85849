@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{node[shape=CYlinder]suBgrAph cluster{label=\"0\"style=lAne dbB[label=\"0\\r0\"]}suBgrAph cluster0{label=\"0\"style=lAne dbC[label=\"0\\r0\"]}->dbB[label]0->dbC[label\"\"style=A0]suBgrAph cluster1{label=\"0\"style=legend 1[]2[]7[]8A[shape=plAin style=dAshed]9}}")

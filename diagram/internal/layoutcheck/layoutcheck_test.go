@@ -48,6 +48,13 @@ func TestCheck(t *testing.T) {
 		{"a field's side not reached", Edge{From: "r", To: "t", FromField: Rect{21, 1, 3, 1}, Points: []Point{{22, 4}, {22, 10}}}, Options{}, "does not keep"},
 		{"a field missed, and not said", Edge{From: "r", To: "t", FromField: Rect{25, 1, 3, 3}, Points: []Point{{22, 4}, {22, 10}}}, Options{}, "does not keep"},
 		{"an edge drawn nowhere", Edge{From: "a", To: "b"}, Options{}, ""},
+		// Out of r beside its bottom joint, along, and down from straight
+		// under the joint: the stretch along runs on from the divider.
+		{"a turn straight out from a joint", Edge{From: "r", To: "t", Points: []Point{{23, 4}, {23, 5}, {24, 5}, {24, 10}}}, Options{}, "turns at {24 5}, straight out from a joint of r"},
+		{"the same, a point repeated", Edge{From: "r", To: "t", Points: []Point{{23, 4}, {23, 5}, {24, 5}, {24, 5}, {24, 10}}}, Options{}, "turns at {24 5}"},
+		{"the same, drawn plain", Edge{From: "r", To: "t", Points: []Point{{23, 4}, {23, 5}, {24, 5}, {24, 10}}}, Options{Plain: true}, ""},
+		{"a line running past it along the side", Edge{From: "a", To: "t", Points: []Point{{6, 1}, {9, 1}, {9, 5}, {31, 5}, {31, 11}, {28, 11}}}, Options{}, ""},
+		{"the same, a point repeated straight out from it", Edge{From: "a", To: "t", Points: []Point{{6, 1}, {9, 1}, {9, 5}, {24, 5}, {24, 5}, {31, 5}, {31, 11}, {28, 11}}}, Options{}, ""},
 	} {
 		got := strings.Join(Check(Layout{Boxes: page(), Edges: []Edge{c.e}}, c.o), "\n")
 		if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {

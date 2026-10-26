@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{{{}{}1[]0->B[style=A]{C\"\"2[]7[]8A[0]9}}")

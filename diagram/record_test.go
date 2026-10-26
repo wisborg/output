@@ -343,16 +343,18 @@ func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
 				if j.X != r.X && j.X != r.X+r.W-1 && j.Y != r.Y && j.Y != r.Y+r.H-1 {
 					continue
 				}
-				// The cell across from it, and the line that would run on
-				// from the divider there.
-				out, on := Point{j.X, r.Y - 1}, "│┼┬┴"
+				// The cell across from it, and the lines that would run on
+				// from the divider there: every one with an arm its way --
+				// an end, a turn, a junction -- but a line running past it
+				// along the side.
+				out, on := Point{j.X, r.Y - 1}, "│╎┌┐└┘├┤┬┴┼"
 				switch {
 				case j.Y == r.Y+r.H-1:
 					out = Point{j.X, j.Y + 1}
 				case j.X == r.X:
-					out, on = Point{j.X - 1, j.Y}, "─┼├┤"
+					out, on = Point{j.X - 1, j.Y}, "─╌┌┐└┘├┤┬┴┼"
 				case j.X == r.X+r.W-1:
-					out, on = Point{j.X + 1, j.Y}, "─┼├┤"
+					out, on = Point{j.X + 1, j.Y}, "─╌┌┐└┘├┤┬┴┼"
 				}
 				if c := at(out); strings.ContainsRune("▲▼◀▶"+on, c) {
 					t.Errorf("%q beside %s's divider at %v:\n%s", c, n.Node.ID, j, strings.Join(text, "\n"))
@@ -592,6 +594,22 @@ func TestPlainPathMissesJoints(t *testing.T) {
 				t.Errorf("a loop round a box %d wide ends at its corner: %v", w, got)
 			}
 		}
+	}
+	// A plain path from src to dst turns at (15, 13), straight out from
+	// r's bottom joint, and on down from it in line with the divider: it
+	// moves its corner off, as the search never turns there.
+	nodes = map[string]PlacedNode{
+		"r":   *rec,
+		"src": {Node: &Node{ID: "src"}, Rect: Rect{0, 11, 5, 5}},
+		"dst": {Node: &Node{ID: "dst"}, Rect: Rect{26, 20, 5, 5}},
+	}
+	out := Point{15, 13}
+	if ideal := path(nodes["src"].Rect, nodes["dst"].Rect, 0); len(ideal) != 4 || ideal[1] != out || !joint[Point{out.X, out.Y - 1}] {
+		t.Fatalf("the plain path from src to dst is %v, turning at no %v under a joint: the test no longer tests anything", ideal, out)
+	}
+	rt = router([]Edge{{From: "src", To: "dst", Head: true}})
+	if got := rt.plain(nodes["src"], nodes["dst"], 0, 0); got[1] == out {
+		t.Errorf("the plain path %v turns straight out from r's joint, at %v", got, out)
 	}
 }
 

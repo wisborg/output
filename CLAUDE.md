@@ -96,8 +96,9 @@ from reality is a test failure.
 - `diagram/internal/layoutcheck/` — `Check`, for tests alone: the
   promises any correct layout keeps of its lines -- along rows and
   columns, through no box, ending on the outline, off the corners and the
-  joints, `SidesDropped` said truly, a record two cells or more from any
-  other box -- worked out from the boxes and paths
+  joints, turning nowhere straight out from a joint, `SidesDropped` said
+  truly, a record two cells or more from any other box -- worked out from
+  the boxes and paths
   alone, never by asking the router, so that it still judges when the
   router and its own answer are wrong together. It takes plain data, not
   a `diagram.Layout`, as `diagram`'s own tests import it; each test
@@ -580,7 +581,18 @@ that move an end a cell along, and does not forbid it. It is charged only
 where the same side has a cell beside no joint, among those as asked for:
 it chooses a cell along a side and never a side, for charged on every such
 cell it sent lines between records under `rankdir=LR` round their tops,
-off the sides facing (`TestJointCostKeepsSidesFacing`). That holds of every
+off the sides facing (`TestJointCostKeepsSidesFacing`). Nor does a line
+turn in the cell straight out from a joint, or join another there: one
+stretch of the turn runs in line with the divider, `─┐├`, or a junction
+`─┤├`, and reads as the divider running on out of the box, where the trunk
+of two lines into a record met beside one. The search never turns there,
+in any of its tries, as it never ends a line at a joint: a turn a cell
+further out costs a step or two, and in the random diagrams no edge lost
+its search to it. A line running past along the side, `│├`, is clear of
+it. `layoutcheck` holds it of every path the search found, and the
+drawing's check of a record looks for any line with an arm the divider's
+way there, a corner among them -- it once looked for a junction alone,
+and the random diagrams' test passed with turns there in its drawings. That holds of every
 line, not only the search's: a straight
 one leaving a record by a joint -- the middle, or a cell from it once lines
 between the same two nodes are set apart -- is drawn along rows and columns
@@ -602,8 +614,8 @@ last try asks it -- any side, others' lines and ends at `joinCost` -- and
 the stretches either side of each point moved priced cell by cell as the
 search's steps are, each cell once, the corner the two share among them:
 a line run along, met where it turns or ends, a straight line a picture
-draws turned on, or the cell before another's arrowhead at `joinCost`, a
-right-angle crossing free. Not moving is priced the same way, so a plain path along another's
+draws turned on, a turn straight out from a joint, or the cell before
+another's arrowhead at `joinCost`, a right-angle crossing free. Not moving is priced the same way, so a plain path along another's
 line takes a free cell beside it; and a move is refused only for taking
 the path through more of the boxes than it crossed already, the plain
 shape being drawn through whatever is in the way. An end beside a joint

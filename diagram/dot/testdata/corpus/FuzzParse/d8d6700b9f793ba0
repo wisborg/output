@@ -1,0 +1,2 @@
+go test fuzz v1
+string("digrAph{suBgrAph cluster{0\"\"dbA dbB}suBgrAph cluster0{dbA[]dbA->10suBgrAph cluster0{style=legend 0[]1[]2[]7[]8}}")
