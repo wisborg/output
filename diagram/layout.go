@@ -72,10 +72,12 @@ type PlacedNode struct {
 	// so a drawing joins them.
 	Dividers [][2]Point
 	// endAt and jointAt are where on the outline a line may end, and
-	// where the dividers meet it, relative to Rect, as settle worked them
-	// out when the node was placed: see ends and joints.
+	// where the dividers meet it, and offAt the cell straight out from each
+	// of those, relative to Rect, as settle worked them out when the node
+	// was placed: see ends, joints and offJoints.
 	endAt   []end
 	jointAt []Point
+	offAt   []Point
 	settled bool
 }
 
@@ -120,6 +122,10 @@ type PlacedEdge struct {
 	// or passing through a box. The other end keeps what it asks for where
 	// it can.
 	SidesDropped bool
+	// plain says the path is the plain one, every search having given up:
+	// drawn through whatever is in the way, so the promises a searched
+	// path keeps, its tests hold it to only in part.
+	plain bool
 	// pictureAt, where pictured, is where a picture writes the label: the
 	// picture of a diagram with straight edges draws other lines than the
 	// text drawing does, and its labels are placed against those.

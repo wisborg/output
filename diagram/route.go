@@ -81,6 +81,7 @@ func (l *layouter) route() {
 	})
 	paths := make([][]Point, len(l.d.Edges))
 	dropped := make([]bool, len(l.d.Edges))
+	plain := make([]bool, len(l.d.Edges))
 	parallel := map[[2]string]int{}
 	// The edges the picture draws along their paths keep clear of the
 	// straight lines it draws, which they may cross but not follow, turn
@@ -135,7 +136,7 @@ func (l *layouter) route() {
 		}
 		r.anySide = false
 		if pts == nil {
-			pts = r.plain(l.out.nodeAt[e.From], l.out.nodeAt[e.To], i, nth)
+			pts, plain[i] = r.plain(l.out.nodeAt[e.From], l.out.nodeAt[e.To], i, nth), true
 		}
 		r.draw(pts, i)
 		paths[i] = pts
@@ -145,7 +146,7 @@ func (l *layouter) route() {
 		dropped[i] = sided && !(keepsSides(pts, e.FromSide, e.ToSide) && keepsFields(pts, a, b, r.fields[i]))
 	}
 	for i := range l.d.Edges {
-		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i], SidesDropped: dropped[i]})
+		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i], SidesDropped: dropped[i], plain: plain[i]})
 	}
 }
 
@@ -185,7 +186,7 @@ type router struct {
 	slant [][]bool    // a straight line a picture draws crosses here at an angle
 	// offJoint is a cell straight out from a record's joint, where a line
 	// turning, or one joining it, would run on from the divider: ─┐├. It
-	// is nil on a page with no joints, as most are, and every cell clear.
+	// is nil on a page with no joints, as most are: ask offJointAt.
 	offJoint [][]bool
 	// search is the arrays find keeps its work in, kept for the next;
 	// kept is the ends outline keeps, for the next call.
@@ -382,22 +383,13 @@ func newRouter(l *layouter, fields [][2]Rect) *router {
 				}
 			}
 		}
-		for _, j := range n.joints() {
+		offs, o := n.offJoints()
+		for _, p := range offs {
 			if r.offJoint == nil {
 				r.offJoint = grid()
 			}
-			switch {
-			case j.Y == b.Y:
-				j.Y--
-			case j.Y == b.Y+b.H-1:
-				j.Y++
-			case j.X == b.X:
-				j.X--
-			default:
-				j.X++
-			}
-			if r.in(j.X, j.Y) {
-				r.offJoint[j.Y][j.X] = true
+			if p = (Point{p.X + o.X, p.Y + o.Y}); r.in(p.X, p.Y) {
+				r.offJoint[p.Y][p.X] = true
 			}
 		}
 	}
@@ -546,6 +538,10 @@ func (r *router) draw(pts []Point, i int) {
 		}
 	}
 }
+
+// offJointAt says (x, y), a cell of the page, is straight out from a
+// record's joint, where no line turns.
+func (r *router) offJointAt(x, y int) bool { return r.offJoint != nil && r.offJoint[y][x] }
 
 // step is the cell one along from a towards b.
 func step(a, b Point) Point { return Point{a.X + sign(b.X-a.X), a.Y + sign(b.Y-a.Y)} }
@@ -863,7 +859,7 @@ func (rt *router) find(na, nb PlacedNode, tail bool, i int, strict bool) []Point
 				// tail has a head; not straight out from a record's joint,
 				// where a stretch would run on from the divider, in any try,
 				// as a line ends at no joint; and never on another's line.
-				if atStart || !s.settled || rt.offJoint != nil && rt.offJoint[s.y][s.x] {
+				if atStart || !s.settled || rt.offJointAt(s.x, s.y) {
 					continue
 				}
 				if rt.foreign(i, s.x, s.y) != 0 || rt.slant[s.y][s.x] {
@@ -1037,9 +1033,11 @@ func path(a, b Rect, nth int) []Point {
 // at joinCost -- so that off the corners and the joints, beside the field
 // and on the sides asked for, and clear of a joint where it can be, are
 // one rule with the search's; and the cells of the stretches either side
-// of each point it moves as a step of the search is: running along
-// another's line, meeting one where it turns or ends, or passing the cell
-// before another's arrowhead, at joinCost a cell, crossing one at a right
+// of each point it moves as a step of the search is, each cell once:
+// running along another's line, meeting one where it turns or ends,
+// turning on a straight line a picture draws, turning straight out from
+// a joint, where the search never turns, or passing the cell before
+// another's arrowhead, at joinCost a cell, crossing a line at a right
 // angle free. A cell moved costs a little, so that not moving wins a tie;
 // not moving is priced as any move is, so a plain path on another's line,
 // a cell from a free one, takes the free one. A move that takes the path
@@ -1120,7 +1118,7 @@ func (rt *router) plain(na, nb PlacedNode, i, nth int) []Point {
 						// a line at a right angle does neither.
 						f := rt.foreign(i, p.X, p.Y)
 						switch {
-						case turns[p] && (f != 0 || rt.slant[p.Y][p.X] || rt.offJoint != nil && rt.offJoint[p.Y][p.X]):
+						case turns[p] && (f != 0 || rt.slant[p.Y][p.X] || rt.offJointAt(p.X, p.Y)):
 							cost += joinCost
 						case f != 0 && f != (up|down|left|right)&^along:
 							cost += joinCost

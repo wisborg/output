@@ -28,11 +28,25 @@ func TestEndsFollowTheNode(t *testing.T) {
 			if got, want := n.joints(), n.workJoints(); !reflect.DeepEqual(got, want) {
 				t.Fatalf("seed %d: %s's joints %v, worked out now %v", seed, n.Node.ID, got, want)
 			}
+			fresh := n
+			fresh.settled = false
+			if got, want := absolute(n.offJoints()), absolute(fresh.offJoints()); !reflect.DeepEqual(got, want) {
+				t.Fatalf("seed %d: %s's cells out from its joints %v, worked out now %v", seed, n.Node.ID, got, want)
+			}
 			if pn := lay.nodeAt[n.Node.ID]; !reflect.DeepEqual(pn.ends(), n.ends()) {
 				t.Fatalf("seed %d: %s's ends differ between Nodes and nodeAt", seed, n.Node.ID)
 			}
 		}
 	}
+}
+
+// absolute is ps, kept relative to o, in the page's cells.
+func absolute(ps []Point, o Point) []Point {
+	var abs []Point
+	for _, p := range ps {
+		abs = append(abs, Point{p.X + o.X, p.Y + o.Y})
+	}
+	return abs
 }
 
 // outlineBefore is outline as it was before it asked the nodes' ends,

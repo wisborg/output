@@ -93,7 +93,10 @@ func checkDOT(t *testing.T, src string) {
 			return
 		}
 		// Within MaxCells a search cannot run out of states, so no edge is
-		// drawn along the plain path for want of them.
+		// drawn along the plain path for want of them. One drawn plain for
+		// want of any path the rules allow would be said here as broken
+		// -- this package cannot see which edges were -- and none has been
+		// found.
 		if bad := layoutcheck.Check(checkView(lay), layoutcheck.Options{}); len(bad) > 0 {
 			t.Fatalf("the layout breaks its promises (straight %v):\n%s\n%s", straight, strings.Join(bad, "\n"), strings.Join(lay.Text(), "\n"))
 		}

@@ -69,14 +69,18 @@ type Edge struct {
 	FromSide, ToSide   Side
 	FromField, ToField Rect
 	SidesDropped       bool
+	// Plain says this path alone was drawn along the plain path, as
+	// Options.Plain says of every path.
+	Plain bool
 }
 
 // Options say what is known of how the layout was drawn.
 type Options struct {
 	// Plain says every path was drawn along the plain path between its
 	// boxes, the search having given up: whatever is in the way, so a line
-	// may pass through a box, and may end where a divider meets an outline
-	// where every move off it would take the line through one.
+	// may pass through a box, turn straight out from a joint, and end
+	// where a divider meets an outline where every move off it would take
+	// the line through more of the boxes. Edge.Plain says it of one path.
 	Plain bool
 }
 
@@ -129,6 +133,7 @@ func Check(lay Layout, o Options) []string {
 			continue
 		}
 		from, to := box[e.From], box[e.To]
+		plain := o.Plain || e.Plain
 		for k := 1; k < n; k++ {
 			if p, q := e.Points[k-1], e.Points[k]; p.X != q.X && p.Y != q.Y {
 				say(e, "%v to %v runs along neither a row nor a column", p, q)
@@ -150,21 +155,21 @@ func Check(lay Layout, o Options) []string {
 			if in(r, end.next) {
 				say(e, "%s at %v and runs on into %s, to %v", end.what, end.at, end.b.ID, end.next)
 			}
-			if joint[end.at] && !(o.Plain && boxedIn(e.Points, end.what == "starts", lay.Boxes, box, e, joint)) {
+			if joint[end.at] && !(plain && boxedIn(e.Points, end.what == "starts", lay.Boxes, box, e, joint)) {
 				say(e, "%s at %v, where a divider of %s meets its outline", end.what, end.at, end.b.ID)
 			}
 		}
-		// A turn straight out from a joint, or another line's joining there,
-		// runs on from the divider: ─┐├. A line passing along the side is
-		// clear of it.
-		if !o.Plain {
+		// A plain path is drawn through whatever is in the way. A searched
+		// one runs through no box but its own two at its ends, and turns
+		// nowhere straight out from a joint, as one stretch of the turn, or
+		// a line joining it there, runs on from the divider: ─┐├. A line
+		// passing along the side is clear of it.
+		if !plain {
 			for _, t := range turns(e.Points) {
 				if id, ok := offJoint[t]; ok {
 					say(e, "turns at %v, straight out from a joint of %s", t, id)
 				}
 			}
-		}
-		if !o.Plain {
 			cells(e.Points, func(p Point, end bool) {
 				if b, ok := inBox(p); ok && !(end && (b.ID == e.From || b.ID == e.To)) {
 					say(e, "runs through %s at %v", b.ID, p)

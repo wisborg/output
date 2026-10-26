@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -329,6 +330,20 @@ func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
 		}
 		return []rune(text[p.Y])[p.X]
 	}
+	// A plain path, drawn where every search gave up, is drawn through
+	// whatever is in the way, and may turn across from a joint: the cells
+	// it takes are no line the search drew.
+	plain := map[Point]bool{}
+	for _, e := range lay.Edges {
+		for k := 1; e.plain && k < len(e.Points); k++ {
+			for p := e.Points[k-1]; ; p = step(p, e.Points[k]) {
+				plain[p] = true
+				if p == e.Points[k] {
+					break
+				}
+			}
+		}
+	}
 	for _, n := range lay.Nodes {
 		// An invisible record's dividers are not drawn, so there is none
 		// for a line to run on from.
@@ -356,7 +371,7 @@ func noEndBesideJoints(t *testing.T, lay *Layout, text []string) {
 				case j.X == r.X+r.W-1:
 					out, on = Point{j.X + 1, j.Y}, "─╌┌┐└┘├┤┬┴┼"
 				}
-				if c := at(out); strings.ContainsRune("▲▼◀▶"+on, c) {
+				if c := at(out); !plain[out] && strings.ContainsRune("▲▼◀▶"+on, c) {
 					t.Errorf("%q beside %s's divider at %v:\n%s", c, n.Node.ID, j, strings.Join(text, "\n"))
 					return
 				}
@@ -608,8 +623,19 @@ func TestPlainPathMissesJoints(t *testing.T) {
 		t.Fatalf("the plain path from src to dst is %v, turning at no %v under a joint: the test no longer tests anything", ideal, out)
 	}
 	rt = router([]Edge{{From: "src", To: "dst", Head: true}})
-	if got := rt.plain(nodes["src"], nodes["dst"], 0, 0); got[1] == out {
-		t.Errorf("the plain path %v turns straight out from r's joint, at %v", got, out)
+	got = rt.plain(nodes["src"], nodes["dst"], 0, 0)
+	offs, _ := rec.offJoints()
+	for _, p := range got[1 : len(got)-1] {
+		if slices.Contains(offs, p) {
+			t.Errorf("the plain path %v turns straight out from one of r's joints, at %v", got, p)
+		}
+	}
+	for k, end := range []Point{got[0], got[len(got)-1]} {
+		r := nodes[[]string{"src", "dst"}[k]].Rect
+		onOutline := inside(r, end.X, end.Y) && (end.X == r.X || end.X == r.X+r.W-1 || end.Y == r.Y || end.Y == r.Y+r.H-1)
+		if !onOutline || joint[end] {
+			t.Errorf("the plain path %v ends at %v, off its box's outline %v or at a joint", got, end, r)
+		}
 	}
 }
 

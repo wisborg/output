@@ -53,6 +53,8 @@ func TestCheck(t *testing.T) {
 		{"a turn straight out from a joint", Edge{From: "r", To: "t", Points: []Point{{23, 4}, {23, 5}, {24, 5}, {24, 10}}}, Options{}, "turns at {24 5}, straight out from a joint of r"},
 		{"the same, a point repeated", Edge{From: "r", To: "t", Points: []Point{{23, 4}, {23, 5}, {24, 5}, {24, 5}, {24, 10}}}, Options{}, "turns at {24 5}"},
 		{"the same, drawn plain", Edge{From: "r", To: "t", Points: []Point{{23, 4}, {23, 5}, {24, 5}, {24, 10}}}, Options{Plain: true}, ""},
+		{"the same, this path alone drawn plain", Edge{From: "r", To: "t", Plain: true, Points: []Point{{23, 4}, {23, 5}, {24, 5}, {24, 10}}}, Options{}, ""},
+		{"through a box, this path alone drawn plain", Edge{From: "a", To: "b", Plain: true, Points: []Point{{3, 2}, {3, 10}}}, Options{}, ""},
 		{"a line running past it along the side", Edge{From: "a", To: "t", Points: []Point{{6, 1}, {9, 1}, {9, 5}, {31, 5}, {31, 11}, {28, 11}}}, Options{}, ""},
 		{"the same, a point repeated straight out from it", Edge{From: "a", To: "t", Points: []Point{{6, 1}, {9, 1}, {9, 5}, {24, 5}, {24, 5}, {31, 5}, {31, 11}, {28, 11}}}, Options{}, ""},
 	} {

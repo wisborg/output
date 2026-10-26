@@ -102,7 +102,9 @@ from reality is a test failure.
   alone, never by asking the router, so that it still judges when the
   router and its own answer are wrong together. It takes plain data, not
   a `diagram.Layout`, as `diagram`'s own tests import it; each test
-  package converts (`checkView`). A rule it holds is a gate; a line moved
+  package converts (`checkView`). An edge drawn plain, every search having
+  given up on it, is held to what a plain path keeps -- `Edge.Plain`, from
+  the layout's own unexported mark, which only `diagram`'s tests can read. A rule it holds is a gate; a line moved
   a cell, or a path changed, is not wrong for being different.
 - `internal/fuzzcorpus/` — `Strings`, for tests alone: reads a fuzz
   target's kept inputs from `testdata/corpus/`, skipping unless
@@ -588,7 +590,12 @@ stretch of the turn runs in line with the divider, `─┐├`, or a junction
 of two lines into a record met beside one. The search never turns there,
 in any of its tries, as it never ends a line at a joint: a turn a cell
 further out costs a step or two, and in the random diagrams no edge lost
-its search to it. A line running past along the side, `│├`, is clear of
+its search to it. Where no path but one turning there exists, the edge
+is drawn plain, through whatever is in the way -- the worse fault, risked
+as it is for an end at a joint, so that the rule stays one the checks
+hold without exception. Forbidding it in the strict tries only, and
+charging `joinCost` for it in the last, was considered and left for when
+a layout shows the risk taken. A line running past along the side, `│├`, is clear of
 it. `layoutcheck` holds it of every path the search found, and the
 drawing's check of a record looks for any line with an arm the divider's
 way there, a corner among them -- it once looked for a junction alone,

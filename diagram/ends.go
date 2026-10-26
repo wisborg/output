@@ -24,9 +24,11 @@ type end struct {
 // moves them with it.
 func (n *PlacedNode) settle() {
 	o := Point{n.Rect.X, n.Rect.Y}
-	n.jointAt = nil
+	n.jointAt, n.offAt = nil, nil
 	for _, j := range n.workJoints() {
+		off := outward(n.Rect, j)
 		n.jointAt = append(n.jointAt, Point{j.X - o.X, j.Y - o.Y})
+		n.offAt = append(n.offAt, Point{off.X - o.X, off.Y - o.Y})
 	}
 	n.endAt = nil
 	for _, e := range n.workEnds() {
@@ -85,6 +87,36 @@ func (n PlacedNode) joints() []Point {
 		js[k] = Point{j.X + n.Rect.X, j.Y + n.Rect.Y}
 	}
 	return js
+}
+
+// offJoints is the cell straight out from each of n's joints, as kept,
+// relative to the cell it returns, as endsFrom's are: no line turns
+// there, as one stretch of the turn would run on from the divider, ─┐├.
+func (n PlacedNode) offJoints() ([]Point, Point) {
+	if !n.settled {
+		var offs []Point
+		for _, j := range n.workJoints() {
+			offs = append(offs, outward(n.Rect, j))
+		}
+		return offs, Point{}
+	}
+	return n.offAt, Point{n.Rect.X, n.Rect.Y}
+}
+
+// outward is the cell straight out from r at j, a cell of its outline off
+// the corners.
+func outward(r Rect, j Point) Point {
+	switch {
+	case j.Y == r.Y:
+		j.Y--
+	case j.Y == r.Y+r.H-1:
+		j.Y++
+	case j.X == r.X:
+		j.X--
+	default:
+		j.X++
+	}
+	return j
 }
 
 func (n PlacedNode) workJoints() []Point {
