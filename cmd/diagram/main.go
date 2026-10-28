@@ -95,11 +95,6 @@ type options struct {
 // make it.
 const imageWidth = 1600
 
-// terminalMaxWidth is the widest picture drawn for the terminal, in
-// pixels, as for plot: wider is seconds to draw and megabytes to send for
-// a picture the terminal shows no sharper.
-const terminalMaxWidth = 3200.0
-
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) error {
 	var o options
 	fs := flag.NewFlagSet("diagram", flag.ContinueOnError)
@@ -369,36 +364,23 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	if err != nil {
 		return err
 	}
-	// As wide as the window, or --width characters, and no taller than its
-	// rows less one for the prompt, or --height lines: drawn at twice the
-	// pixels those characters cover, so a screen of two pixels to a point
-	// draws it sharp, held to terminalMaxWidth. A terminal that does not
-	// say its size in pixels is taken to have characters ten by twenty.
-	cellW, cellH := 10.0, 20.0
-	if ts.Width > 0 && ts.Height > 0 && ts.Cols > 0 && ts.Rows > 0 {
-		cellW, cellH = float64(ts.Width)/float64(ts.Cols), float64(ts.Height)/float64(ts.Rows)
-	}
+	// As wide as the window, or --width characters held to it, and no
+	// taller than its rows less one for the prompt, or --height lines, at
+	// the pixels terminal.Size.PictureScale gives the columns.
 	cols, rows := ts.Cols, ts.Rows-1
 	if cols <= 0 {
 		cols = 100
 	}
 	if o.width > 0 {
-		cols = o.width
-		// No wider than the terminal says it is, where it says: the width
-		// goes into the picture's escape as its columns, and 999999999 of
-		// them is no request a terminal should get.
-		if ts.Cols > 0 {
-			cols = min(cols, ts.Cols)
-		}
+		cols = ts.PictureCols(o.width)
 	}
 	if o.height > 0 {
 		rows = o.height
 	}
-	scale := min(1, terminalMaxWidth/(2*cellW*float64(cols)))
-	perCol := 2 * cellW * scale
+	perCol, perRow := ts.PictureScale(cols)
 	maxH := 0.0
 	if rows > 0 {
-		maxH = 2 * cellH * scale * float64(rows)
+		maxH = perRow * float64(rows)
 	}
 	px := textPxFor(lay, perCol*float64(cols), maxH)
 	img, err := drawPicture(o, lay, picture.Options{Palette: pal, TextPx: px, Fonts: fonts})

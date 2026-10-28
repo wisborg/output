@@ -532,11 +532,6 @@ const (
 
 func imageHeightFor(strips int) int { return imageHeight + 300*max(strips-1, 0) }
 
-// terminalMaxWidth is the widest picture drawn for the terminal, in
-// pixels: one the size of a screen of two pixels to a point is seconds to
-// draw and megabytes to send, for a picture the terminal shows no sharper.
-const terminalMaxWidth = 3200.0
-
 // drawing is a series to draw, and how.
 type drawing struct {
 	series series
@@ -675,17 +670,11 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 	if how == terminal.Braille {
 		return d.writeBraille(out, w, h)
 	}
-	// As many pixels as the characters cover, twice over so a screen of two
-	// pixels to a point draws it sharp, in a PNG's proportions, no taller
-	// than the rows less one for the prompt. A terminal that does not say
-	// its size in pixels is taken to have characters ten by twenty.
-	cellW, cellH := 10.0, 20.0
-	if ts.Width > 0 && ts.Height > 0 && ts.Cols > 0 && ts.Rows > 0 {
-		cellW, cellH = float64(ts.Width)/float64(ts.Cols), float64(ts.Height)/float64(ts.Rows)
-	}
-	scale := min(1, terminalMaxWidth/(2*cellW*float64(w)))
-	pw := int(2 * cellW * float64(w) * scale)
-	ph := min(pw*imageHeightFor(n)/imageWidth, int(2*cellH*float64(max(h-1, 1))*scale))
+	// At the pixels terminal.Size.PictureScale gives the columns, in a
+	// PNG's proportions, no taller than the rows less one for the prompt.
+	perCol, perRow := ts.PictureScale(w)
+	pw := int(perCol * float64(w))
+	ph := min(pw*imageHeightFor(n)/imageWidth, int(perRow*float64(max(h-1, 1))))
 	img, err := d.picture(pw, ph, true)
 	if err != nil {
 		return err
@@ -727,8 +716,8 @@ func chartChars(ts terminal.Size, tty bool, getenv func(string) string, n int, p
 	if width > 0 {
 		w = width
 	}
-	if picture && ts.Cols > 0 {
-		w = min(w, ts.Cols)
+	if picture {
+		w = ts.PictureCols(w)
 	}
 	if height > 0 {
 		h = height

@@ -117,7 +117,10 @@ from reality is a test failure.
   drawing would take, "about 1.3 GB": shared by the packages that refuse a
   drawing as too large and the commands.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
-  writers, `LightBackground`; `size_*.go`, build-tagged, `SizeOf`.
+  writers, `LightBackground`; `size.go`, `Size` and the one rule both commands
+  size a picture for the terminal by -- `PictureScale`, twice the pixels
+  a character covers, held to `MaxPictureWidth`, and `PictureCols`, its
+  columns held to the window's; `size_*.go`, build-tagged, `SizeOf`.
 - `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of
   text, `jsonl.go` JSON Lines into the same table, `columns.go` decides
   what each column holds and reads its values, `chart.go` turns the
