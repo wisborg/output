@@ -527,9 +527,9 @@ CJK character taking two, as a table's cells are:
 
 `--width` and `--height` in the terminal are taken as given, but for a
 picture's width, which is held to the window's where the terminal says it,
-and `plot` says so: the terminal is asked to show a picture in that many
-columns, and one past the window's edge was cut off or wrapped, as
-`diagram` holds its pictures too. A braille chart wider than the window is drawn as wide as asked.
+and `plot` says so, as `diagram` does of its own: the terminal is asked to
+show a picture in that many columns, and one past the window's edge was
+cut off or wrapped. A braille chart wider than the window is drawn as wide as asked.
 
 ### Memory
 

@@ -14,18 +14,26 @@ type Size struct {
 // in pixels: one the size of a screen of two pixels to a point is seconds
 // to draw and megabytes to send, for a picture the terminal shows no
 // sharper. It holds the width, which the terminal's columns fix; the
-// height is the rows a caller asks for, which it bounds by the window's,
-// and is scaled with the width but not held.
+// height is the rows a caller asks for, as many as it asks, scaled with
+// the width but not held: holding it would cut a tall chart of many
+// strips short.
 const MaxPictureWidth = 3200
+
+// maxPictureHeight bounds PictureSize's height below what an int holds on
+// every platform: a --height with a digit too many put past it came out
+// negative on one and the largest int on another. Any height near it is
+// refused as too large by the drawing, where the caller says so.
+const maxPictureHeight = math.MaxInt32
 
 // PictureSize is the size in pixels to draw a picture cols characters
 // wide and rows high at, for the terminal: PictureScale's pixels a column
 // and a row, rounded to the nearest pixel and never wider than
-// MaxPictureWidth. A count below one is taken as one.
+// MaxPictureWidth, nor taller than an int holds on every platform. A
+// count below one is taken as one.
 func (s Size) PictureSize(cols, rows int) (w, h int) {
 	perCol, perRow := s.PictureScale(cols)
 	w = min(int(math.Round(perCol*float64(max(cols, 1)))), MaxPictureWidth)
-	h = int(math.Round(perRow * float64(max(rows, 1))))
+	h = int(min(math.Round(perRow*float64(max(rows, 1))), maxPictureHeight))
 	return w, h
 }
 
@@ -52,8 +60,10 @@ func (s Size) PictureScale(cols int) (perCol, perRow float64) {
 // wider than the window is cut off or wrapped by the terminal: a width
 // typed with a digit too many was a request for that many columns. Where
 // the terminal says nothing -- a picture sent into a pipe -- cols is the
-// caller's own word, and is kept.
+// caller's own word, and is kept. A count below one is taken as one, as
+// PictureSize and PictureScale take it: it goes into the escape sequence.
 func (s Size) PictureCols(cols int) int {
+	cols = max(cols, 1)
 	if s.Cols > 0 {
 		return min(cols, s.Cols)
 	}

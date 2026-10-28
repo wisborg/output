@@ -1,6 +1,9 @@
 package terminal
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // A picture is drawn at twice the pixels its characters cover, as the
 // terminal says them or ten by twenty where it does not, and never wider
@@ -50,6 +53,8 @@ func TestPictureCols(t *testing.T) {
 		{Size{Cols: 120}, 80, 80},
 		{Size{Cols: 120}, 999999999, 120},
 		{Size{}, 999, 999},
+		{Size{Cols: 120}, 0, 1},
+		{Size{}, -5, 1},
 	} {
 		if got := c.s.PictureCols(c.cols); got != c.want {
 			t.Errorf("%v columns in %+v: %d, want %d", c.cols, c.s, got, c.want)
@@ -82,6 +87,13 @@ func TestPictureSize(t *testing.T) {
 	// 39.75 pixels a row, scaled to the cap, ten times over.
 	if w, h := (Size{}).PictureSize(161, 10); w != 3200 || h != 398 {
 		t.Errorf("161 columns by 10 rows: %d by %d pixels, want 3200 by 398", w, h)
+	}
+	// A height past what an int holds is held below it, the same on
+	// every platform, rather than wrapping round to a negative one.
+	for _, rows := range []int{1 << 40, math.MaxInt} {
+		if _, h := (Size{}).PictureSize(80, rows); h != math.MaxInt32 {
+			t.Errorf("%d rows: %d pixels high, want %d", rows, h, math.MaxInt32)
+		}
 	}
 	for _, n := range []int{0, -1, -1000} {
 		if w, h := (Size{}).PictureSize(n, n); w != 20 || h != 40 {

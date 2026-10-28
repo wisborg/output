@@ -12,7 +12,8 @@ import (
 )
 
 // show draws c in the terminal the width of the window, 80 characters
-// where it does not say: as a picture where the terminal shows one, at the
+// where it does not say, and 24 rows high, fewer where the window has
+// not those and a row for the prompt: as a picture where the terminal shows one, at the
 // pixels PictureSize says, and in braille everywhere else.
 func show(c chart.Chart) error {
 	size, tty := terminal.SizeOf(os.Stdout)
@@ -26,6 +27,9 @@ func show(c chart.Chart) error {
 	cols, rows := size.Cols, 24
 	if cols <= 0 {
 		cols = 80
+	}
+	if size.Rows > 1 {
+		rows = min(rows, size.Rows-1)
 	}
 	if err := c.Check(); err != nil {
 		return err
