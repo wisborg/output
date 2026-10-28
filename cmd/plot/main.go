@@ -670,11 +670,10 @@ func (d drawing) writeTerminal(out, errOut io.Writer, mode terminal.Protocol, wi
 	if how == terminal.Braille {
 		return d.writeBraille(out, w, h)
 	}
-	// At the pixels terminal.Size.PictureScale gives the columns, in a
+	// At the pixels terminal.Size.PictureSize gives the characters, in a
 	// PNG's proportions, no taller than the rows less one for the prompt.
-	perCol, perRow := ts.PictureScale(w)
-	pw := int(perCol * float64(w))
-	ph := min(pw*imageHeightFor(n)/imageWidth, int(perRow*float64(max(h-1, 1))))
+	pw, most := ts.PictureSize(w, h-1)
+	ph := min(pw*imageHeightFor(n)/imageWidth, most)
 	img, err := d.picture(pw, ph, true)
 	if err != nil {
 		return err

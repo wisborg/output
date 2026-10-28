@@ -11,9 +11,9 @@ import (
 	"github.com/wisborg/output/chart/terminal"
 )
 
-// show draws c in the terminal: as a picture where the terminal shows one,
-// the width of the window, at the pixels PictureScale says, and in braille
-// everywhere else.
+// show draws c in the terminal the width of the window, 80 characters
+// where it does not say: as a picture where the terminal shows one, at the
+// pixels PictureSize says, and in braille everywhere else.
 func show(c chart.Chart) error {
 	size, tty := terminal.SizeOf(os.Stdout)
 	how, note, err := terminal.Choose(terminal.Auto, os.Getenv, tty)
@@ -23,7 +23,10 @@ func show(c chart.Chart) error {
 	if note != "" {
 		fmt.Fprintln(os.Stderr, note)
 	}
-	cols, rows := max(size.Cols, 80), 24
+	cols, rows := size.Cols, 24
+	if cols <= 0 {
+		cols = 80
+	}
 	if how == terminal.Braille {
 		for _, l := range c.Braille(cols, rows) {
 			fmt.Println(l)
@@ -34,9 +37,8 @@ func show(c chart.Chart) error {
 	if terminal.LightBackground(os.Getenv) {
 		pal = picture.Light
 	}
-	cols = size.PictureCols(cols)
-	perCol, perRow := size.PictureScale(cols)
-	img, err := picture.Draw(c, int(perCol*float64(cols)), int(perRow*float64(rows)), picture.Options{Palette: pal})
+	w, h := size.PictureSize(cols, rows)
+	img, err := picture.Draw(c, w, h, picture.Options{Palette: pal})
 	if err != nil {
 		return err
 	}
@@ -70,18 +72,18 @@ func Example() {
 // A picture for a terminal is drawn at twice the pixels its characters
 // cover, so that it is sharp on a screen of two pixels to a point, and
 // no wider than MaxPictureWidth; its columns are held to the window's.
-func ExampleSize_PictureScale() {
+func ExampleSize_PictureSize() {
 	// A window of 120 columns by 40 rows, 960 pixels by 800: characters
-	// 8 by 20.
+	// 8 by 20. Asked for 200 columns and 30 rows.
 	size := terminal.Size{Cols: 120, Rows: 40, Width: 960, Height: 800}
 	cols := size.PictureCols(200)
-	perCol, perRow := size.PictureScale(cols)
-	fmt.Printf("%d columns, %.0f by %.0f pixels a character, %.0f wide\n", cols, perCol, perRow, perCol*float64(cols))
+	w, h := size.PictureSize(cols, 30)
+	fmt.Printf("%d columns, %d by %d pixels\n", cols, w, h)
 	// A terminal that says nothing: characters 10 by 20, and 300 columns
 	// of them held to MaxPictureWidth.
-	perCol, perRow = terminal.Size{}.PictureScale(300)
-	fmt.Printf("%.2f by %.2f pixels a character, %.0f wide\n", perCol, perRow, perCol*300)
+	w, h = terminal.Size{}.PictureSize(300, 30)
+	fmt.Printf("300 columns, %d by %d pixels\n", w, h)
 	// Output:
-	// 120 columns, 16 by 40 pixels a character, 1920 wide
-	// 10.67 by 21.33 pixels a character, 3200 wide
+	// 120 columns, 1920 by 1200 pixels
+	// 300 columns, 3200 by 640 pixels
 }

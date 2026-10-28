@@ -118,9 +118,13 @@ from reality is a test failure.
   drawing as too large and the commands.
 - `chart/terminal/terminal.go` — `Choose`, `Write`, the iTerm2 and kitty
   writers, `LightBackground`; `size.go`, `Size` and the one rule both commands
-  size a picture for the terminal by -- `PictureScale`, twice the pixels
-  a character covers, held to `MaxPictureWidth`, and `PictureCols`, its
-  columns held to the window's; `size_*.go`, build-tagged, `SizeOf`.
+  size a picture for the terminal by -- `PictureSize`, twice the pixels
+  the characters cover, rounded to the nearest and held to
+  `MaxPictureWidth`; `PictureScale`, the same a column and a row, for
+  diagram, which fits its drawing's own width to the columns; and
+  `PictureCols`, the columns held to the window's, which both commands
+  say where `--width` asked for more; `size_*.go`, build-tagged,
+  `SizeOf`.
 - `cmd/plot/` — the `plot` command: `read.go` reads CSV into a table of
   text, `jsonl.go` JSON Lines into the same table, `columns.go` decides
   what each column holds and reads its values, `chart.go` turns the

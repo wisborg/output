@@ -326,6 +326,16 @@ func writeFile(o options, lay *diagram.Layout, errOut io.Writer, getenv func(str
 	return os.WriteFile(o.out, buf.Bytes(), 0o644)
 }
 
+// sizeOf is the size of the terminal out writes to, and whether it is one:
+// terminal.SizeOf of a file. A variable so that a test, which has no
+// terminal, can give it one, as plot's drawing.sizeOf does.
+var sizeOf = func(out io.Writer) (terminal.Size, bool) {
+	if f, ok := out.(*os.File); ok {
+		return terminal.SizeOf(f)
+	}
+	return terminal.Size{}, false
+}
+
 // writeTerminal shows the diagram on out: a picture where terminal.Choose
 // says the terminal shows one, and the text drawing otherwise.
 func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv func(string) string) error {
@@ -333,11 +343,7 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	if o.terminal == "text" {
 		mode = terminal.Braille
 	}
-	f, isFile := out.(*os.File)
-	ts, tty := terminal.Size{}, false
-	if isFile {
-		ts, tty = terminal.SizeOf(f)
-	}
+	ts, tty := sizeOf(out)
 	how, note, err := terminal.Choose(mode, getenv, tty)
 	if err != nil {
 		return err
@@ -373,6 +379,11 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	}
 	if o.width > 0 {
 		cols = ts.PictureCols(o.width)
+		// Said, as plot says it: a flag with no visible effect and no word
+		// reads as one ignored.
+		if o.width > cols {
+			fmt.Fprintf(errOut, "--width %d: a picture is held to the window's %d columns\n", o.width, cols)
+		}
 	}
 	if o.height > 0 {
 		rows = o.height

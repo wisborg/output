@@ -1,5 +1,7 @@
 package terminal
 
+import "math"
+
 // Size is a terminal's size: in characters, and in pixels where it says.
 // A picture drawn to fill so many characters is drawn at the pixels they
 // cover.
@@ -8,24 +10,38 @@ type Size struct {
 	Width, Height int
 }
 
-// MaxPictureWidth is the widest picture PictureScale draws for a terminal,
+// MaxPictureWidth is the widest picture PictureSize gives for a terminal,
 // in pixels: one the size of a screen of two pixels to a point is seconds
 // to draw and megabytes to send, for a picture the terminal shows no
 // sharper.
-const MaxPictureWidth = 3200.0
+const MaxPictureWidth = 3200
+
+// PictureSize is the size in pixels to draw a picture cols characters
+// wide and rows high at, for the terminal: PictureScale's pixels a column
+// and a row, rounded to the nearest pixel and never wider than
+// MaxPictureWidth. A count below one is taken as one.
+func (s Size) PictureSize(cols, rows int) (w, h int) {
+	perCol, perRow := s.PictureScale(cols)
+	w = min(int(math.Round(perCol*float64(max(cols, 1)))), MaxPictureWidth)
+	h = int(math.Round(perRow * float64(max(rows, 1))))
+	return w, h
+}
 
 // PictureScale is how many pixels a picture cols characters wide is drawn
 // at for each of its columns and each of its rows: twice what a character
 // covers, so that a screen of two pixels to a point draws it sharp, and
 // less where that would make it wider than MaxPictureWidth. A terminal
 // that does not say its size in pixels -- or in characters, to divide
-// them by -- is taken to have characters ten pixels by twenty.
+// them by -- is taken to have characters ten pixels by twenty. A count
+// below one is taken as one. PictureSize is the size those come to; this
+// is for a caller that needs a column's width itself, as one fitting a
+// drawing's own width to the columns does.
 func (s Size) PictureScale(cols int) (perCol, perRow float64) {
 	cellW, cellH := 10.0, 20.0
 	if s.Width > 0 && s.Height > 0 && s.Cols > 0 && s.Rows > 0 {
 		cellW, cellH = float64(s.Width)/float64(s.Cols), float64(s.Height)/float64(s.Rows)
 	}
-	scale := min(1, MaxPictureWidth/(2*cellW*float64(cols)))
+	scale := min(1, MaxPictureWidth/(2*cellW*float64(max(cols, 1))))
 	return 2 * cellW * scale, 2 * cellH * scale
 }
 

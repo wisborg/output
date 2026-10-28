@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wisborg/output/chart/terminal"
 	"github.com/wisborg/output/diagram"
 	"github.com/wisborg/output/diagram/dot"
 )
@@ -204,6 +205,34 @@ func TestDiagramTerminalWidth(t *testing.T) {
 	}
 	if cfg.Width != 800 {
 		t.Errorf("%d pixels wide, want 800", cfg.Width)
+	}
+}
+
+// In a terminal that says its width, a picture is held to it, however wide
+// --width asks for, and that is said, as plot says it: the width goes into
+// the picture's escape as its columns.
+func TestDiagramTerminalWidthHeldToTheWindow(t *testing.T) {
+	defer func(f func(io.Writer) (terminal.Size, bool)) { sizeOf = f }(sizeOf)
+	sizeOf = func(io.Writer) (terminal.Size, bool) { return terminal.Size{Cols: 80, Rows: 40}, true }
+	for _, c := range []struct {
+		width string
+		note  string
+	}{
+		{"200", "--width 200: a picture is held to the window's 80 columns\n"},
+		{"60", ""},
+	} {
+		out, errOut, err := draw(t, regions, "--terminal", "iterm", "--width", c.width)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, after, ok := strings.Cut(out, ";width=")
+		cols, _, _ := strings.Cut(after, ";")
+		if n, err := strconv.Atoi(cols); !ok || err != nil || n > 80 {
+			t.Errorf("--width %s: shown %q columns wide, past the window's 80", c.width, cols)
+		}
+		if errOut != c.note {
+			t.Errorf("--width %s: said %q, want %q", c.width, errOut, c.note)
+		}
 	}
 }
 
