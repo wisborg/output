@@ -382,7 +382,7 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 		// Said, as plot says it: a flag with no visible effect and no word
 		// reads as one ignored.
 		if o.width > cols {
-			fmt.Fprintf(errOut, "--width %d: a picture is held to the window's %d columns\n", o.width, cols)
+			fmt.Fprintf(errOut, "diagram: --width %d: a picture is held to the window's %d columns\n", o.width, cols)
 		}
 	}
 	if o.height > 0 {

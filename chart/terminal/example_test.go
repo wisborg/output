@@ -27,8 +27,15 @@ func show(c chart.Chart) error {
 	if cols <= 0 {
 		cols = 80
 	}
+	if err := c.Check(); err != nil {
+		return err
+	}
 	if how == terminal.Braille {
-		for _, l := range c.Braille(cols, rows) {
+		lines := c.Braille(cols, rows)
+		if lines == nil {
+			return fmt.Errorf("a window %d characters wide is too narrow for the chart", cols)
+		}
+		for _, l := range lines {
 			fmt.Println(l)
 		}
 		return nil

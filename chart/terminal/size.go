@@ -13,7 +13,9 @@ type Size struct {
 // MaxPictureWidth is the widest picture PictureSize gives for a terminal,
 // in pixels: one the size of a screen of two pixels to a point is seconds
 // to draw and megabytes to send, for a picture the terminal shows no
-// sharper.
+// sharper. It holds the width, which the terminal's columns fix; the
+// height is the rows a caller asks for, which it bounds by the window's,
+// and is scaled with the width but not held.
 const MaxPictureWidth = 3200
 
 // PictureSize is the size in pixels to draw a picture cols characters

@@ -218,7 +218,7 @@ func TestDiagramTerminalWidthHeldToTheWindow(t *testing.T) {
 		width string
 		note  string
 	}{
-		{"200", "--width 200: a picture is held to the window's 80 columns\n"},
+		{"200", "diagram: --width 200: a picture is held to the window's 80 columns\n"},
 		{"60", ""},
 	} {
 		out, errOut, err := draw(t, regions, "--terminal", "iterm", "--width", c.width)
@@ -227,13 +227,25 @@ func TestDiagramTerminalWidthHeldToTheWindow(t *testing.T) {
 		}
 		_, after, ok := strings.Cut(out, ";width=")
 		cols, _, _ := strings.Cut(after, ";")
-		if n, err := strconv.Atoi(cols); !ok || err != nil || n > 80 {
-			t.Errorf("--width %s: shown %q columns wide, past the window's 80", c.width, cols)
+		// Drawn wider than either, the diagram fills the columns it has:
+		// the window's where --width asks for more, --width's within it.
+		want := min(80, mustAtoi(t, c.width))
+		if n, err := strconv.Atoi(cols); !ok || err != nil || n != want {
+			t.Errorf("--width %s: shown %q columns wide, want %d", c.width, cols, want)
 		}
 		if errOut != c.note {
 			t.Errorf("--width %s: said %q, want %q", c.width, errOut, c.note)
 		}
 	}
+}
+
+func mustAtoi(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // --color always draws the text in colour, to the terminal or a .txt file;

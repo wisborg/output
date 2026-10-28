@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -750,5 +751,33 @@ func TestPlotPictureEscapeWidth(t *testing.T) {
 		if !strings.Contains(out.String(), c.want) || errOut.String() != c.note {
 			t.Errorf("--width %d in 80 columns: escape %.80q, stderr %q, want %q and %q", c.width, out.String(), errOut.String(), c.want, c.note)
 		}
+	}
+}
+
+// --height is the rows the picture is drawn in, as diagram has it, not a
+// row fewer: chartChars leaves the prompt its rows where --height is not
+// given. In a window of characters ten pixels by twenty, drawn at twice
+// that, ten rows are 400 pixels -- the chart's own proportions would
+// take 750 at this width.
+func TestPlotPictureHeight(t *testing.T) {
+	s := series{yNames: []string{"v"}, rows: []seriesRow{{x: 0, ys: []float64{1}, ok: []bool{true}}, {x: 1, ys: []float64{2}, ok: []bool{true}}}}
+	d := drawing{series: s, theme: "dark", getenv: noEnv, sizeOf: func(io.Writer) (terminal.Size, bool) {
+		return terminal.Size{Cols: 100, Rows: 50}, true
+	}}
+	var out, errOut bytes.Buffer
+	if err := d.writeTerminal(&out, &errOut, terminal.ITerm, 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	_, data, ok := strings.Cut(strings.TrimSuffix(out.String(), "\a\n"), "preserveAspectRatio=1:")
+	img, err := base64.StdEncoding.DecodeString(data)
+	if !ok || err != nil {
+		t.Fatalf("not an iTerm2 picture: %.80q", out.String())
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(img))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Width != 2000 || cfg.Height != 400 {
+		t.Errorf("--height 10 in 100 columns: %d by %d pixels, want 2000 by 400", cfg.Width, cfg.Height)
 	}
 }
