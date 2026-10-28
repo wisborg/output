@@ -72,6 +72,7 @@ func TestRecordNodesAndPorts(t *testing.T) {
 		b -> a:x:n
 		a -> b [tailport="x:s"]
 		a -> b:s
+		a:zz -> b
 	}`)
 	nodes := map[string]*diagram.Node{}
 	for _, it := range d.Root.Items {
@@ -86,11 +87,13 @@ func TestRecordNodesAndPorts(t *testing.T) {
 	if c := nodes["c"]; c.Record != nil || c.Label != "{broken" {
 		t.Errorf("c: record %+v, label %q", c.Record, c.Label)
 	}
-	// A compass point alone, b:s, is a side, as b has no field named s.
+	// A compass point alone, b:s, is a side, as b has no field named s;
+	// any other word is a port, a:zz, whether or not a field has it --
+	// it is diagram's to say none does.
 	for i, want := range []struct {
 		from, to         string
 		fromSide, toSide diagram.Side
-	}{{"y", "", 0, 0}, {"", "x", 0, diagram.North}, {"x", "", diagram.South, 0}, {"", "", 0, diagram.South}} {
+	}{{"y", "", 0, 0}, {"", "x", 0, diagram.North}, {"x", "", diagram.South, 0}, {"", "", 0, diagram.South}, {"zz", "", 0, 0}} {
 		e := d.Edges[i]
 		if e.FromPort != want.from || e.ToPort != want.to || e.FromSide != want.fromSide || e.ToSide != want.toSide {
 			t.Errorf("edge %d, %s to %s: ports %q %q, sides %v %v; want %q %q, %v %v", i, e.From, e.To,

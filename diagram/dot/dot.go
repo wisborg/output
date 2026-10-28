@@ -343,7 +343,7 @@ func (p *parser) graph() error {
 			return err
 		}
 	}
-	p.compassFields()
+	p.edgePorts()
 	if err := p.makeLegend(); err != nil {
 		return err
 	}
@@ -497,52 +497,44 @@ func (p *parser) port() (string, error) {
 	return strings.Join(parts, ":"), nil
 }
 
-// portSide is the sides a port names by its compass point, its last part
-// -- node:s, node:field:s, or a tailport or headport of "s" or "field:s"
-// -- and any side where it has none.
-func portSide(parts []string) diagram.Side {
-	if len(parts) == 0 {
-		return 0
-	}
-	side, _ := compass(parts[len(parts)-1])
-	return side
-}
-
-// portField is the record field a port names, its first part -- node:field
-// or node:field:s -- or "" where it names a compass point alone, node:s,
-// until compassFields finds the record has a field of that name. A field
-// no record of that name has is any side, as layout reads it.
-func portField(parts []string) string {
-	if len(parts) == 0 || parts[0] == "" {
-		return ""
-	}
-	if _, ok := compass(parts[0]); ok && len(parts) == 1 {
-		return ""
-	}
-	return parts[0]
-}
-
-// compassFields reads a port of one compass word, a:n, as the field of
-// that name where the record has one, as Graphviz does, and as the side
-// only where it has none. An edge is read before the nodes' records are,
-// so its port is first taken for the side, and settled here.
-func (p *parser) compassFields() {
+// edgePorts reads each edge's tailport and headport into its sides and
+// fields, once every node's attributes are read: whether a:n is the field
+// n or the top depends on the record, and a node's attributes may be
+// written after its edges. Read with the edge's other attributes, a:n was
+// taken for the side and corrected later, and in between an edge to a
+// field named n carried a side its file did not ask for.
+func (p *parser) edgePorts() {
 	for k := range p.d.Edges {
 		e := &p.d.Edges[k]
-		ends := []struct {
-			node, attr string
-			port       *string
-			side       *diagram.Side
-		}{{e.From, "tailport", &e.FromPort, &e.FromSide}, {e.To, "headport", &e.ToPort, &e.ToSide}}
-		for _, end := range ends {
-			word := p.edgeAttrs[k][end.attr]
-			info, ok := p.nodes[end.node]
-			if _, isCompass := compass(word); !isCompass || !ok || info.n.Field(word) == nil {
-				continue
-			}
-			*end.port, *end.side = word, 0
-		}
+		e.FromSide, e.FromPort = p.portOf(e.From, p.edgeAttrs[k]["tailport"])
+		e.ToSide, e.ToPort = p.portOf(e.To, p.edgeAttrs[k]["headport"])
 	}
+}
+
+// portOf is the sides and the record field a port of node names -- a
+// tailport or headport, or a port written on the node, a:field:s. A port
+// of two parts or more is the field its first names and the sides its
+// last does, by its compass point, any side where it names none. One word
+// is the field of that name, but for a compass word, a:n, which is the
+// field only where the record has one, as Graphviz reads it, and the side
+// where it has none. A field no record of that name has is any side, as
+// layout reads it. A quoted port is split at its colons too, a:"f:1" the
+// field f and the compass point 1, as Graphviz splits it: a field named
+// with a colon is one no edge reaches, there as here.
+func (p *parser) portOf(node, attr string) (diagram.Side, string) {
+	if attr == "" {
+		return 0, ""
+	}
+	if !strings.Contains(attr, ":") {
+		side, isCompass := compass(attr)
+		if !isCompass || p.nodes[node].n.Field(attr) != nil {
+			return 0, attr
+		}
+		return side, ""
+	}
+	field, _, _ := strings.Cut(attr, ":")
+	side, _ := compass(attr[strings.LastIndex(attr, ":")+1:])
+	return side, field
 }
 
 // compass is the sides a DOT compass point names, and whether word is
@@ -1007,7 +999,7 @@ func (p *parser) applyNode(info *nodeInfo) error {
 }
 
 // applyEdge reads an edge's attributes into e; lines are where each was
-// set.
+// set. Its ports wait for the nodes' records, in edgePorts.
 func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string, lines map[string]setAt) error {
 	e.Label = label(attrs["label"], "", p.name, "")
 	st := styleSet(attrs["style"])
@@ -1028,10 +1020,6 @@ func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string, lines map[s
 	if strings.EqualFold(attrs["arrowtail"], "none") {
 		e.Tail = false
 	}
-	e.FromSide = portSide(strings.Split(attrs["tailport"], ":"))
-	e.ToSide = portSide(strings.Split(attrs["headport"], ":"))
-	e.FromPort = portField(strings.Split(attrs["tailport"], ":"))
-	e.ToPort = portField(strings.Split(attrs["headport"], ":"))
 	c, err := colourAttr(attrs, "color")
 	if err != nil {
 		return &Error{Line: lineOf(err, lines, p.tok.line), Msg: fmt.Sprintf("edge %s to %s: %v", e.From, e.To, err)}
