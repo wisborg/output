@@ -683,7 +683,41 @@ said to `Options.Warn`, which `diagram` writes to standard error with its
 line: Graphviz refuses one, and drawn without a word its ports quietly
 named nothing. It is said once the file has read and the drawing is laid
 out, as it says what is drawn: said as it was read, it told of a label
-drawn as written in a file an error later stopped from drawing at all.
+drawn as written in a file an error later stopped from drawing at all. A
+port the reader cannot read as written is said to `Options.Warn` too, as
+Graphviz warns of it, all its faults in one warning: one naming a field
+its record has none of, one naming a field of a node that is no record,
+`b:sth` on a box, and one whose compass point is none, `a:f:sth` for
+`a:f:s` or a field named with a colon and split at its first, as
+Graphviz splits it. The reader says them all, and `diagram` has no note
+of ports of its own: only the reader holds the port's text once it is
+read as a side, and knows which node has an HTML label, whose ports
+Graphviz reads and this does not, and which are left unsaid; a note in
+`diagram` said an unknown field without its line, and split one bad port
+over two messages. Nor is a port of an invisible edge said, as no line
+draws it. A port is read as Graphviz's `record_port` and `poly_port`
+read it, in `portOf` alone: the field first, and the rest the compass
+point where the node has it; where it has not, a first part that is a
+compass point is the side, `b:s:w` the bottom with `w` ignored, which
+is said, as Graphviz does not say it; and one that is none names no
+side, `b:nope:s` ending anywhere on `b`, its compass point ignored; an
+empty field, `b:"":s`, names nothing, its compass point ignored and
+said. A box, and a record whose label is none, have no fields; a node
+with an HTML label is taken to have any but a compass word, which
+Graphviz falls back to where no port of the label has the name. What
+in a port names nothing is `portOf`'s answer too, so that reading a port
+and saying what is wrong with it cannot disagree, as they once did. It is said where an edge takes it -- not of an `edge [...]`
+default no edge takes, as Graphviz says nothing of one -- at the line
+the port was written on, the node's, the attribute's or the default's,
+which `withPorts` takes with the port; and once a place it is written,
+every fault of it over every edge that takes it in one warning, where
+Graphviz says it once an edge: a port written on a node once for its
+node and line, a tailport, headport or default once a line, port and
+end, saying which and naming the nodes it names nothing on, three and how many more, so a bad
+`edge [tailport = …]` over a thousand edges is one warning. A port
+written on a node of three parts, `a:f:x:n`, is an error, as DOT's
+grammar has it. Every error and warning quotes the file's text, as a
+label is written as text: `FuzzParse` holds both to it.
 
 **Straight edges are the pictures' alone, and only where clear.** With
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an

@@ -211,7 +211,7 @@ func TestErrors(t *testing.T) {
 		// The line the attribute is on, not where its cluster or node
 		// begins, nor the line of the token after it.
 		{"digraph {\n subgraph cluster_a {\n columns=0 }\n}", 3, "columns"},
-		{"digraph{\na -> b [color=nope]\n\n\nc\n}", 2, `edge a to b: color="nope"`},
+		{"digraph{\na -> b [color=nope]\n\n\nc\n}", 2, `edge "a" to "b": color="nope"`},
 		{"digraph{\nnode [color=nope]\na\n\n\n}", 2, `node "a": color="nope"`},
 		{"digraph{\na [color=nope]\n\n\na [label=x]\n}", 2, `node "a": color="nope"`},
 		{"digraph{\ncolumns=x\n}", 2, "columns"},
@@ -537,7 +537,9 @@ func TestTextEdges(t *testing.T) {
 // Graphviz's order -- the statement's own attribute over the node's port,
 // and the node's port over a default, even c over one. A corner is the
 // two sides either side of it, c and _ any side, and a port naming a
-// record's field, which is not drawn, any side too. A port on a node in a
+// record's field, which is not drawn, any side too. A compass point after
+// a field the node has not, on a record or a box, names no side either:
+// Graphviz ends that line where it ends one with no port. A port on a node in a
 // chain is the port of both edges that end there. A strict graph's edge
 // keeps a port that a later statement of it does not change, at the end
 // it was written at, even where an undirected edge is restated the other
@@ -549,8 +551,22 @@ func TestPortsAreSides(t *testing.T) {
 		from, to []diagram.Side
 	}{
 		{"digraph { a:s -> b:n }", []diagram.Side{s}, []diagram.Side{n}},
-		{"digraph { a -> b [tailport = e, headport = \"f:w\"] }", []diagram.Side{e}, []diagram.Side{w}},
-		{"digraph { a:f:ne -> b:c; a:sw -> b:_ }", []diagram.Side{n | e, s | w}, []diagram.Side{0, 0}},
+		{"digraph { b [shape=record, label=\"<f> f\"]; a -> b [tailport = e, headport = \"f:w\"] }", []diagram.Side{e}, []diagram.Side{w}},
+		{"digraph { a [shape=record, label=\"<f> f\"]; a:f:ne -> b:c; a:sw -> b:_ }", []diagram.Side{n | e, s | w}, []diagram.Side{0, 0}},
+		{"digraph { a [shape=record, label=\"<f> f\"]; a:nope:s -> b:f:n }", []diagram.Side{0}, []diagram.Side{0}},
+		// A first part that is no field but a compass point is the side,
+		// as in Graphviz, the rest ignored; a broken record has no fields.
+		{"digraph { a [shape=record, label=\"<f> f\"]; a:n:sth -> b:s:w }", []diagram.Side{n}, []diagram.Side{s}},
+		{"digraph { q [shape=record, label=\"{q\"]; q:nope:s -> q:s }", []diagram.Side{0}, []diagram.Side{s}},
+		// An HTML label's ports are not read, so any is taken as a field.
+		{"digraph { h [label=<<b>h</b>>]; h:p:s -> h:n }", []diagram.Side{s}, []diagram.Side{n}},
+		// Unless its first part is a compass point, which Graphviz falls
+		// back to where no port of the label has the name.
+		{"digraph { h [label=<<b>h</b>>]; h:s:w -> h:n:sth }", []diagram.Side{s}, []diagram.Side{n}},
+		// An empty field names nothing, and its compass point is ignored.
+		{"digraph { a -> b [tailport = \":s\", headport = \"f:w\"] }", []diagram.Side{0}, []diagram.Side{0}},
+		// An empty port written on a node clears a default, as in Graphviz.
+		{"digraph { edge [tailport = s]; a:\"\" -> b; c -> d }", []diagram.Side{0, s}, []diagram.Side{0, 0}},
 		{"digraph { a:field -> b:N }", []diagram.Side{0}, []diagram.Side{0}},
 		{"digraph { a -> b:n -> c }", []diagram.Side{0, n}, []diagram.Side{n, 0}},
 		{"digraph { edge [headport = s]; a -> b; c -> d:e }", []diagram.Side{0, 0}, []diagram.Side{s, e}},

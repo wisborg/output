@@ -58,6 +58,7 @@ import (
 	"fmt"
 	"image/color"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -89,8 +90,11 @@ type Options struct {
 	// than as it says, and is no error, since the diagram still draws: a
 	// record's label that is no record label, which Graphviz refuses and
 	// is drawn here as a box with its label as written, its ports naming
-	// nothing. It is told once the file has read, and not of a file that
-	// is an error, which draws nothing. Without it, nothing is said.
+	// nothing; and a port that names nothing -- a field its record has
+	// none of, a field of a node that is no record, or a compass point
+	// that is none, f:sth for f:s -- as Graphviz warns. It is told once the
+	// file has read, in the order of the lines, and not of a file that is
+	// an error, which draws nothing. Without it, nothing is said.
 	Warn func(*Error)
 }
 
@@ -141,8 +145,12 @@ func ParseWith(src string, o Options) (*diagram.Diagram, error) {
 		return nil, p.errorf("unexpected %s after the graph's closing }", p.describe())
 	}
 	// Said once the file has read, as each says what is drawn: of a file
-	// with an error after, nothing is.
+	// with an error after, nothing is. A record's label is warned of as its
+	// node's attributes are read, in the order the nodes were made, and a
+	// port as the edges' ports are, after them; neither is the order of
+	// the lines, so they are put in it.
 	if o.Warn != nil {
+		slices.SortStableFunc(p.warnings, func(a, b *Error) int { return a.Line - b.Line })
 		for _, w := range p.warnings {
 			o.Warn(w)
 		}
@@ -160,6 +168,10 @@ type nodeInfo struct {
 	attrs map[string]string
 	lines map[string]setAt // the line that set each attribute
 	line  int              // the line the node was made on
+	// What applyNode settled of its label, which reading a port of it
+	// asks: html, an HTML label, whose ports are not read here; record, a
+	// record's shape; broken, a record's whose label is none, said so.
+	html, record, broken bool
 }
 
 // scope is a graph's or a subgraph's: the defaults its statements start
@@ -223,7 +235,11 @@ type parser struct {
 	// edgeAttrs are each edge's attributes, by its index in d.Edges: a
 	// strict graph's second statement of an edge sets them over the first's.
 	edgeAttrs []map[string]string
-	name      string // the graph's, for \G
+	// portsAt are each edge's tailport and headport, by its index in
+	// d.Edges, and where each was set, as withPorts sets them: a warning
+	// of a port names its line.
+	portsAt [][2]portAt
+	name    string // the graph's, for \G
 	// clusters are the clusters read so far, by name, with the group each
 	// is in and its attributes: a cluster written twice is one cluster.
 	clusters map[string]*clusterInfo
@@ -441,7 +457,7 @@ func (p *parser) stmt(s *scope) error {
 		if err != nil {
 			return err
 		}
-		return p.edgeRest(s, ends, "")
+		return p.edgeRest(s, ends, portAt{})
 	case p.tok.kind != tID:
 		return p.errorf("expected a statement, found %s", p.describe())
 	case p.reserved():
@@ -456,7 +472,7 @@ func (p *parser) stmt(s *scope) error {
 			return err
 		}
 		if p.tok.kind != tID {
-			return p.errorf("expected a value for %s, found %s", id, p.describe())
+			return p.errorf("expected a value for %q, found %s", id, p.describe())
 		}
 		s.graphAttrs[id], s.graphLines[id] = p.tok.text, setAt{line: p.tok.line, html: p.tok.html}
 		return p.advance()
@@ -477,24 +493,41 @@ func (p *parser) stmt(s *scope) error {
 	return nil
 }
 
+// portAt is a port and where it was set: its line -- a port written on a
+// node, a:f:s, its last part's -- and whether it was written on its node
+// rather than as a tailport or headport, so that a warning of it names
+// the node. An empty port written on a node, a:"", is written: it clears
+// an edge default's, as in Graphviz, where no port at all keeps it.
+type portAt struct {
+	text   string
+	line   int
+	onNode bool
+}
+
 // port reads a node's [: ID [: ID]], and is the port as a tailport or
 // headport attribute would give it -- "s", "field:s" -- or "" where none
-// is written.
-func (p *parser) port() (string, error) {
+// is written. A third part, a:f:x:n, is an error, as DOT's grammar and
+// Graphviz have it: read, it was the side n, and then no side, each a
+// guess at what the file meant.
+func (p *parser) port() (portAt, error) {
 	var parts []string
+	line := 0
 	for p.punct(":") {
+		if len(parts) == 2 {
+			return portAt{}, p.errorf("a port is a field and a compass point at most, :%q:%q; found a third part", parts[0], parts[1])
+		}
 		if err := p.advance(); err != nil {
-			return "", err
+			return portAt{}, err
 		}
 		if p.tok.kind != tID {
-			return "", p.errorf("expected a port after :, found %s", p.describe())
+			return portAt{}, p.errorf("expected a port after :, found %s", p.describe())
 		}
-		parts = append(parts, p.tok.text)
+		parts, line = append(parts, p.tok.text), p.tok.line
 		if err := p.advance(); err != nil {
-			return "", err
+			return portAt{}, err
 		}
 	}
-	return strings.Join(parts, ":"), nil
+	return portAt{strings.Join(parts, ":"), line, len(parts) > 0}, nil
 }
 
 // edgePorts reads each edge's tailport and headport into its sides and
@@ -503,39 +536,247 @@ func (p *parser) port() (string, error) {
 // written after its edges. Read with the edge's other attributes, a:n was
 // taken for the side and corrected later, and in between an edge to a
 // field named n carried a side its file did not ask for.
+//
+// A port that cannot be read as written is said to Options.Warn, as
+// Graphviz warns of most of it, at the line it was written on, since
+// without a word it would look obeyed -- portOf says what in it names
+// nothing. A port is said where an edge takes it, as Graphviz does, so
+// not of an edge default no edge takes, nor of an invisible edge, which
+// no line draws. Graphviz says it once an edge, and this once a place it
+// is written, every fault of it over every edge that takes it in one
+// warning, each with the nodes it is a fault on: a port written on a node
+// once for that node and line, so e:f:x -> b:f:x is two and {b c} ->
+// a:f:x one; a tailport, headport or edge default once a line, port and
+// end, naming which, so edge [tailport = "f:x"] over a thousand edges is
+// one, not a thousand, and a -> b [tailport = x, headport = x] two.
 func (p *parser) edgePorts() {
+	type place struct {
+		portAt
+		node string // the node a port written on one is of
+		attr string // tailport or headport, for one that is an attribute
+	}
+	at := map[place]*portFaults{}
+	var places []place
 	for k := range p.d.Edges {
 		e := &p.d.Edges[k]
-		e.FromSide, e.FromPort = p.portOf(e.From, p.edgeAttrs[k]["tailport"])
-		e.ToSide, e.ToPort = p.portOf(e.To, p.edgeAttrs[k]["headport"])
+		ends := [2]struct {
+			node  string
+			side  *diagram.Side
+			field *string
+		}{{e.From, &e.FromSide, &e.FromPort}, {e.To, &e.ToSide, &e.ToPort}}
+		for i, end := range ends {
+			from := p.portsAt[k][i]
+			var f portFault
+			*end.side, *end.field, f = p.portOf(end.node, from.text)
+			if e.Invisible || f == portOK {
+				continue
+			}
+			key := place{from, "", ""}
+			if from.onNode {
+				key.node = end.node
+			} else {
+				key.attr = [2]string{"tailport", "headport"}[i]
+			}
+			fs := at[key]
+			if fs == nil {
+				fs = &portFaults{}
+				at[key], places = fs, append(places, key)
+			}
+			fs[f].add(end.node)
+		}
+	}
+	for _, key := range places {
+		what := fmt.Sprintf("the %s %q", key.attr, key.text)
+		if key.onNode {
+			what = fmt.Sprintf("the port %q of %q", key.text, key.node)
+		}
+		p.warnings = append(p.warnings, &Error{Line: key.line, Msg: what + ": " + at[key].say(key.text, key.onNode)})
 	}
 }
 
-// portOf is the sides and the record field a port of node names -- a
-// tailport or headport, or a port written on the node, a:field:s. A port
-// of two parts or more is the field its first names and the sides its
-// last does, by its compass point, any side where it names none. One word
-// is the field of that name, but for a compass word, a:n, which is the
-// field only where the record has one, as Graphviz reads it, and the side
-// where it has none. A field no record of that name has is any side, as
-// layout reads it. A quoted port is split at its colons too, a:"f:1" the
-// field f and the compass point 1, as Graphviz splits it: a field named
-// with a colon is one no edge reaches, there as here.
-func (p *parser) portOf(node, attr string) (diagram.Side, string) {
-	if attr == "" {
-		return 0, ""
-	}
-	if !strings.Contains(attr, ":") {
-		side, isCompass := compass(attr)
-		if !isCompass || p.nodes[node].n.Field(attr) != nil {
-			return 0, attr
+// portFaults are what is wrong with a port, over every edge that takes
+// it: for each portFault, the nodes it is that fault on.
+type portFaults [portFaultKinds]names
+
+// say is f, of port, in words, each fault with the nodes it is on and
+// where their lines end. onNode says the port was written on the one node
+// it is of, which the warning names already.
+func (f *portFaults) say(port string, onNode bool) string {
+	first, rest, _ := splitPort(port)
+	// on is the nodes a fault is on, as a clause, where the warning does
+	// not name them already.
+	on := func(ns names) string {
+		if onNode {
+			return ""
 		}
-		return side, ""
+		return "on " + ns.String() + ", "
 	}
-	field, _, _ := strings.Cut(attr, ":")
-	side, _ := compass(attr[strings.LastIndex(attr, ":")+1:])
-	return side, field
+	boxes := func(n int) string {
+		if n > 1 {
+			return "their boxes"
+		}
+		return "its box"
+	}
+	var parts, why []string
+	if ns := f[noRecord]; ns.n > 0 {
+		why = append(why, ns.String()+ns.verb(" is no record", " are no records")+", whose fields a port names")
+	}
+	if ns := f[noField]; ns.n > 0 {
+		why = append(why, fmt.Sprintf("%s%s no field %q", ns, ns.verb(" has", " have"), first))
+	}
+	if len(why) > 0 {
+		parts = append(parts, strings.Join(why, ", and ")+": the line ends anywhere on "+boxes(f[noRecord].n+f[noField].n))
+	}
+	if ns := f[emptyField]; ns.n > 0 {
+		parts = append(parts, fmt.Sprintf("%san empty field names nothing, and %q is ignored: the line ends anywhere on %s", on(ns), rest, boxes(ns.n)))
+	}
+	if ns := f[ignoredPart]; ns.n > 0 {
+		parts = append(parts, fmt.Sprintf("%s%s no field %q, so %q is the side and %q is ignored", ns, ns.verb(" has", " have"), first, first, rest))
+	}
+	if ns := f[badCompass]; ns.n > 0 {
+		parts = append(parts, fmt.Sprintf("%s%q is no compass point (n, ne, e, se, s, sw, w, nw, c or _) and names no side", on(ns), rest))
+	}
+	return strings.Join(parts, "; and ")
 }
+
+// names are the nodes a warning names: the first three, as it names them,
+// and how many in all.
+type names struct {
+	first []string
+	n     int
+	seen  map[string]bool
+}
+
+// add counts name, once however often it is added.
+func (ns *names) add(name string) {
+	if ns.seen[name] {
+		return
+	}
+	if ns.seen == nil {
+		ns.seen = map[string]bool{}
+	}
+	ns.seen[name] = true
+	if ns.n++; len(ns.first) < 3 {
+		ns.first = append(ns.first, name)
+	}
+}
+
+// String is the names quoted and joined, "a", "a" and "b", or the first
+// three and how many more.
+func (ns names) String() string {
+	q := make([]string, len(ns.first))
+	for i, n := range ns.first {
+		q[i] = strconv.Quote(n)
+	}
+	switch {
+	case ns.n > len(q):
+		return fmt.Sprintf("%s and %d more", strings.Join(q, ", "), ns.n-len(q))
+	case len(q) > 1:
+		return strings.Join(q[:len(q)-1], ", ") + " and " + q[len(q)-1]
+	case len(q) == 0:
+		return ""
+	}
+	return q[0]
+}
+
+// verb is one where ns is one name, and many where it is more.
+func (ns names) verb(one, many string) string {
+	if ns.n > 1 {
+		return many
+	}
+	return one
+}
+
+// recordShape says a node's attributes make it a record, shape=record or
+// Mrecord: its label is read into fields where it is one, and not HTML.
+func recordShape(attrs map[string]string) bool {
+	s := strings.ToLower(attrs["shape"])
+	return s == "record" || s == "mrecord"
+}
+
+// portOf is the sides and the record field a port of node names -- a
+// tailport or headport, or a port written on the node, a:field:s -- as
+// Graphviz's record_port and poly_port read it, and what in it names
+// nothing. The field is looked up first, the port's part before its
+// first colon: where the node has it, the field is the port's and the
+// rest its compass point, any side where it names none -- so f:g:s has
+// the compass point g:s, which is none, and a:"f:1", a field named with
+// a colon, the field f and the compass point 1, as Graphviz splits it.
+// Where the node has no such field, a first part that is a compass point
+// is the side, a:n, and anything after it is ignored, a:s:w; and one that
+// is none names nothing, b:nope:s, and no side either, its compass point
+// ignored. An empty field, a:"":s, names nothing, and the rest is
+// ignored. A box, and a record whose label is none, have no fields. A
+// node with an HTML label may have ports Graphviz reads in it, and this
+// does not: a first part that is no compass point is taken for one, with
+// the rest its compass point, and nothing of its ports is said; nor of a
+// record whose label is none, which is said already. A field nothing has
+// is any side, as layout reads it.
+func (p *parser) portOf(node, attr string) (side diagram.Side, field string, f portFault) {
+	if attr == "" {
+		return 0, "", f
+	}
+	first, rest, two := splitPort(attr)
+	info := p.nodes[node]
+	quiet := info.html || info.broken
+	unless := func(fault portFault) portFault {
+		if quiet {
+			return portOK
+		}
+		return fault
+	}
+	switch {
+	case two && first == "":
+		if rest != "" {
+			f = unless(emptyField)
+		}
+		return 0, "", f
+	case info.n.Field(first) != nil:
+		side, isCompass := compass(rest)
+		if !isCompass && rest != "" {
+			f = badCompass
+		}
+		return side, first, f
+	}
+	if side, isCompass := compass(first); isCompass {
+		if rest != "" {
+			f = unless(ignoredPart)
+		}
+		return side, "", f
+	}
+	if info.html {
+		side, _ := compass(rest)
+		return side, first, f
+	}
+	if info.record {
+		return 0, first, unless(noField)
+	}
+	return 0, first, unless(noRecord)
+}
+
+// splitPort is a port's field and the rest, its compass point, split at
+// the first colon as Graphviz splits it, and whether it has one: the one
+// split that reading a port and saying what is wrong with it both use.
+func splitPort(port string) (first, rest string, two bool) {
+	return strings.Cut(port, ":")
+}
+
+// portFault is what in a port names nothing, as portOf reads it, if
+// anything does: its compass point after a field the node has; the rest
+// after a first part that is no field but a compass point, a:s:w; the
+// rest after an empty field; a field of a node that is no record; or a
+// field its record has none of.
+type portFault int
+
+const (
+	portOK portFault = iota
+	badCompass
+	ignoredPart
+	emptyField
+	noRecord
+	noField
+	portFaultKinds
+)
 
 // compass is the sides a DOT compass point names, and whether word is
 // one: n, e, s and w the top, the right, the bottom and the left; ne, se,
@@ -570,7 +811,7 @@ func compass(word string) (diagram.Side, bool) {
 // the node, or the nodes of a subgraph -- if the statement is one: each
 // further end, and the attributes. Every node of one end is joined to
 // every node of the next.
-func (p *parser) edgeRest(s *scope, from []string, fromPort string) error {
+func (p *parser) edgeRest(s *scope, from []string, fromPort portAt) error {
 	if p.tok.kind != tEdge {
 		return nil
 	}
@@ -578,7 +819,7 @@ func (p *parser) edgeRest(s *scope, from []string, fromPort string) error {
 	// ports is each end's port, written on the node -- a:s -- and so of
 	// every edge that ends there: a -> b:n -> c leaves b by its top as it
 	// enters it. A subgraph's end has none.
-	ports := []string{fromPort}
+	ports := []portAt{fromPort}
 	for p.tok.kind == tEdge {
 		if p.directed != (p.tok.text == "->") {
 			if p.directed {
@@ -595,7 +836,7 @@ func (p *parser) edgeRest(s *scope, from []string, fromPort string) error {
 			if err != nil {
 				return err
 			}
-			ends, ports = append(ends, nodes), append(ports, "")
+			ends, ports = append(ends, nodes), append(ports, portAt{})
 		case p.reserved():
 			return p.errorf("expected a node after the edge, found the keyword %s; quote it to name a node so", p.tok.text)
 		case p.tok.kind == tID:
@@ -618,6 +859,10 @@ func (p *parser) edgeRest(s *scope, from []string, fromPort string) error {
 	}
 	mergedLines := clone(s.edgeLines)
 	maps.Copy(mergedLines, lines)
+	defaults := [2]portAt{
+		{text: s.edgeAttrs["tailport"], line: s.edgeLines["tailport"].line},
+		{text: s.edgeAttrs["headport"], line: s.edgeLines["headport"].line},
+	}
 	for i := 1; i < len(ends); i++ {
 		for _, a := range ends[i-1] {
 			for _, b := range ends[i] {
@@ -643,46 +888,56 @@ func (p *parser) edgeRest(s *scope, from []string, fromPort string) error {
 						if p.d.Edges[k].From != a {
 							tail, head = head, tail
 						}
-						both := withPorts(p.edgeAttrs[k], tail, head, attrs)
+						both, bothAt := withPorts(p.edgeAttrs[k], p.portsAt[k], tail, head, attrs, lines)
 						e := diagram.Edge{From: p.d.Edges[k].From, To: p.d.Edges[k].To, Head: p.directed}
 						if err := p.applyEdge(&e, both, mergedLines); err != nil {
 							return err
 						}
-						p.d.Edges[k], p.edgeAttrs[k] = e, both
+						p.d.Edges[k], p.edgeAttrs[k], p.portsAt[k] = e, both, bothAt
 						continue
 					}
 					p.seen[key] = len(p.d.Edges)
 				}
-				merged := withPorts(s.edgeAttrs, ports[i-1], ports[i], attrs)
+				merged, mergedAt := withPorts(s.edgeAttrs, defaults, ports[i-1], ports[i], attrs, lines)
 				e := diagram.Edge{From: a, To: b, Head: p.directed}
 				if err := p.applyEdge(&e, merged, mergedLines); err != nil {
 					return err
 				}
 				p.d.Edges = append(p.d.Edges, e)
-				p.edgeAttrs = append(p.edgeAttrs, merged)
+				p.edgeAttrs, p.portsAt = append(p.edgeAttrs, merged), append(p.portsAt, mergedAt)
 			}
 		}
 	}
 	return nil
 }
 
-// withPorts is an edge's attributes, as Graphviz has them: before -- the
-// defaults in force, or what a strict graph's earlier statement of the
-// edge gave it -- then the ports written on its nodes, tail and head, as
-// its tailport and headport, then the statement's own attributes, own.
+// withPorts is an edge's attributes, as Graphviz has them, and its
+// tailport and headport, with where each was set: before -- the defaults
+// in force, or what a strict graph's earlier statement of the edge gave
+// it, with beforeAt its ports -- then the ports written on its nodes,
+// tail and head, then the statement's own attributes, own, set at ownAt.
 // So a:n -> b [tailport = s] leaves a by its bottom, while under
 // edge [tailport = s] it leaves by its top; and a port written in one
 // statement of a strict graph's edge stays where the next writes none.
-func withPorts(before map[string]string, tail, head string, own map[string]string) map[string]string {
-	m := clone(before)
-	if tail != "" {
-		m["tailport"] = tail
-	}
-	if head != "" {
-		m["headport"] = head
-	}
+// The ports are kept in the second answer alone, not among the
+// attributes, so that their text and where it was set are one value and
+// cannot fall out of step.
+func withPorts(before map[string]string, beforeAt [2]portAt, tail, head portAt, own map[string]string, ownAt map[string]setAt) (map[string]string, [2]portAt) {
+	m, at := clone(before), beforeAt
 	maps.Copy(m, own)
-	return m
+	for i, end := range []struct {
+		attr string
+		port portAt
+	}{{"tailport", tail}, {"headport", head}} {
+		if end.port.onNode {
+			at[i] = end.port
+		}
+		if v, ok := own[end.attr]; ok {
+			at[i] = portAt{text: v, line: ownAt[end.attr].line}
+		}
+		delete(m, end.attr)
+	}
+	return m, at
 }
 
 // subgraph reads [subgraph [ID]] { stmt_list }, and is the nodes it holds.
@@ -795,7 +1050,7 @@ func (p *parser) attrLists() (map[string]string, map[string]setAt, error) {
 					return nil, nil, err
 				}
 				if p.tok.kind != tID {
-					return nil, nil, p.errorf("expected a value for %s, found %s", k, p.describe())
+					return nil, nil, p.errorf("expected a value for %q, found %s", k, p.describe())
 				}
 				v, html = p.tok.text, p.tok.html
 				if err := p.advance(); err != nil {
@@ -946,16 +1201,18 @@ func (p *parser) applyNode(info *nodeInfo) error {
 		n.Label = " "
 	}
 	n.Shape = shape(attrs["shape"])
-	if s := strings.ToLower(attrs["shape"]); s == "record" || s == "mrecord" {
+	info.html, info.record = info.lines["label"].html, recordShape(attrs)
+	if info.record {
 		v, ok := attrs["label"]
 		if !ok {
 			v = `\N` // a record of one field, the node's name
 		}
 		// An HTML label is the node's, as Graphviz draws it, not fields.
-		if !info.lines["label"].html {
+		if !info.html {
 			if fields, ok := record(v, n.ID, p.name); ok {
 				n.Record = fields
 			} else {
+				info.broken = true
 				// The line that set the label, or the node's own.
 				line := info.line
 				if at := info.lines["label"]; at.line > 0 {
@@ -1022,7 +1279,7 @@ func (p *parser) applyEdge(e *diagram.Edge, attrs map[string]string, lines map[s
 	}
 	c, err := colourAttr(attrs, "color")
 	if err != nil {
-		return &Error{Line: lineOf(err, lines, p.tok.line), Msg: fmt.Sprintf("edge %s to %s: %v", e.From, e.To, err)}
+		return &Error{Line: lineOf(err, lines, p.tok.line), Msg: fmt.Sprintf("edge %q to %q: %v", e.From, e.To, err)}
 	}
 	e.Colour = c
 	return nil

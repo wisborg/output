@@ -858,32 +858,37 @@ func TestDiagramSaysWhichPortsWereNotKept(t *testing.T) {
 	}
 }
 
-// A port no field of its record has is said so, as Graphviz warns of one,
-// naming the port: its line ends anywhere on the box, and a mistyped port
-// would otherwise look as though it had been read. One a field has is not
-// mentioned, nor one of a node that is no record, whose ports this does not
-// read; and a field name with a colon in it is read as Graphviz reads it,
-// up to the colon.
+// A port no field of its record has is said so by the DOT reader, with
+// its line, as Graphviz warns of one: its line ends anywhere on the box,
+// and a mistyped port would otherwise look as though it had been read. So
+// is one of a box that is no record, and a bad compass point after either,
+// in the same warning; one a field has is not mentioned, nor one of a node
+// with an HTML label, whose ports this does not read; and a field name
+// with a colon in it is read as Graphviz reads it, up to the colon, a
+// field the record has not.
 func TestDiagramSaysWhichPortsNameNoField(t *testing.T) {
 	_, errOut, err := draw(t, `digraph {
 		a [shape=record, label="<x> one|<a:b> two|{<in> three|four}"]
 		h [label=<<b>h</b>>]
-		c -> a:x; c -> a:in; c -> a:y; a:"a:b" -> h:p; c -> a:nope:s
+		c -> a:x; c -> a:in; c -> a:y; a:"a:b" -> h:p; c -> a:nope:s; c:q -> a:x
 	}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
-		`the edge "c" to "a" names the port "y", which no field of "a" has: it ends anywhere on the box`,
-		`the edge "a" to "h" names the port "a", which no field of "a" has`,
-		`the edge "c" to "a" names the port "nope", which no field of "a" has: it ends anywhere on the side its compass point names`,
-	} {
-		if !strings.Contains(errOut, want) {
-			t.Errorf("stderr %q, want %q", errOut, want)
+	want := []string{
+		`line 4: the port "y" of "a": "a" has no field "y": the line ends anywhere on its box`,
+		`line 4: the port "a:b" of "a": "a" has no field "a": the line ends anywhere on its box`,
+		// Graphviz ignores a compass point after a field that is not there.
+		`line 4: the port "nope:s" of "a": "a" has no field "nope": the line ends anywhere on its box`,
+		`line 4: the port "q" of "c": "c" is no record, whose fields a port names: the line ends anywhere on its box`,
+	}
+	for _, w := range want {
+		if !strings.Contains(errOut, w) {
+			t.Errorf("stderr %q, want %q", errOut, w)
 		}
 	}
-	if n := strings.Count(errOut, "names the port"); n != 3 {
-		t.Errorf("stderr %q: %d notes of ports, want 3", errOut, n)
+	if n := strings.Count(errOut, "the port"); n != len(want) {
+		t.Errorf("stderr %q: %d warnings of ports, want %d", errOut, n, len(want))
 	}
 }
 

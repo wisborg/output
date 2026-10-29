@@ -669,9 +669,14 @@ edge leaves or enters by — `a:s -> b:n` leaves `a` from its bottom and
 enters `b` from its top, as do `tailport = s` and `headport = n` — and no
 box moves for them. Where an edge has both, its own `tailport` is taken
 over `a:s`, and `a:s` over an `edge [tailport = …]` default, as Graphviz
-takes them. `n`, `e`, `s` and `w` are a side each; a corner, `ne`
+takes them; an empty port, `a:""`, clears such a default, as in Graphviz. `n`, `e`, `s` and `w` are a side each; a corner, `ne`
 say, is either side of it, since a line never ends on a box's corner; `c`
-and `_` are any side. An edge with a port is drawn along rows and columns
+and `_` are any side. A compass point that is none of these, `a:f:sth` for
+`a:f:s`, names no side, and `diagram` says so, with its line, as Graphviz
+warns of it. A port's compass point is all after its first colon, as in
+Graphviz, so a `headport` of `f:g:s` names the field `f` and no side;
+written on a node, `a:f:g:s`, it is an error, as in Graphviz, whose grammar
+has a field and a compass point at most. An edge with a port is drawn along rows and columns
 in a picture with straight edges too. Where no line can leave or enter by
 the side asked for without joining another's line or passing through a
 box, that end is drawn by another side, the other end keeping its own
@@ -697,10 +702,17 @@ and a line here never runs through a box. An edge with no port ends anywhere on
 the outline, which beside a record reads as one of its fields: give it a port
 to say which. No line ends where a divider meets the outline, where it would
 read as the divider running on — a straight edge that would is drawn along
-rows and columns instead — nor beside it where its field has another cell. A port that names no field of its record is said so, as
-Graphviz warns of one; a field named with a `:` in it cannot be named by an
-edge, as in Graphviz, which reads `a:"x:y"` as the field `x` and the compass
-point `y`. A record label that is not one — a brace not closed, a `<port>`
+rows and columns instead — nor beside it where its field has another cell. A port that names no field of its record is said so, with
+its line, as Graphviz warns of one, and so is a port of a node that is no
+record, `b:sth` meant as `b:s` on a box; its line ends anywhere on the box, a
+compass point after it ignored, as Graphviz ends it. A node with an HTML label
+may have ports Graphviz reads in it, which `diagram` does not, so nothing of its
+ports is said, and a port's compass point on one is kept. Where a port's first
+part is no field but a compass point, as in `b:s:w`, it is the side and the
+rest is ignored, as in Graphviz, and `diagram` says so, as it does of an empty
+field, `b:"":s`, which names no side. A field named with a `:` in it cannot be
+named by an edge, as in Graphviz, which reads `a:"x:y"` as the field `x` and
+the compass point `y`, and says the record has no field `x`. A record label that is not one — a brace not closed, a `<port>`
 after a field's words or a second one, braces nested more than 100 deep —
 is drawn as a box with its label as written, where Graphviz refuses it, and
 `diagram` says so, with its line; an HTML label on a record is the node's

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/wisborg/output/diagram"
@@ -22,7 +23,9 @@ import (
 // none of it may panic, and what is drawn must keep what the package
 // promises of a label: the text drawing holds no control character and is
 // UTF-8, the coloured one no control character but its own escapes, and
-// the SVG is well-formed XML. The layout keeps what it promises of its
+// the SVG is well-formed XML; a warning or an error, which diagram writes
+// to standard error, may hold the file's text, and so holds no control
+// character either, and is UTF-8. The layout keeps what it promises of its
 // lines, as layoutcheck has them: along rows and columns, through no box,
 // ending on its boxes' outlines, off their corners and off where a
 // record's divider meets one, and saying truly where a port or a side
@@ -63,6 +66,14 @@ func FuzzParse(f *testing.F) {
 		// a zero-width space and SVG's markup.
 		"digraph { node [shape=record]; a [label=\"<p> \x1b]0;t\x07|{\u202ex|\u009b2J\u200b}|<q> ]]\\> \\<!--\"]; b -> a:p; a:q -> b }",
 		"digraph { legend [label=\"k\"]; {a b} -> {c d} [style=dashed] }",
+		// Ports whose compass point is none, warned of with the port's
+		// text: an escape in it, and one split at its first colon.
+		"digraph { node [shape=record]; a [label=\"<f> x\"]; c:f:\"\x1b[2J\" -> a; edge [tailport=\"f:\x1b]0;t\x07\"]; a -> b; d -> a [headport=\"f:g:s\"] }",
+		// A port of three parts on a node is an error, which quotes its
+		// parts: an escape among them.
+		"digraph { c -> a:\"\x1b]0;t\x07\":x:n }",
+		// A bidi override and a zero-width space in a port, warned of.
+		"digraph { a -> b:\"\u202ex\":\"\u200by\"; c -> d [tailport=\"\u2066:z\"] }",
 	} {
 		f.Add(s)
 	}
@@ -82,9 +93,18 @@ func checkDOT(t *testing.T, src string) {
 	if len(src) > 4096 {
 		return
 	}
-	d, err := ParseWith(src, Options{MaxEdges: 40})
+	var said []*Error
+	d, err := ParseWith(src, Options{MaxEdges: 40, Warn: func(e *Error) { said = append(said, e) }})
 	if err != nil {
+		if msg := err.Error(); !utf8.ValidString(msg) || strings.ContainsFunc(msg, unsafeToSay) {
+			t.Fatalf("an error not UTF-8 or holding a control character: %q", msg)
+		}
 		return
+	}
+	for _, w := range said {
+		if msg := w.Error(); !utf8.ValidString(msg) || strings.ContainsFunc(msg, unsafeToSay) {
+			t.Fatalf("a warning not UTF-8 or holding a control character: %q", msg)
+		}
 	}
 	for _, straight := range []bool{d.Straight, true} {
 		d.Straight = straight
@@ -131,6 +151,12 @@ func checkDOT(t *testing.T, src string) {
 
 // control is a C0 or C1 control character, or DEL.
 func control(r rune) bool { return r < 0x20 || r == 0x7f || r >= 0x80 && r < 0xa0 }
+
+// unsafeToSay is a character a warning or an error may not hold as it is:
+// a control character, or a format character -- a bidi override turns
+// the rest of the terminal's line round, and a zero-width space hides --
+// which quoting the file's text writes as an escape, the joiners too.
+func unsafeToSay(r rune) bool { return control(r) || unicode.Is(unicode.Cf, r) }
 
 // checkView is lay as layoutcheck reads it. A port's field is found as
 // the layout finds it, by the field Node.Field names.

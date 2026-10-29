@@ -234,7 +234,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		fmt.Fprintf(stderr, "diagram: %s: %v\n", name, w)
 	}
 	sidesNote(stderr, lay)
-	portsNote(stderr, lay)
 	if o.out != "" {
 		if err := writeFile(o, lay, stderr, getenv); err != nil {
 			return err
@@ -432,33 +431,6 @@ func sidesNote(errOut io.Writer, lay *diagram.Layout) {
 func namesField(lay *diagram.Layout, id, port string) bool {
 	n, ok := lay.Node(id)
 	return ok && port != "" && n.Node.Field(port) != nil
-}
-
-// portsNote says on errOut which edges name a port no field of their
-// record has, as Graphviz warns of one: the line ends anywhere on the box,
-// or on the side a compass point after the port names, which beside a
-// record reads as one of its fields, and a mistyped port would otherwise
-// look as though it had been read. A port of a node that is
-// no record -- one with an HTML label, whose ports are not read -- is not
-// said, as nothing could be looked up in it. The names are quoted, as
-// sidesNote quotes them.
-func portsNote(errOut io.Writer, lay *diagram.Layout) {
-	for _, e := range lay.Edges {
-		for _, end := range []struct {
-			node, port string
-			side       diagram.Side
-		}{{e.Edge.From, e.Edge.FromPort, e.Edge.FromSide}, {e.Edge.To, e.Edge.ToPort, e.Edge.ToSide}} {
-			n, ok := lay.Node(end.node)
-			if end.port == "" || !ok || len(n.Node.Record) == 0 || n.Node.Field(end.port) != nil {
-				continue
-			}
-			where := "anywhere on the box"
-			if end.side != 0 {
-				where = "anywhere on the side its compass point names"
-			}
-			fmt.Fprintf(errOut, "diagram: the edge %q to %q names the port %q, which no field of %q has: it ends %s\n", e.Edge.From, e.Edge.To, end.port, end.node, where)
-		}
-	}
 }
 
 // textSizeNote says on errOut where --width or --height asked for a text
