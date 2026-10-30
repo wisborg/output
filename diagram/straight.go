@@ -98,34 +98,68 @@ func shifts(edges []Edge, straight []bool) []float64 {
 // record of two fields alike that is the middle of a side, where a line
 // between the boxes' middles leaves, and the line reads as the divider
 // running on. Each taken out sets the others between its nodes apart
-// differently, so it looks again until none is.
+// differently, so it looks again until none is. An edge taken out early
+// may be clear once others are, set apart as they then are, so each is
+// then tried back, one at a time, and kept straight where every straight
+// edge is then clear -- those between its nodes being the ones it sets
+// apart differently.
 func (lay *Layout) keepClearOfJoints(edges []Edge, straight []bool) {
+	joints := lay.jointsByNode()
+	if len(joints) == 0 {
+		return
+	}
+	clear := func(i int, sh float64) bool { return lay.clearOfJoints(joints, &edges[i], sh) }
+	out := make([]bool, len(edges))
+	for {
+		sh, changed := shifts(edges, straight), false
+		for i := range edges {
+			if straight[i] && !clear(i, sh[i]) {
+				straight[i], out[i], changed = false, true, true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	for again := true; again; {
+		again = false
+		for i := range edges {
+			if !out[i] {
+				continue
+			}
+			straight[i] = true
+			sh, ok := shifts(edges, straight), true
+			for j := range edges {
+				if straight[j] && !clear(j, sh[j]) {
+					ok = false
+					break
+				}
+			}
+			straight[i], out[i] = ok, !ok
+			again = again || ok
+		}
+	}
+}
+
+// jointsByNode is each node's joints, by its ID, for the nodes that have
+// any.
+func (lay *Layout) jointsByNode() map[string][]Point {
 	joints := map[string][]Point{}
 	for _, n := range lay.Nodes {
 		if js := n.joints(); len(js) > 0 {
 			joints[n.Node.ID] = js
 		}
 	}
-	if len(joints) == 0 {
-		return
-	}
-	for {
-		sh, changed := shifts(edges, straight), false
-		for i := range edges {
-			if !straight[i] {
-				continue
-			}
-			x0, y0, x1, y1 := lay.ends(PlacedEdge{Edge: &edges[i], Shift: sh[i]})
-			a, _ := lay.Node(edges[i].From)
-			b, _ := lay.Node(edges[i].To)
-			if nearJoint(joints[a.Node.ID], a.Rect, x0, y0, x1, y1) || nearJoint(joints[b.Node.ID], b.Rect, x1, y1, x0, y0) {
-				straight[i], changed = false, true
-			}
-		}
-		if !changed {
-			return
-		}
-	}
+	return joints
+}
+
+// clearOfJoints says e's straight line, shifted sh to one side, leaves
+// both its nodes clear of their joints.
+func (lay *Layout) clearOfJoints(joints map[string][]Point, e *Edge, sh float64) bool {
+	x0, y0, x1, y1 := lay.ends(PlacedEdge{Edge: e, Shift: sh})
+	a, _ := lay.Node(e.From)
+	b, _ := lay.Node(e.To)
+	return !nearJoint(joints[a.Node.ID], a.Rect, x0, y0, x1, y1) && !nearJoint(joints[b.Node.ID], b.Rect, x1, y1, x0, y0)
 }
 
 // crossesBox says the line between the middles of a and b passes through

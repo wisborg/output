@@ -714,3 +714,62 @@ func TestJointCostKeepsSidesFacing(t *testing.T) {
 		}
 	}
 }
+
+// No edge is drawn along rows and columns that could be drawn straight
+// with every straight line between its nodes clear of their joints: an
+// edge taken out to keep one line clear may be clear itself once others
+// are taken out, set apart as they then are, and was once left out for
+// good, a line drawn round where a straight one would do. Each edge left
+// out is tried back, and some line between its nodes must then meet a
+// joint.
+func TestStraightLinesTakenOutComeBack(t *testing.T) {
+	// 300 random diagrams, as the other random tests lay out, and the
+	// three of the first 5,000 that left an edge out for good before.
+	seeds := []int64{3427, 4665, 4840}
+	for seed := range int64(300) {
+		seeds = append(seeds, seed)
+	}
+	for _, seed := range seeds {
+		d := randomDiagram(rand.New(rand.NewSource(seed)))
+		d.Straight = true
+		lay, err := d.Layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		joints := lay.jointsByNode()
+		index := map[*Edge]int{}
+		for i := range d.Edges {
+			index[&d.Edges[i]] = i
+		}
+		straight := make([]bool, len(d.Edges))
+		for _, e := range lay.Edges {
+			i, ok := index[e.Edge]
+			if !ok {
+				t.Fatalf("seed %d: a placed edge is none of the diagram's", seed)
+			}
+			straight[i] = e.Straight
+		}
+		for i, e := range d.Edges {
+			if straight[i] || !lay.straightens(e) {
+				continue
+			}
+			tried := slices.Clone(straight)
+			tried[i] = true
+			sh, clear := shifts(d.Edges, tried), true
+			for j := range d.Edges {
+				if tried[j] && !lay.clearOfJoints(joints, &d.Edges[j], sh[j]) {
+					clear = false
+					break
+				}
+			}
+			if clear {
+				t.Fatalf("seed %d: %s -> %s is drawn round, though straight it and every line between its nodes would be clear", seed, e.From, e.To)
+			}
+		}
+		for i := range d.Edges {
+			if straight[i] && !lay.clearOfJoints(joints, &d.Edges[i], shifts(d.Edges, straight)[i]) {
+				t.Fatalf("seed %d: %s -> %s is straight and meets a joint", seed, d.Edges[i].From, d.Edges[i].To)
+			}
+		}
+	}
+}
