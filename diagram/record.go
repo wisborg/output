@@ -149,7 +149,15 @@ func besideField(r, f Rect, p Point, way int) bool {
 
 // move moves n, its fields and its dividers dx cells across and dy rows
 // down. The fields and dividers are moved where they are, and so for every
-// copy of n, which share them: each node is moved once.
+// copy of n, which share them, while a copy's Rect stays put: a copy
+// taken before a move and used after has its fields and dividers a move
+// away from where its Rect says, inside its outline or not. A node is
+// moved up to three times -- by trim, by placeLabels' shift where a label
+// needs room above the first row, and by placeStraightLabels' shiftDown
+// -- each through Layout.moveNodes, which puts each node back into nodeAt
+// at once, and no copy of a node is held across a move. layouter.rect is
+// the exception, the Rects alone, which the router reads before any
+// move and nothing after.
 func (n *PlacedNode) move(dx, dy int) {
 	n.Rect.X, n.Rect.Y = n.Rect.X+dx, n.Rect.Y+dy
 	for i := range n.Fields {

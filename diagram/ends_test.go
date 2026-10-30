@@ -36,6 +36,11 @@ func TestEndsFollowTheNode(t *testing.T) {
 			if pn := lay.nodeAt[n.Node.ID]; !reflect.DeepEqual(pn.ends(), n.ends()) {
 				t.Fatalf("seed %d: %s's ends differ between Nodes and nodeAt", seed, n.Node.ID)
 			}
+			// However often the layout moved it, nodeAt's copy is where
+			// Nodes has it, its fields and dividers with it.
+			if err := sameAndWhole(n, lay.nodeAt[n.Node.ID]); err != "" {
+				t.Fatalf("seed %d: %s", seed, err)
+			}
 		}
 	}
 }
@@ -235,5 +240,64 @@ func TestBrailleStubsIntoOneLetterLabels(t *testing.T) {
 		if strings.ContainsAny(text, "↗↘↙↖") || strings.Count(text, "▲")+strings.Count(text, "▼")+strings.Count(text, "◀")+strings.Count(text, "▶") != 3 {
 			t.Errorf("%v: a small arrow at an angle, or not an arrowhead each:\n%s", dir, text)
 		}
+	}
+}
+
+// sameAndWhole says what is wrong, if anything, with copy, nodeAt's copy
+// of the node n in Nodes: where it is not where n is, or its fields and
+// dividers are not inside its own outline. The two share their fields
+// and dividers, so it is the copy's Rect that a move left out of step
+// shows, and against which its fields would lie a move off.
+func sameAndWhole(n, copy PlacedNode) string {
+	if copy.Rect != n.Rect {
+		return fmt.Sprintf("%s is at %v in Nodes and %v in nodeAt", n.Node.ID, n.Rect, copy.Rect)
+	}
+	r := copy.Rect
+	for _, f := range copy.Fields {
+		if f := f.Rect; f.X <= r.X || f.Y <= r.Y || f.X+f.W >= r.X+r.W || f.Y+f.H >= r.Y+r.H {
+			return fmt.Sprintf("%s's field at %v is not inside its outline %v", n.Node.ID, f, r)
+		}
+	}
+	for _, d := range copy.Dividers {
+		for _, p := range d {
+			if p.X < r.X || p.Y < r.Y || p.X >= r.X+r.W || p.Y >= r.Y+r.H {
+				return fmt.Sprintf("%s's divider %v is not on or inside its outline %v", n.Node.ID, d, r)
+			}
+		}
+	}
+	return ""
+}
+
+// A layout that grows at the top for a label -- one too wide for the gap
+// between two neighbours in a grid goes above the top row -- moves every
+// node a second time, after trimming its margins, and nodeAt's copy of
+// each is still where Nodes has it, with its fields and dividers. That it
+// grew is held by the same diagram without the label, whose boxes sit
+// higher by the rows grown.
+func TestNodeAtFollowsAShift(t *testing.T) {
+	diagram := func(label string) *Diagram {
+		r := &Node{ID: "r", Record: []Field{{Label: "x", Port: "x"}, {Label: "y"}}}
+		d := &Diagram{Root: Group{Columns: 2, Items: []Item{{Node: &Node{ID: "a"}}, {Node: r}}}}
+		d.Edges = []Edge{{From: "a", To: "r", ToPort: "x", Head: true, Label: label}}
+		return d
+	}
+	lay, err := diagram("a label far too wide for the gap").Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := diagram("").Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lay.Nodes[0].Rect.Y <= bare.Nodes[0].Rect.Y {
+		t.Fatalf("the boxes are at row %d with the label and %d without: the layout did not grow at the top", lay.Nodes[0].Rect.Y, bare.Nodes[0].Rect.Y)
+	}
+	for _, n := range lay.Nodes {
+		if err := sameAndWhole(n, lay.nodeAt[n.Node.ID]); err != "" {
+			t.Error(err)
+		}
+	}
+	if len(lay.Nodes[1].Fields) == 0 || len(lay.Nodes[1].Dividers) == 0 {
+		t.Errorf("r has no fields or dividers to hold: %+v", lay.Nodes[1])
 	}
 }

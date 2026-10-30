@@ -548,10 +548,7 @@ func (lay *Layout) shift(k int) {
 		return
 	}
 	lay.Height += k
-	for i := range lay.Nodes {
-		lay.Nodes[i].move(0, k)
-		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]
-	}
+	lay.moveNodes(0, k)
 	for i := range lay.Groups {
 		g := &lay.Groups[i]
 		g.Rect.Y += k

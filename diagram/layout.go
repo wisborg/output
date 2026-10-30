@@ -46,6 +46,18 @@ type Layout struct {
 	nodeAt     map[string]PlacedNode
 }
 
+// moveNodes moves every node dx cells across and dy rows down, and puts
+// each back into nodeAt as it goes: nodeAt's copy shares the node's fields
+// and dividers, which move moves where they are, and a copy left with its
+// old Rect would have its fields a move out. Every move of the nodes is
+// made here, so that none can leave the putting back out.
+func (lay *Layout) moveNodes(dx, dy int) {
+	for i := range lay.Nodes {
+		lay.Nodes[i].move(dx, dy)
+		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]
+	}
+}
+
 // PlacedEntry is a legend entry and where it is drawn: its sample, one row
 // tall, and its label after it.
 type PlacedEntry struct {
@@ -349,10 +361,7 @@ func (lay *Layout) move(dx, dy int) {
 		return
 	}
 	at := func(p *Point) { p.X, p.Y = p.X+dx, p.Y+dy }
-	for i := range lay.Nodes {
-		lay.Nodes[i].move(dx, dy)
-		lay.nodeAt[lay.Nodes[i].Node.ID] = lay.Nodes[i]
-	}
+	lay.moveNodes(dx, dy)
 	for i := range lay.Groups {
 		g := &lay.Groups[i]
 		g.Rect.X, g.Rect.Y = g.Rect.X+dx, g.Rect.Y+dy
