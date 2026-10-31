@@ -748,6 +748,11 @@ func TestStraightLinesTakenOutComeBack(t *testing.T) {
 				t.Fatalf("seed %d: a placed edge is none of the diagram's", seed)
 			}
 			straight[i] = e.Straight
+			// Set apart as the picture draws it, not as the check
+			// works it out, so that the two differing fails here.
+			if e.Straight && !lay.clearOfJoints(joints, e.Edge, e.Shift) {
+				t.Fatalf("seed %d: %s -> %s is straight and meets a joint", seed, e.Edge.From, e.Edge.To)
+			}
 		}
 		for i, e := range d.Edges {
 			if straight[i] || !lay.straightens(e) {
@@ -764,11 +769,6 @@ func TestStraightLinesTakenOutComeBack(t *testing.T) {
 			}
 			if clear {
 				t.Fatalf("seed %d: %s -> %s is drawn round, though straight it and every line between its nodes would be clear", seed, e.From, e.To)
-			}
-		}
-		for i := range d.Edges {
-			if straight[i] && !lay.clearOfJoints(joints, &d.Edges[i], shifts(d.Edges, straight)[i]) {
-				t.Fatalf("seed %d: %s -> %s is straight and meets a joint", seed, d.Edges[i].From, d.Edges[i].To)
 			}
 		}
 	}
