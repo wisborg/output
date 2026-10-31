@@ -182,6 +182,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return cli.Usagef("--braille %q: use off, thin or thick", o.braille)
 	}
 	o.text = textOpts
+	// The limits and the name to write to are checked before the input is
+	// read: a stream from a program still running was read to its end
+	// before --max-edges 0 was refused, and a diagram laid out, seconds of
+	// routing for a large one, before --out d.jpg was.
+	if o.maxEdges <= 0 || o.maxCells <= 0 {
+		return cli.Usagef("--max-edges %d, --max-cells %d: each a number from 1", o.maxEdges, o.maxCells)
+	}
+	if o.out != "" {
+		if _, err := outFormat(o.out); err != nil {
+			return err
+		}
+	}
 	in, name := stdin, "standard input"
 	if len(files) == 1 && files[0] != "-" {
 		f, err := os.Open(files[0])
@@ -194,9 +206,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	src, err := io.ReadAll(in)
 	if err != nil {
 		return err
-	}
-	if o.maxEdges <= 0 || o.maxCells <= 0 {
-		return cli.Usagef("--max-edges %d, --max-cells %d: each a number from 1", o.maxEdges, o.maxCells)
 	}
 	// Warnings are said once the drawing is laid out, as each says what is
 	// drawn: a layout refused draws nothing.
@@ -275,11 +284,21 @@ func drawPicture(o options, lay *diagram.Layout, opts picture.Options) (*image.R
 	return img, err
 }
 
+// outFormat is the format --out's name ends in, ".png", ".svg" or ".txt",
+// as run checks it before reading the input and writeFile before writing.
+func outFormat(path string) (string, error) {
+	switch ext := strings.ToLower(filepath.Ext(path)); ext {
+	case ".png", ".svg", ".txt":
+		return ext, nil
+	}
+	return "", cli.Usagef("--out %q: name it .png, .svg or .txt", path)
+}
+
 // writeFile writes the diagram to --out, in the format its name ends in.
 func writeFile(o options, lay *diagram.Layout, errOut io.Writer, getenv func(string) string) error {
-	ext := strings.ToLower(filepath.Ext(o.out))
-	if ext != ".png" && ext != ".svg" && ext != ".txt" {
-		return cli.Usagef("--out %q: name it .png, .svg or .txt", o.out)
+	ext, err := outFormat(o.out)
+	if err != nil {
+		return err
 	}
 	pal, err := palette(o.theme, false, getenv)
 	if err != nil {

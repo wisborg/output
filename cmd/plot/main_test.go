@@ -781,3 +781,28 @@ func TestPlotPictureHeight(t *testing.T) {
 		t.Errorf("--height 10 in 100 columns: %d by %d pixels, want 2000 by 400", cfg.Width, cfg.Height)
 	}
 }
+
+// --x-date and --out are checked before the input is read, with the
+// other flags checked there, under --list as well: checked once the file
+// was read, a file mistyped as well was said in their place, exit 1
+// rather than 2, and --list let both through unchecked. --font, and --x 0
+// with --x-date, are still checked once it is read: read up front, a font
+// was parsed on runs that draw no picture, and --x 0 was refused under
+// --list, which reads no --x.
+func TestPlotChecksFlagsBeforeReading(t *testing.T) {
+	var ue *cli.UsageError
+	jpg := filepath.Join(t.TempDir(), "chart.jpg")
+	for _, args := range [][]string{
+		{"--x-date", "epoch"}, {"--out", jpg},
+		{"--list", "--x-date", "epoch"}, {"--list", "--out", jpg},
+	} {
+		var out, errOut bytes.Buffer
+		if err := run(args, unreadable{t}, &out, &errOut, noEnv); !errors.As(err, &ue) {
+			t.Errorf("%q: %v, want a UsageError", args, err)
+		}
+		missing := append(slices.Clone(args), filepath.Join(t.TempDir(), "nosuch.csv"))
+		if _, _, err := plot(t, "", missing...); !errors.As(err, &ue) {
+			t.Errorf("%q and a file missing: %v, want a UsageError", args, err)
+		}
+	}
+}

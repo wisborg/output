@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/wisborg/output/chart/terminal"
 	"github.com/wisborg/output/diagram"
 	"github.com/wisborg/output/diagram/dot"
+	"github.com/wisborg/output/internal/cli"
 )
 
 func noEnv(string) string { return "" }
@@ -910,4 +912,30 @@ func TestDiagramSaysARecordLabelIsNone(t *testing.T) {
 	if strings.Contains(errOut, "drawn as written") {
 		t.Errorf("stderr %q says a label is drawn, of a layout refused", errOut)
 	}
+}
+
+// The limits and the name to write to are checked before the input is
+// read: a stream from a program still running was read to its end before
+// --max-edges 0 was refused, and a diagram laid out before --out d.jpg was.
+func TestDiagramChecksFlagsBeforeReading(t *testing.T) {
+	var ue *cli.UsageError
+	jpg := filepath.Join(t.TempDir(), "d.jpg")
+	for _, args := range [][]string{{"--max-edges", "0"}, {"--max-cells", "-1"}, {"--out", jpg}} {
+		var out, errOut bytes.Buffer
+		if err := run(args, unreadable{t}, &out, &errOut, noEnv); !errors.As(err, &ue) {
+			t.Errorf("%q: %v, want a UsageError", args, err)
+		}
+		missing := append(slices.Clone(args), filepath.Join(t.TempDir(), "nosuch.dot"))
+		if _, _, err := draw(t, "", missing...); !errors.As(err, &ue) {
+			t.Errorf("%q and a file missing: %v, want a UsageError", args, err)
+		}
+	}
+}
+
+// unreadable is an input that fails the test if it is read.
+type unreadable struct{ t *testing.T }
+
+func (u unreadable) Read([]byte) (int, error) {
+	u.t.Error("the input was read")
+	return 0, io.EOF
 }

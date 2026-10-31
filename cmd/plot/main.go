@@ -143,6 +143,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 			return cli.Usagef("--%s %d: a number from 0", f.name, f.v)
 		}
 	}
+	xLayout := ""
+	if o.xDate != "" {
+		l, ok := xDateLayout(o.xDate)
+		if !ok {
+			return cli.Usagef("--x-date %q: use unix, unix-ms or yyyymmdd", o.xDate)
+		}
+		xLayout = l
+	}
+	if o.out != "" {
+		if err := checkOut(o.out); err != nil {
+			return err
+		}
+	}
 
 	mode := inputMode(o.input)
 	if mode != inputAuto && mode != inputCSV && mode != inputJSONL {
@@ -233,14 +246,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return nil
 	}
 
-	xLayout := ""
-	if o.xDate != "" {
-		l, ok := xDateLayout(o.xDate)
-		if !ok {
-			return cli.Usagef("--x-date %q: use unix, unix-ms or yyyymmdd", o.xDate)
-		}
-		xLayout = l
-	}
 	x, err := chooseX(t, cols, o.x)
 	if err != nil {
 		return err
@@ -616,11 +621,20 @@ func (d drawing) picture(width, height int, inTerminal bool) (*image.RGBA, error
 	return img, err
 }
 
+// checkOut refuses a name --out cannot write a chart to, as run does
+// before reading the input and writePNG before writing.
+func checkOut(path string) error {
+	if !strings.EqualFold(filepath.Ext(path), ".png") {
+		return cli.Usagef("--out %q: a chart is written as a PNG; name it .png", path)
+	}
+	return nil
+}
+
 // writePNG writes the chart to path, width by height pixels or the default
 // size where either is zero.
 func (d drawing) writePNG(path string, width, height int) error {
-	if !strings.EqualFold(filepath.Ext(path), ".png") {
-		return cli.Usagef("--out %q: a chart is written as a PNG; name it .png", path)
+	if err := checkOut(path); err != nil {
+		return err
 	}
 	if width == 0 {
 		width = imageWidth
