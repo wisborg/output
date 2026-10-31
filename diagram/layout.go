@@ -232,7 +232,6 @@ type layouter struct {
 	// path is each node's groups, outermost first, the root included.
 	path map[string][]*Group
 	out  *Layout
-	rect map[string]Rect
 	// fields is each record's fields as nodeSize measured them.
 	fields map[*Node][]measured
 }
@@ -283,7 +282,7 @@ func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
 		o.MaxCells = DefaultMaxCells
 	}
 	o.MaxCells = min(o.MaxCells, MostCells)
-	l := &layouter{d: d, path: map[string][]*Group{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, rect: map[string]Rect{}, fields: map[*Node][]measured{}}
+	l := &layouter{d: d, path: map[string][]*Group{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, fields: map[*Node][]measured{}}
 	if err := l.index(&d.Root, nil); err != nil {
 		return nil, err
 	}
@@ -345,9 +344,6 @@ func (l *layouter) trim(top, right, bottom int) {
 	}
 	minY = max(minY-top, 0)
 	l.out.move(-minX, -minY)
-	for id, r := range l.rect {
-		l.rect[id] = Rect{r.X - minX, r.Y - minY, r.W, r.H}
-	}
 	l.out.Width = max(right-minX, Width(l.d.Title))
 	l.out.Height = max(bottom-minY, top)
 }
@@ -1083,5 +1079,4 @@ func (l *layouter) placeNode(n *Node, x, y int, s size) {
 	pn.settle()
 	l.out.Nodes = append(l.out.Nodes, pn)
 	l.out.nodeAt[n.ID] = pn
-	l.rect[n.ID] = r
 }

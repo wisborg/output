@@ -129,10 +129,9 @@ func TestEndsMatchOutline(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		l := &layouter{d: d, out: lay, rect: map[string]Rect{}}
+		l := &layouter{d: d, out: lay}
 		joints := map[Point]bool{}
 		for _, n := range lay.Nodes {
-			l.rect[n.Node.ID] = n.Rect
 			for _, j := range n.joints() {
 				joints[j] = true
 			}

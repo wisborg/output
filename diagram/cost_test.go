@@ -22,12 +22,12 @@ func costPage() (r *router, a, b Rect) {
 // routerFor is a router for a page of the boxes, with costPage's edges.
 func routerFor(boxes map[string]Rect) *router {
 	l := &layouter{
-		d:    &Diagram{Edges: []Edge{{From: "a", To: "b", Head: true}, {From: "x", To: "y", Head: true}, {From: "a", To: "z", Head: true}}},
-		out:  &Layout{},
-		rect: boxes,
+		d:   &Diagram{Edges: []Edge{{From: "a", To: "b", Head: true}, {From: "x", To: "y", Head: true}, {From: "a", To: "z", Head: true}}},
+		out: &Layout{nodeAt: map[string]PlacedNode{}},
 	}
 	for id, rc := range boxes {
-		l.out.Nodes = append(l.out.Nodes, PlacedNode{Node: &Node{ID: id}, Rect: rc})
+		n := PlacedNode{Node: &Node{ID: id}, Rect: rc}
+		l.out.Nodes, l.out.nodeAt[id] = append(l.out.Nodes, n), n
 	}
 	return newRouter(l, edgeFields(l))
 }

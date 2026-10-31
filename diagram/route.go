@@ -61,7 +61,7 @@ func (l *layouter) route() {
 	}
 	dist := func(i int) int {
 		e := l.d.Edges[i]
-		a, b := l.rect[e.From], l.rect[e.To]
+		a, b := l.out.nodeAt[e.From].Rect, l.out.nodeAt[e.To].Rect
 		return abs((a.X+a.W/2)-(b.X+b.W/2)) + abs((a.Y+a.H/2)-(b.Y+b.H/2))
 	}
 	// Where the picture draws some edges straight, the others first: the
@@ -108,7 +108,8 @@ func (l *layouter) route() {
 			// between neighbours into a detour round a line nobody sees.
 			continue
 		}
-		a, b := l.rect[e.From], l.rect[e.To]
+		from, to := l.out.nodeAt[e.From], l.out.nodeAt[e.To]
+		a, b := from.Rect, to.Rect
 		key := [2]string{e.From, e.To}
 		if e.To < e.From {
 			key = [2]string{e.To, e.From}
@@ -130,13 +131,13 @@ func (l *layouter) route() {
 				continue
 			}
 			r.anySide = try.anySide
-			if pts = r.find(l.out.nodeAt[e.From], l.out.nodeAt[e.To], e.Tail, i, try.strict); pts != nil {
+			if pts = r.find(from, to, e.Tail, i, try.strict); pts != nil {
 				break
 			}
 		}
 		r.anySide = false
 		if pts == nil {
-			pts, plain[i] = r.plain(l.out.nodeAt[e.From], l.out.nodeAt[e.To], i, nth), true
+			pts, plain[i] = r.plain(from, to, i, nth), true
 		}
 		r.draw(pts, i)
 		paths[i] = pts
@@ -343,8 +344,8 @@ func edgeFields(l *layouter) [][2]Rect {
 // its edges' ports as edgeFields has them.
 func newRouter(l *layouter, fields [][2]Rect) *router {
 	w, h := 0, 0
-	for _, r := range l.rect {
-		w, h = max(w, r.X+r.W), max(h, r.Y+r.H)
+	for _, n := range l.out.Nodes {
+		w, h = max(w, n.Rect.X+n.Rect.W), max(h, n.Rect.Y+n.Rect.H)
 	}
 	for _, g := range l.out.Groups {
 		w, h = max(w, g.Rect.X+g.Rect.W), max(h, g.Rect.Y+g.Rect.H)
@@ -470,7 +471,7 @@ func (r *router) avoidStraight(l *layouter, straight []bool) {
 		if !straight[i] {
 			continue
 		}
-		a, b := l.rect[e.From], l.rect[e.To]
+		a, b := l.out.nodeAt[e.From].Rect, l.out.nodeAt[e.To].Rect
 		x0, y0 := centre(a)
 		x1, y1 := centre(b)
 		steps := int(4*max(abs(int(x1-x0)), abs(int(y1-y0)))) + 4

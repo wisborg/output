@@ -204,7 +204,7 @@ func TestRecordPortsShareOnlyTheirOwn(t *testing.T) {
 		{Edge{From: "x", To: "r", ToPort: "nofield", Head: true}, Edge{From: "y", To: "r", Head: true}, true},
 		{Edge{From: "b", To: "x", Head: true}, Edge{From: "b", FromPort: "p1", To: "y", Head: true}, true},
 	} {
-		l := &layouter{d: &Diagram{Edges: []Edge{c.a, c.b}}, out: &Layout{nodeAt: map[string]PlacedNode{}}, rect: boxes}
+		l := &layouter{d: &Diagram{Edges: []Edge{c.a, c.b}}, out: &Layout{nodeAt: map[string]PlacedNode{}}}
 		for id, rc := range boxes {
 			pn := PlacedNode{Node: &Node{ID: id}, Rect: rc}
 			if id == "r" {
@@ -459,9 +459,9 @@ func TestPlainPathMissesJoints(t *testing.T) {
 		"narrow": {Node: &Node{ID: "narrow"}, Rect: Rect{13, 20, 4, 3}},
 	}
 	router := func(edges []Edge, extra ...PlacedNode) *router {
-		l := &layouter{d: &Diagram{Edges: edges}, out: &Layout{nodeAt: map[string]PlacedNode{}}, rect: map[string]Rect{}}
+		l := &layouter{d: &Diagram{Edges: edges}, out: &Layout{nodeAt: map[string]PlacedNode{}}}
 		for id, n := range nodes {
-			l.out.Nodes, l.out.nodeAt[id], l.rect[id] = append(l.out.Nodes, n), n, n.Rect
+			l.out.Nodes, l.out.nodeAt[id] = append(l.out.Nodes, n), n
 		}
 		l.out.Nodes = append(l.out.Nodes, extra...)
 		return newRouter(l, edgeFields(l))
