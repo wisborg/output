@@ -15,8 +15,9 @@ type Column struct {
 	// Ok.
 	Mean, Min, Max float64
 	// Joined says the line runs into this column from the previous column
-	// with a reading: the two hold readings of one segment. A column whose
-	// readings begin a segment is not joined, whatever lies before it.
+	// with a reading: the two hold readings of one segment, one after the
+	// other, where x runs one way, as Bin says. The leftmost column of a segment's readings is not joined,
+	// whatever lies before it.
 	Joined bool
 }
 
@@ -27,11 +28,17 @@ type Column struct {
 //
 // x0 is the value at the first column and x1 at the last, so x0 above x1
 // bins the axis from its top down: an inverted scale's, from Scale.Ends.
-// Columns are joined whichever way a segment's readings run across them.
+// Columns are joined whichever way a segment's readings run across them,
+// the right-hand of each two marked. A renderer joins a column to the
+// nearest with a reading on its left, so the line is the recording's
+// where x runs one way across the whole chart, rising or falling. Where
+// it turns back, or two segments overlap in x, the line runs in x order,
+// between readings that were not one after the other, and may join two
+// segments across a break.
 //
 // Columns between two of one segment's readings, holding none of their own,
-// are left empty and the later column is joined: a sparse recording drawn
-// wide is still one line. Only a break between segments leaves the line
+// are left empty and the right-hand column is joined: a sparse recording
+// drawn wide is still one line. Only a break between segments leaves the line
 // broken.
 func Bin(segments [][]Point, x0, x1 float64, n int) []Column {
 	if n <= 0 || x1 == x0 || !finite(x1-x0) {
@@ -55,14 +62,12 @@ func Bin(segments [][]Point, x0, x1 float64, n int) []Column {
 				cols[c] = Column{Ok: true, Min: p.Y, Max: p.Y}
 			}
 			// Joined marks the right-hand of two columns a line runs
-			// between: the later, where the axis runs left to right; the
-			// earlier, where it runs right to left and a segment's readings
-			// come leftwards.
-			switch {
-			case prev >= 0 && x1 > x0 && prev < c:
-				cols[c].Joined = true
-			case prev >= 0 && x1 < x0 && prev > c:
-				cols[prev].Joined = true
+			// between, whichever way the readings come: marked only where
+			// they ran the axis's way, readings that run back along it --
+			// an x falling over a recording, on an axis rising -- were dots
+			// with no line between them.
+			if prev >= 0 && prev != c {
+				cols[max(prev, c)].Joined = true
 			}
 			cols[c].Min, cols[c].Max = min(cols[c].Min, p.Y), max(cols[c].Max, p.Y)
 			sums[c] += p.Y

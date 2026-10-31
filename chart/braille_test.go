@@ -204,7 +204,8 @@ func TestBrailleBands(t *testing.T) {
 	c.Bands = []Band{
 		{From: 10, To: 20, Kind: 0}, {From: 23, To: 33, Kind: 0},
 		{From: 60.5, To: 60.9, Kind: 0}, {From: 80, To: 90, Kind: 1},
-		{From: 40, To: 50, Kind: 2},
+		{From: 40, To: 50, Kind: 2}, {From: -20, To: -10, Kind: 1},
+		{From: 110, To: 120, Kind: 1}, {From: 100, To: 100, Kind: 2},
 	}
 	lines := c.Braille(44, 15)
 	if len(lines) != 15 {
@@ -229,11 +230,16 @@ func TestBrailleBands(t *testing.T) {
 			t.Errorf("an interval marked at %.1f s: %q", sec, string(intervals))
 		}
 	}
-	if at(climbs, 85) != '╱' || at(climbs, 45) != ' ' {
+	// Those wholly before the axis and past it are drawn nowhere, as the
+	// picture draws them: one before was held to the first character.
+	if at(climbs, 85) != '╱' || at(climbs, 45) != ' ' || at(climbs, 0) != ' ' || at(climbs, 99) != ' ' {
 		t.Errorf("climbs %q, want one at 80 to 90 s", string(climbs))
 	}
-	if descents := []rune(lines[13]); at(descents, 45) != '╲' || at(descents, 85) != ' ' {
-		t.Errorf("descents %q, want one at 40 to 50 s", string(descents))
+	// One at the axis's very end is marked in the last character, as one
+	// too short to cover a character's middle is anywhere: it fell a
+	// character past the last, and was lost.
+	if descents := []rune(lines[13]); at(descents, 45) != '╲' || at(descents, 85) != ' ' || at(descents, 99) != '╲' {
+		t.Errorf("descents %q, want one at 40 to 50 s and one at 100 s", string(descents))
 	}
 	if lines[14] != "    ━ intervals   ╱ climbs   ╲ descents" {
 		t.Errorf("legend %q", lines[14])
@@ -352,6 +358,27 @@ func TestCheckSaysWhatIsWrong(t *testing.T) {
 		c.edit(&ch)
 		if err := ch.Check(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v, want an error saying %q", err, c.want)
+		}
+	}
+}
+
+// A band's mark is written as text, in its row and in the legend: a
+// control character, the zero rune of a kind given no mark among them, is
+// U+FFFD, as in a title. Written as given, an escape reached the terminal.
+func TestBrailleBandMarksAreText(t *testing.T) {
+	for _, c := range []struct {
+		mark, want rune
+	}{{'━', '━'}, {'\x1b', '\uFFFD'}, {0, '\uFFFD'}} {
+		ch := ramp(1000, 1000)
+		ch.BandKinds = []BandKind{{Name: "all", Mark: c.mark}}
+		ch.Bands = []Band{{From: 0, To: 100}}
+		lines := ch.Braille(44, 13)
+		row, legend := lines[11], lines[12]
+		if got := []rune(row)[4]; got != c.want {
+			t.Errorf("mark %q: row %q, want %q", c.mark, row, c.want)
+		}
+		if !strings.HasPrefix(strings.TrimSpace(legend), string(c.want)+" ") {
+			t.Errorf("mark %q: legend %q, want it to show %q", c.mark, legend, c.want)
 		}
 	}
 }

@@ -100,6 +100,23 @@ func TestBin(t *testing.T) {
 		t.Errorf("columns %+v: the missing reading should leave the middle empty and the line broken", cols)
 	}
 
+	// Readings whose x falls are joined as those whose x rises are, on an
+	// axis rising and on one inverted, where they run left and right in
+	// turn. Each column but the leftmost is the right-hand of two the line
+	// runs between. Only x rising was joined, either way.
+	falling := []Point{{X: 3, Y: 1, Ok: true}, {X: 2, T: 1, Y: 2, Ok: true}, {X: 1, T: 2, Y: 3, Ok: true}, {X: 0, T: 3, Y: 4, Ok: true}}
+	for _, c := range []struct {
+		name   string
+		x0, x1 float64
+	}{{"x falling", 0, 3}, {"x falling, the axis inverted", 3, 0}} {
+		cols = Bin([][]Point{falling}, c.x0, c.x1, 4)
+		for i, col := range cols {
+			if !col.Ok || col.Joined != (i > 0) {
+				t.Errorf("%s: column %d %+v, want a reading, joined but for the first", c.name, i, col)
+			}
+		}
+	}
+
 	cols = Bin(Segments(series(1, 2, 3, 4), time.Second), 1, 2, 1)
 	if c := cols[0]; c.Mean != 2.5 || c.Min != 2 || c.Max != 3 {
 		t.Errorf("column %+v, want only the readings at 1 and 2 s", c)

@@ -27,7 +27,8 @@ type BandKind struct {
 	// Name is the kind in a legend: "intervals".
 	Name string
 	// Mark is its mark in a braille chart's row of bands: '━', say, or a
-	// slope '╱' for climbs.
+	// slope '╱' for climbs. A control or format character, the zero
+	// rune among them, is drawn as U+FFFD, as a title's is.
 	Mark rune
 	// Colour is its colour in a picture, drawn over the background and
 	// under the grid and the line: faint, alpha and all, so a marked
@@ -79,6 +80,7 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 	var out, legend []string
 	for _, k := range kinds {
 		kind := c.BandKinds[k]
+		mark := bandMark(kind.Mark)
 		row := []rune(strings.Repeat(" ", cols))
 		for _, b := range c.Bands {
 			if b.Kind != k || span <= 0 {
@@ -89,21 +91,43 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 			// Placed by the scale's own fractions, so an inverted axis's
 			// bands are mirrored as its line is.
 			lo, hi := b.Span()
-			f0, _ := c.X.Frac(lo)
-			f1, _ := c.X.Frac(hi)
+			f0, cut0 := c.X.Frac(lo)
+			f1, cut1 := c.X.Frac(hi)
+			if cut0 && cut1 && f0 == f1 {
+				// Wholly before the axis or past it, or an end that is no
+				// number: drawn nowhere, as the picture draws it. Its
+				// middle held to the first character, one before the axis
+				// was marked there.
+				continue
+			}
 			f0, f1 = min(f0, f1), max(f0, f1)
 			from := int(math.Ceil(f0*float64(cols) - 0.5))
 			to := int(math.Floor(f1*float64(cols) - 0.5))
 			if from > to {
-				from = int((f0 + f1) / 2 * float64(cols))
+				// Held to the last, as Bin holds a reading at the axis's
+				// end: a band at the end fell a character past it, and
+				// was lost.
+				from = min(int((f0+f1)/2*float64(cols)), cols-1)
 				to = from
 			}
 			for x := max(from, 0); x <= min(to, cols-1); x++ {
-				row[x] = kind.Mark
+				row[x] = mark
 			}
 		}
 		out = append(out, pad+strings.TrimRight(string(row), " "))
-		legend = append(legend, string(kind.Mark)+" "+kind.Name)
+		legend = append(legend, string(mark)+" "+kind.Name)
 	}
 	return append(out, cut(pad+strings.Join(legend, "   "), gutter+1+cols))
+}
+
+// bandMark is m as a band's row and its legend draw it: a control or
+// format character as U+FFFD, as in a title, so that an escape is not a
+// command to the terminal. Its width is left as it is: in a CJK locale
+// the axis's '─' is two columns a character too, and '━' beneath it
+// stays under its ticks, where a mark of one column would not.
+func bandMark(m rune) rune {
+	if hidden(m) {
+		return '\uFFFD'
+	}
+	return m
 }
