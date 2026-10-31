@@ -200,8 +200,8 @@ type Display struct {
 	partial bool
 
 	// stall is the timer that redraws the display when a bar showing a
-	// rate has gone stallAfter without moving: nothing else redraws a
-	// display whose only bar has stopped, so its rate stood for ever.
+	// rate or an estimate has gone stallAfter without moving: nothing else
+	// redraws a display whose only bar has stopped, so they stood for ever.
 	// after makes it -- time.AfterFunc, or a test's own.
 	stall *time.Timer
 	after func(time.Duration, func()) *time.Timer
@@ -441,16 +441,22 @@ func (d *Display) Stop() {
 }
 
 // watchStall sets the timer to redraw the display when the first bar now
-// showing a rate will have gone stallAfter without moving, or stops it
-// where none shows one. The caller holds the mutex.
-func (d *Display) watchStall(now time.Time) {
+// showing a rate or an estimate will have gone stallAfter without moving,
+// or stops it where none shows either: fields is each bar's, as the draw
+// under way read them, so the timer is set from what a stall takes off the
+// line rather than a second copy of when it does. An estimate is the run's
+// average, not the rate's, and is shown without one where a count went
+// back and cleared the rate: armed for a rate alone, a job that hung just
+// after a reset kept its estimate on the screen for ever. The caller holds
+// the mutex.
+func (d *Display) watchStall(now time.Time, fields [][numSlots]string) {
 	if d.stall != nil {
 		d.stall.Stop()
 		d.stall = nil
 	}
 	var due time.Time
-	for _, b := range d.bars {
-		if b.lastRate > 0 {
+	for i, b := range d.bars {
+		if fields[i][slotRate] != "" || fields[i][slotETA] != "" {
 			if at := b.lastMoved.Add(stallAfter); due.IsZero() || at.Before(due) {
 				due = at
 			}
@@ -536,7 +542,7 @@ func (d *Display) draw() {
 		}
 		_, _ = d.w.Write(buf)
 		d.drawn = len(d.bars)
-		d.watchStall(now)
+		d.watchStall(now, fields)
 		return
 	}
 	// Plain: one line per bar, appended rather than replaced. erase above is

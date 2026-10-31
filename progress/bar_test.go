@@ -411,9 +411,96 @@ func TestBar_StalledOnlyBarIsRedrawn(t *testing.T) {
 		t.Fatal("no redraw was set for a bar showing a rate")
 	}
 	c.add(due)
-	fire()
+	stall := fire
+	fire = nil
+	stall()
+	// A bar stalled shows neither, and sets no timer: were it set again,
+	// its deadline long past, each redraw would set another a millisecond
+	// on, and the display would redraw for ever.
+	if fire != nil {
+		t.Error("the stall's redraw set the timer again")
+	}
 	line := replay(buf.String()).text()[0]
 	if strings.Contains(line, "/s") || strings.Contains(line, "left") {
+		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
+	}
+}
+
+// A count that goes back -- a caller starting a step again -- clears the
+// rate but not the estimate, which is the run's average; a bar that then
+// hangs is redrawn without it all the same. The timer was set only for a
+// bar showing a rate, so the estimate stood on the screen for ever.
+func TestBar_StalledEstimateIsRedrawnWithoutARate(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Second})
+	var due time.Duration
+	var fire func()
+	d.after = func(dur time.Duration, f func()) *time.Timer {
+		due, fire = dur, f
+		return time.NewTimer(time.Hour)
+	}
+	defer d.Stop()
+	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
+	c.add(time.Second)
+	bar.Set(300)
+	c.add(time.Second)
+	fire = nil
+	bar.Set(100)
+	if line := replay(buf.String()).text()[0]; strings.Contains(line, "/s") || !strings.Contains(line, "left") {
+		t.Fatalf("a count gone back: %q, want an estimate and no rate", line)
+	}
+	if fire == nil {
+		t.Fatal("no redraw was set for a bar showing an estimate")
+	}
+	c.add(due)
+	stall := fire
+	fire = nil
+	stall()
+	// A bar stalled shows neither, and sets no timer: were it set again,
+	// its deadline long past, each redraw would set another a millisecond
+	// on, and the display would redraw for ever.
+	if fire != nil {
+		t.Error("the stall's redraw set the timer again")
+	}
+	if line := replay(buf.String()).text()[0]; strings.Contains(line, "left") {
+		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
+	}
+}
+
+// A bar of no known total shows a rate and no estimate, and is redrawn
+// without the rate once it stalls, as a bar with both is.
+func TestBar_StalledUnsizedBarIsRedrawn(t *testing.T) {
+	c := newClock()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Second})
+	var due time.Duration
+	var fire func()
+	d.after = func(dur time.Duration, f func()) *time.Timer {
+		due, fire = dur, f
+		return time.NewTimer(time.Hour)
+	}
+	defer d.Stop()
+	bar := d.Bar(BarSpec{Label: "x"})
+	c.add(time.Second)
+	bar.Set(300)
+	if line := replay(buf.String()).text()[0]; !strings.Contains(line, "/s") || strings.Contains(line, "left") {
+		t.Fatalf("an unsized bar moving: %q, want a rate and no estimate", line)
+	}
+	if fire == nil {
+		t.Fatal("no redraw was set for a bar showing a rate")
+	}
+	c.add(due)
+	stall := fire
+	fire = nil
+	stall()
+	// A bar stalled shows neither, and sets no timer: were it set again,
+	// its deadline long past, each redraw would set another a millisecond
+	// on, and the display would redraw for ever.
+	if fire != nil {
+		t.Error("the stall's redraw set the timer again")
+	}
+	if line := replay(buf.String()).text()[0]; strings.Contains(line, "/s") {
 		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
 	}
 }
