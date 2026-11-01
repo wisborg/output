@@ -2,6 +2,7 @@ package chart
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -205,7 +206,7 @@ func TestBrailleBands(t *testing.T) {
 		{From: 10, To: 20, Kind: 0}, {From: 23, To: 33, Kind: 0},
 		{From: 60.5, To: 60.9, Kind: 0}, {From: 80, To: 90, Kind: 1},
 		{From: 40, To: 50, Kind: 2}, {From: -20, To: -10, Kind: 1},
-		{From: 110, To: 120, Kind: 1}, {From: 100, To: 100, Kind: 2},
+		{From: 110, To: 120, Kind: 1}, {From: 99.9, To: 100, Kind: 2},
 	}
 	lines := c.Braille(44, 15)
 	if len(lines) != 15 {
@@ -235,11 +236,10 @@ func TestBrailleBands(t *testing.T) {
 	if at(climbs, 85) != '╱' || at(climbs, 45) != ' ' || at(climbs, 0) != ' ' || at(climbs, 99) != ' ' {
 		t.Errorf("climbs %q, want one at 80 to 90 s", string(climbs))
 	}
-	// One at the axis's very end is marked in the last character, as one
-	// too short to cover a character's middle is anywhere: it fell a
-	// character past the last, and was lost.
+	// One short at the axis's very end is marked in the last character,
+	// as one too short to cover a character's middle is anywhere.
 	if descents := []rune(lines[13]); at(descents, 45) != '╲' || at(descents, 85) != ' ' || at(descents, 99) != '╲' {
-		t.Errorf("descents %q, want one at 40 to 50 s and one at 100 s", string(descents))
+		t.Errorf("descents %q, want one at 40 to 50 s and one at 99.9 to 100 s", string(descents))
 	}
 	if lines[14] != "    ━ intervals   ╱ climbs   ╲ descents" {
 		t.Errorf("legend %q", lines[14])
@@ -247,6 +247,52 @@ func TestBrailleBands(t *testing.T) {
 	plain := ramp(1000, 1000).Braille(44, 14)
 	if strings.Contains(strings.Join(plain, "\n"), "intervals") || len(plain) != 14 {
 		t.Errorf("a chart without bands has a legend or the wrong height:\n%s", strings.Join(plain, "\n"))
+	}
+}
+
+// A band is marked in braille where the picture draws it, and only there:
+// the picture draws a band with some length on the axis, a pixel wide at
+// least. So one touching the axis only at an end, one of no length and one
+// with an end that is no number are marked nowhere -- each was once marked
+// in a character -- and one short at the axis's end is marked in the last
+// character, even where its middle rounds to the end itself. Each is alone
+// on its chart, so no other band's mark stands in for it.
+func TestBrailleBandsWhereThePictureDrawsThem(t *testing.T) {
+	for _, c := range []struct {
+		from, to float64
+		want     int // the character marked, or -1 for none
+	}{
+		{-20, 0, -1}, {100, 120, -1}, {50, 50, -1}, {100, 100, -1}, {0, 0, -1},
+		{math.NaN(), 50, -1}, {99.9, 100, 39}, {100 - 1e-14, 100, 39},
+	} {
+		ch := ramp(1000, 1000)
+		ch.BandKinds = []BandKind{{Name: "k", Mark: '━'}}
+		ch.Bands = []Band{{From: c.from, To: c.to}}
+		// The row is the one above the legend, and the plot starts a
+		// character past the axis's '┤': found, not counted, so that a
+		// band marked nowhere is not found nowhere on some other line.
+		lines := ch.Braille(44, 13)
+		if legend := lines[len(lines)-1]; strings.TrimSpace(legend) != "━ k" {
+			t.Fatalf("band %v to %v: the last line %q is not the legend", c.from, c.to, legend)
+		}
+		line := lines[len(lines)-2]
+		plot := slices.Index([]rune(lines[1]), '┤') + 1
+		if plot == 0 {
+			t.Fatalf("no axis on %q", lines[1])
+		}
+		got := -1
+		for i, r := range []rune(line) {
+			if r == '━' {
+				if got >= 0 {
+					t.Errorf("band %v to %v: more than one character marked: %q", c.from, c.to, line)
+					break
+				}
+				got = i - plot
+			}
+		}
+		if got != c.want {
+			t.Errorf("band %v to %v: character %d marked, want %d: %q", c.from, c.to, got, c.want, line)
+		}
 	}
 }
 

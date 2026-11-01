@@ -12,6 +12,11 @@ import (
 //
 // A band is the same stretch in every strip -- it is a fact about what the
 // chart is of, not about one series -- so it is the chart's, not a strip's.
+//
+// A band is drawn where it has some length on the axis. One of no length,
+// From equal to To, one touching the axis only at an end, and one with an
+// end that is no number are drawn nowhere, in braille and in a picture,
+// though a legend still names their kind.
 type Band struct {
 	From, To float64
 	// Kind is the band's kind: its index in the chart's BandKinds.
@@ -28,7 +33,10 @@ type BandKind struct {
 	Name string
 	// Mark is its mark in a braille chart's row of bands: '━', say, or a
 	// slope '╱' for climbs. A control or format character, the zero
-	// rune among them, is drawn as U+FFFD, as a title's is.
+	// rune among them, is drawn as U+FFFD, as a title's is. A mark is as
+	// wide as the axis's '─', as '━' and the slopes are in every locale:
+	// one wider, '中', widens the row past the chart, and one of no
+	// width, a combining mark, pulls the marks after it off their ticks.
 	Mark rune
 	// Colour is its colour in a picture, drawn over the background and
 	// under the grid and the line: faint, alpha and all, so a marked
@@ -68,8 +76,9 @@ func BandRows(kinds int) int {
 // wide, and a legend naming each kind by its mark. A character is marked
 // where a band covers its middle, so that two bands a character or more
 // apart -- two intervals and the recovery between -- stay apart; a band
-// too short to cover any middle marks the character it falls in, so that
-// it is never lost.
+// with some length on the axis too short to cover any middle marks the
+// character it falls in, so that it is not lost, as a picture draws it a
+// pixel wide. A band with none is marked nowhere, as Band says.
 func (c Chart) brailleBands(gutter, cols int) []string {
 	kinds := c.UsedBandKinds()
 	if len(kinds) == 0 {
@@ -91,13 +100,14 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 			// Placed by the scale's own fractions, so an inverted axis's
 			// bands are mirrored as its line is.
 			lo, hi := b.Span()
-			f0, cut0 := c.X.Frac(lo)
-			f1, cut1 := c.X.Frac(hi)
-			if cut0 && cut1 && f0 == f1 {
-				// Wholly before the axis or past it, or an end that is no
-				// number: drawn nowhere, as the picture draws it. Its
-				// middle held to the first character, one before the axis
-				// was marked there.
+			f0, _ := c.X.Frac(lo)
+			f1, _ := c.X.Frac(hi)
+			if f0 == f1 {
+				// Wholly before the axis or past it, touching it only at
+				// an end, of no length, or with an end that is no number
+				// (Span makes both ends NaN where either is, and Frac
+				// holds both at 0): drawn nowhere, as the picture draws
+				// only a band with some length on the axis.
 				continue
 			}
 			f0, f1 = min(f0, f1), max(f0, f1)
@@ -105,8 +115,8 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 			to := int(math.Floor(f1*float64(cols) - 0.5))
 			if from > to {
 				// Held to the last, as Bin holds a reading at the axis's
-				// end: a band at the end fell a character past it, and
-				// was lost.
+				// end: a band ending there whose middle rounds to the end
+				// fell a character past it, and was lost.
 				from = min(int((f0+f1)/2*float64(cols)), cols-1)
 				to = from
 			}
@@ -122,9 +132,8 @@ func (c Chart) brailleBands(gutter, cols int) []string {
 
 // bandMark is m as a band's row and its legend draw it: a control or
 // format character as U+FFFD, as in a title, so that an escape is not a
-// command to the terminal. Its width is left as it is: in a CJK locale
-// the axis's '─' is two columns a character too, and '━' beneath it
-// stays under its ticks, where a mark of one column would not.
+// command to the terminal. Its width is the caller's, as BandKind.Mark
+// says.
 func bandMark(m rune) rune {
 	if hidden(m) {
 		return '\uFFFD'

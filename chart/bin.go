@@ -15,9 +15,12 @@ type Column struct {
 	// Ok.
 	Mean, Min, Max float64
 	// Joined says the line runs into this column from the previous column
-	// with a reading: the two hold readings of one segment, one after the
-	// other, where x runs one way, as Bin says. The leftmost column of a segment's readings is not joined,
-	// whatever lies before it.
+	// with a reading. Where x runs one way, as Bin says, the two hold
+	// readings of one segment, one after the other; where it turns back,
+	// or segments overlap in x, they may not. The leftmost column of a
+	// segment's readings is joined only by another segment's line: where
+	// another's readings run into that column, as where two segments
+	// overlap in x or share a column.
 	Joined bool
 }
 
@@ -32,8 +35,9 @@ type Column struct {
 // the right-hand of each two marked. A renderer joins a column to the
 // nearest with a reading on its left, so the line is the recording's
 // where x runs one way across the whole chart, rising or falling. Where
-// it turns back, or two segments overlap in x, the line runs in x order,
-// between readings that were not one after the other, and may join two
+// it turns back, or two segments overlap in x, it is not: readings in
+// columns 2, 8 and 5, in that order, mark 8 twice and 5 not at all, so 2
+// is a dot and the line runs from 5 to 8; and the line may join two
 // segments across a break.
 //
 // Columns between two of one segment's readings, holding none of their own,
