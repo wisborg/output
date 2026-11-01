@@ -3,6 +3,7 @@ package progress
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -343,8 +344,23 @@ func TestDisplay_SetDoesNotAllocateWhenItDoesNotRedraw(t *testing.T) {
 	c.add(time.Second)
 	bar.Set(1) // let the first redraw happen, so the rest are throttled
 
-	if n := testing.AllocsPerRun(200, func() { bar.Set(2) }); n != 0 {
-		t.Errorf("Set allocated %v objects per call on the non-redrawing path, want 0", n)
+	// And where Set notes the count moving, going back, and moving again
+	// after a stall, each call: on a display redrawing once an hour, so
+	// that the clock can move on between calls and no call redraws.
+	slow := New(io.Discard, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Hour})
+	moving := slow.Bar(BarSpec{Label: "moving", Total: 1 << 40})
+	n := int64(1 << 30)
+	for _, step := range []struct {
+		name string
+		f    func()
+	}{
+		{"moving", func() { c.add(movedGrain); moving.Add(1) }},
+		{"going back", func() { c.add(movedGrain); n--; moving.Set(n) }},
+		{"moving after a stall", func() { c.add(stallAfter); moving.Add(1) }},
+	} {
+		if a := testing.AllocsPerRun(200, step.f); a != 0 {
+			t.Errorf("Set %s allocated %v objects per call, want 0", step.name, a)
+		}
 	}
 }
 

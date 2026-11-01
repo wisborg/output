@@ -61,11 +61,13 @@
 // A bar that has not moved for five seconds shows no rate and no estimate,
 // rather than the speed it last ran at: a job that has stopped must not read
 // as one running. The display redraws on a timer for this, since nothing
-// else redraws a display whose only bar has stopped.
+// else redraws a display whose only bar has stopped. Moving again, it shows
+// no rate until half a second has been measured since.
 package progress
 
 import (
 	"io"
+	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -202,9 +204,11 @@ type Display struct {
 	// stall is the timer that redraws the display when a bar showing a
 	// rate or an estimate has gone stallAfter without moving: nothing else
 	// redraws a display whose only bar has stopped, so they stood for ever.
-	// after makes it -- time.AfterFunc, or a test's own.
-	stall *time.Timer
-	after func(time.Duration, func()) *time.Timer
+	// after makes it -- time.AfterFunc, or a test's own. stallDue is when
+	// it is set for.
+	stall    *time.Timer
+	stallDue time.Time
+	after    func(time.Duration, func()) *time.Timer
 }
 
 // New returns a Display writing to w.
@@ -435,9 +439,11 @@ func (d *Display) Stop() {
 	d.erase()
 	d.bars = nil
 	d.stopped = true
-	if d.stall != nil {
-		d.stall.Stop()
-	}
+	// No redraw is ever due again, so that a Set after Stop -- a worker
+	// still running as the program shuts down -- returns at the throttle,
+	// before the mutex, as a Set does between redraws.
+	d.nextDue.Store(math.MaxInt64)
+	d.stopStall()
 }
 
 // watchStall sets the timer to redraw the display when the first bar now
@@ -445,33 +451,60 @@ func (d *Display) Stop() {
 // or stops it where none shows either: fields is each bar's, as the draw
 // under way read them, so the timer is set from what a stall takes off the
 // line rather than a second copy of when it does. An estimate is the run's
-// average, not the rate's, and is shown without one where a count went
-// back and cleared the rate: armed for a rate alone, a job that hung just
-// after a reset kept its estimate on the screen for ever. The caller holds
-// the mutex.
+// average, not the rate's, and may be shown without one: armed for a
+// rate alone, a job that hung just after a reset kept its estimate on the
+// screen for ever. The caller holds the mutex.
+//
+// A timer set for a deadline no later than the new one is kept, not made
+// again: while the bars move the deadline moves with every redraw, a dozen
+// times a second, and the timer that fires early only redraws and is set
+// again from there, once a stallAfter.
 func (d *Display) watchStall(now time.Time, fields [][numSlots]string) {
-	if d.stall != nil {
-		d.stall.Stop()
-		d.stall = nil
-	}
 	var due time.Time
 	for i, b := range d.bars {
 		if fields[i][slotRate] != "" || fields[i][slotETA] != "" {
-			if at := b.lastMoved.Add(stallAfter); due.IsZero() || at.Before(due) {
+			if at := b.movedAt().Add(stallAfter); due.IsZero() || at.Before(due) {
 				due = at
 			}
 		}
 	}
 	if due.IsZero() {
+		d.stopStall()
 		return
 	}
+	if d.stall != nil && !d.stallDue.After(due) {
+		return
+	}
+	d.stopStall()
 	after := d.after
 	if after == nil {
 		after = time.AfterFunc
 	}
+	d.stallDue = due
 	// A moment past the deadline, so the redraw it makes finds the bar
-	// stalled rather than a hair short of it.
-	d.stall = after(max(due.Sub(now), 0)+time.Millisecond, func() { d.redraw(true) })
+	// stalled rather than a hair short of it. Firing, it clears the timer
+	// only if it is still the one set, so that one firing as it is
+	// replaced does not clear its successor; it is set under the mutex the
+	// firing takes, so the comparison sees it.
+	var t *time.Timer
+	t = after(max(due.Sub(now), 0)+time.Millisecond, func() {
+		d.mu.Lock()
+		if d.stall == t {
+			d.stall = nil
+		}
+		d.mu.Unlock()
+		d.redraw(true)
+	})
+	d.stall = t
+}
+
+// stopStall stops the stall timer, if one is set. The caller holds the
+// mutex.
+func (d *Display) stopStall() {
+	if d.stall != nil {
+		d.stall.Stop()
+		d.stall = nil
+	}
 }
 
 // redraw renders the live region, subject to the throttle unless force.
@@ -480,8 +513,10 @@ func (d *Display) watchStall(now time.Time, fields [][numSlots]string) {
 // Bar.Set on every unit of work: at a few hundred calls a second, per-call
 // lock contention across several bars would be a real cost paid by the work
 // itself rather than by the reporting.
-func (d *Display) redraw(force bool) {
-	now := d.now()
+func (d *Display) redraw(force bool) { d.redrawAt(d.now(), force) }
+
+// redrawAt is redraw at now, for Bar.Set, which has read the clock already.
+func (d *Display) redrawAt(now time.Time, force bool) {
 	if !force {
 		if now.UnixNano() < d.nextDue.Load() {
 			return
@@ -522,6 +557,9 @@ func (d *Display) plainLine(s string) {
 func (d *Display) draw() {
 	d.erase()
 	if len(d.bars) == 0 {
+		// Nothing left to stall: the last bar's Done once left the timer
+		// set, to redraw an empty display.
+		d.stopStall()
 		return
 	}
 	now := d.now()

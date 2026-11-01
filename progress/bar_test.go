@@ -386,85 +386,83 @@ func TestDisplay_BarAfterStopDrawsNothing(t *testing.T) {
 	}
 }
 
+// stallTimer stands in for the display's stall timer: it records each
+// timer the display sets, when it is due and what it does, so a test can
+// move the clock to it and fire it.
+type stallTimer struct {
+	due  time.Duration
+	fire func()
+	set  int
+}
+
+func stallDisplay(t *testing.T, c *clock) (*Display, *bytes.Buffer, *stallTimer) {
+	t.Helper()
+	d, buf := liveDisplay(80, c)
+	st := &stallTimer{}
+	d.after = func(dur time.Duration, f func()) *time.Timer {
+		st.due, st.fire = dur, f
+		st.set++
+		return time.NewTimer(time.Hour)
+	}
+	t.Cleanup(d.Stop)
+	return d, buf, st
+}
+
+// stall moves the clock to the timer set last and fires it, and fails if
+// that redraw set another: were it set again, its deadline long past, each
+// redraw of a bar stalled would set another a millisecond on, and the
+// display would redraw for ever. It returns the line drawn.
+func (st *stallTimer) stall(t *testing.T, c *clock, buf *bytes.Buffer) string {
+	t.Helper()
+	if st.fire == nil {
+		t.Fatal("no redraw was set for a bar showing a rate or an estimate")
+	}
+	c.add(st.due)
+	fire := st.fire
+	st.fire = nil
+	fire()
+	if st.fire != nil {
+		t.Error("the stall's redraw set the timer again")
+	}
+	return replay(buf.String()).text()[0]
+}
+
 // A display whose only bar has stopped is redrawn when the bar has gone
 // stallAfter without moving, and loses its rate and its estimate: nothing
 // else redraws it, so a hung job's last speed once stood on the screen for
 // ever. The redraw is the display's own timer, here a test's.
 func TestBar_StalledOnlyBarIsRedrawn(t *testing.T) {
 	c := newClock()
-	var buf bytes.Buffer
-	d := New(&buf, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Second})
-	var due time.Duration
-	var fire func()
-	d.after = func(dur time.Duration, f func()) *time.Timer {
-		due, fire = dur, f
-		return time.NewTimer(time.Hour)
-	}
-	defer d.Stop()
+	d, buf, st := stallDisplay(t, c)
 	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
 	c.add(time.Second)
 	bar.Set(300)
 	if line := replay(buf.String()).text()[0]; !strings.Contains(line, "/s") || !strings.Contains(line, "left") {
 		t.Fatalf("a moving bar shows no rate or estimate: %q", line)
 	}
-	if fire == nil {
-		t.Fatal("no redraw was set for a bar showing a rate")
-	}
-	c.add(due)
-	stall := fire
-	fire = nil
-	stall()
-	// A bar stalled shows neither, and sets no timer: were it set again,
-	// its deadline long past, each redraw would set another a millisecond
-	// on, and the display would redraw for ever.
-	if fire != nil {
-		t.Error("the stall's redraw set the timer again")
-	}
-	line := replay(buf.String()).text()[0]
-	if strings.Contains(line, "/s") || strings.Contains(line, "left") {
-		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
+	if line := st.stall(t, c, buf); strings.Contains(line, "/s") || strings.Contains(line, "left") {
+		t.Errorf("stalled for %v, the only bar still reads %q", st.due, line)
 	}
 }
 
-// A count that goes back -- a caller starting a step again -- clears the
-// rate but not the estimate, which is the run's average; a bar that then
-// hangs is redrawn without it all the same. The timer was set only for a
-// bar showing a rate, so the estimate stood on the screen for ever.
+// A bar moving again after a stall shows its estimate, the run's average,
+// and no rate until a window has run; a bar that then hangs is redrawn
+// without the estimate all the same. The timer was once set only for a bar
+// showing a rate, so the estimate stood on the screen for ever.
 func TestBar_StalledEstimateIsRedrawnWithoutARate(t *testing.T) {
 	c := newClock()
-	var buf bytes.Buffer
-	d := New(&buf, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Second})
-	var due time.Duration
-	var fire func()
-	d.after = func(dur time.Duration, f func()) *time.Timer {
-		due, fire = dur, f
-		return time.NewTimer(time.Hour)
-	}
-	defer d.Stop()
+	d, buf, st := stallDisplay(t, c)
 	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
 	c.add(time.Second)
 	bar.Set(300)
+	st.stall(t, c, buf)
 	c.add(time.Second)
-	fire = nil
-	bar.Set(100)
+	bar.Set(400)
 	if line := replay(buf.String()).text()[0]; strings.Contains(line, "/s") || !strings.Contains(line, "left") {
-		t.Fatalf("a count gone back: %q, want an estimate and no rate", line)
+		t.Fatalf("moving again after a stall: %q, want an estimate and no rate", line)
 	}
-	if fire == nil {
-		t.Fatal("no redraw was set for a bar showing an estimate")
-	}
-	c.add(due)
-	stall := fire
-	fire = nil
-	stall()
-	// A bar stalled shows neither, and sets no timer: were it set again,
-	// its deadline long past, each redraw would set another a millisecond
-	// on, and the display would redraw for ever.
-	if fire != nil {
-		t.Error("the stall's redraw set the timer again")
-	}
-	if line := replay(buf.String()).text()[0]; strings.Contains(line, "left") {
-		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
+	if line := st.stall(t, c, buf); strings.Contains(line, "left") {
+		t.Errorf("stalled for %v, the only bar still reads %q", st.due, line)
 	}
 }
 
@@ -472,36 +470,195 @@ func TestBar_StalledEstimateIsRedrawnWithoutARate(t *testing.T) {
 // without the rate once it stalls, as a bar with both is.
 func TestBar_StalledUnsizedBarIsRedrawn(t *testing.T) {
 	c := newClock()
-	var buf bytes.Buffer
-	d := New(&buf, Options{Mode: Live, Columns: 80, Now: c.now, Interval: time.Second})
-	var due time.Duration
-	var fire func()
-	d.after = func(dur time.Duration, f func()) *time.Timer {
-		due, fire = dur, f
-		return time.NewTimer(time.Hour)
-	}
-	defer d.Stop()
+	d, buf, st := stallDisplay(t, c)
 	bar := d.Bar(BarSpec{Label: "x"})
 	c.add(time.Second)
 	bar.Set(300)
 	if line := replay(buf.String()).text()[0]; !strings.Contains(line, "/s") || strings.Contains(line, "left") {
 		t.Fatalf("an unsized bar moving: %q, want a rate and no estimate", line)
 	}
-	if fire == nil {
-		t.Fatal("no redraw was set for a bar showing a rate")
+	if line := st.stall(t, c, buf); strings.Contains(line, "/s") {
+		t.Errorf("stalled for %v, the only bar still reads %q", st.due, line)
 	}
-	c.add(due)
-	stall := fire
-	fire = nil
-	stall()
-	// A bar stalled shows neither, and sets no timer: were it set again,
-	// its deadline long past, each redraw would set another a millisecond
-	// on, and the display would redraw for ever.
-	if fire != nil {
-		t.Error("the stall's redraw set the timer again")
+}
+
+// A bar that moves between redraws and then hangs loses its rate
+// stallAfter after it last moved, not after the stall timer's redraw first
+// sees the move: judged at a redraw, the move was taken as happening then,
+// and the rate stood up to twice stallAfter.
+func TestBar_StallCountsFromTheLastSet(t *testing.T) {
+	c := newClock()
+	d, buf, st := stallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
+	c.add(time.Second)
+	bar.Set(300)
+	c.add(500 * time.Millisecond)
+	bar.Set(400) // inside the interval: not drawn
+	// The timer was set at the first Set, half a second ago, so it fires
+	// early, finds the bar moving and is set again for the rest.
+	c.add(st.due - 500*time.Millisecond)
+	fire := st.fire
+	st.fire = nil
+	fire()
+	if line := replay(buf.String()).text()[0]; !strings.Contains(line, "/s") {
+		t.Fatalf("%v after it last moved, the bar reads %q, want a rate still", stallAfter-500*time.Millisecond, line)
 	}
+	if st.due > time.Second {
+		t.Errorf("set again for %v, want the half second left of stallAfter since the last Set", st.due)
+	}
+	if line := st.stall(t, c, buf); strings.Contains(line, "/s") {
+		t.Errorf("stalled, the bar reads %q", line)
+	}
+}
+
+// A bar moving again after a stall shows no rate until a window has run
+// from where it started again, then the rate since, the step that ended
+// the stall left out: measured from the stall, the first was the work of
+// an instant over the whole stall, 7/s for a job running at a hundred, and
+// with the step counted, 200/s.
+func TestBar_RateAfterAStallIsMeasuredFromTheResume(t *testing.T) {
+	c := newClock()
+	d, buf, st := stallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x"})
+	c.add(time.Second)
+	bar.Set(300)
+	st.stall(t, c, buf)
+	c.add(8 * time.Second)
+	bar.Set(400)
 	if line := replay(buf.String()).text()[0]; strings.Contains(line, "/s") {
-		t.Errorf("stalled for %v, the only bar still reads %q", due, line)
+		t.Errorf("moving again after a stall: %q, want no rate yet", line)
+	}
+	c.add(time.Second)
+	bar.Set(500)
+	if want, line := formatRate(100), replay(buf.String()).text()[0]; !strings.Contains(line, want) {
+		t.Errorf("a second after moving again: %q, want %q", line, want)
+	}
+	// And trailing from there, not averaged from the resume: taken again
+	// at every redraw, the resume made the rate an average since it.
+	c.add(time.Second)
+	bar.Set(800)
+	if want, line := formatRate(300), replay(buf.String()).text()[0]; !strings.Contains(line, want) {
+		t.Errorf("a second at 300 after one at 100: %q, want %q", line, want)
+	}
+}
+
+// Moving again after a stall shows no rate even where no redraw came
+// during it -- a timer firing late, say -- rather than the speed before the
+// stall, which the redraw that moving again makes held.
+func TestBar_NoRateHeldOverAStallNoRedrawSaw(t *testing.T) {
+	c := newClock()
+	d, buf, _ := stallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x"})
+	c.add(time.Second)
+	bar.Set(300)
+	c.add(10 * time.Second) // the timer never fires
+	bar.Set(400)
+	if line := replay(buf.String()).text()[0]; strings.Contains(line, "/s") {
+		t.Errorf("moving again after a stall no redraw saw: %q, want no rate yet", line)
+	}
+}
+
+// Workers whose Sets arrive out of order, the count going back a little
+// several times a second, keep the rate on the screen: noted as resets,
+// each restarted the rate window, and the rate never showed.
+func TestBar_OutOfOrderSetsKeepTheRate(t *testing.T) {
+	c := newClock()
+	d, buf, _ := stallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x"})
+	for n := int64(10); n <= 300; n += 10 {
+		c.add(100 * time.Millisecond)
+		bar.Set(n + 5)
+		bar.Set(n)
+	}
+	if line := replay(buf.String()).text()[0]; !strings.Contains(line, "/s") {
+		t.Errorf("three seconds of Sets a little out of order: %q, want a rate", line)
+	}
+}
+
+// A bar moving again after a stall at the same reading of the clock as a
+// redraw -- another bar's -- is taken as moving again all the same, and its
+// rate measured from the count it moved to: taken only where later than
+// the window's start, it was missed, and the step that ended the stall was
+// counted.
+func TestBar_ResumeAtTheReadingOfARedraw(t *testing.T) {
+	c := newClock()
+	d, buf, st := stallDisplay(t, c)
+	a := d.Bar(BarSpec{Label: "a"})
+	b := d.Bar(BarSpec{Label: "b"})
+	c.add(time.Second)
+	a.Set(300)
+	st.stall(t, c, buf) // a forced redraw: the next is due a second on
+	c.add(2 * time.Second)
+	b.Set(1) // a redraw, closing a's window at this reading
+	a.Set(400)
+	c.add(time.Second)
+	a.Set(500)
+	if want, line := formatRate(100), replay(buf.String()).text()[0]; !strings.Contains(line, want) {
+		t.Errorf("100 done in the second since moving again: %q, want %q", line, want)
+	}
+}
+
+// A Set after Stop -- a worker still running as the program shuts down --
+// returns without the display's mutex, as one between redraws does: the
+// deadline Stop left was passed, and each took the lock to find the
+// display stopped.
+func TestBar_SetAfterStopTakesNoLock(t *testing.T) {
+	c := newClock()
+	d, _ := liveDisplay(80, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 10})
+	d.Stop()
+	c.add(time.Hour)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		bar.Set(5)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a Set after Stop waited for the display's mutex")
+	}
+}
+
+// When the bar last moved only ever moves forward: of two Sets racing,
+// the one that read the clock first may note its move last, and a worker
+// paused for seconds between the two set it seconds back, so that a bar
+// moving read as stalled and its next Set as moving again after a stall.
+func TestBar_MovedNeverGoesBack(t *testing.T) {
+	c := newClock()
+	d, _ := liveDisplay(80, c)
+	bar := d.Bar(BarSpec{Label: "x"})
+	early, late := c.now().Add(time.Second), c.now().Add(7*time.Second)
+	bar.moveFrom(late, 1, 3)
+	bar.moveFrom(early, 0, 2) // read the clock first, noted last
+	if got := bar.movedAt(); !got.Equal(late) {
+		t.Errorf("moved at %v after a move at %v noted late, want %v", got.Sub(c.now()), early.Sub(c.now()), late.Sub(c.now()))
+	}
+	if at := bar.resumedAt.Load(); at != int64(7*time.Second) {
+		t.Errorf("resumed at %v, want the one move a stall after the start, at 7s", time.Duration(at))
+	}
+}
+
+// While the bars move, the stall timer is set once a stallAfter, not again
+// at every redraw; and the last bar's Done stops it.
+func TestBar_StallTimerIsKeptWhileMoving(t *testing.T) {
+	c := newClock()
+	d, _, st := stallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
+	for i := range 40 {
+		c.add(100 * time.Millisecond)
+		bar.Set(int64(i+1) * 10)
+	}
+	if st.set != 1 {
+		t.Errorf("the timer was set %d times in %v of moving, want once", st.set, 40*100*time.Millisecond)
+	}
+	bar.Done()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.stall != nil {
+		t.Error("the last bar is done and the stall timer is still set")
 	}
 }
 
@@ -533,7 +690,8 @@ func TestFormattingEdges(t *testing.T) {
 	if got := formatRate(1.0 / 30); got != "<0.1/s" {
 		t.Errorf("formatRate(1/30) = %q", got)
 	}
-	b := &Bar{start: time.Unix(0, 0), lastMoved: time.Unix(10, 0)}
+	b := &Bar{start: time.Unix(0, 0)}
+	b.moved.Store(int64(10 * time.Second))
 	if got := b.eta(time.Unix(10, 0), 1, 1<<62); got != "" {
 		t.Errorf("an estimate of centuries: %q", got)
 	}

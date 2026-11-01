@@ -415,7 +415,11 @@ of magnitude between redraws. The previous figure is held until half a second
 has passed -- but not for ever: a bar that has not moved for five seconds
 shows no rate and no estimate, since a hung job showing the speed it last ran
 at reads as a job running. A timer redraws the display to say so: a display
-redraws on its bars' calls, and a hung job's only bar makes none. Relatedly, the displayed rate is a *trailing* measurement while the
+redraws on its bars' calls, and a hung job's only bar makes none. A bar
+moving again after a stall starts the window again from there. A count gone
+back does not, nor the estimate's average: a count back by one -- a retried
+chunk, two workers' Sets out of order -- is a hiccup, not a reset of the
+run, and restarting at each kept the rate off the screen. Relatedly, the displayed rate is a *trailing* measurement while the
 estimate is derived from the *cumulative* average: the two answer different
 questions, and an estimate that lurches by minutes on every hiccup is one
 nobody can use.
@@ -427,8 +431,12 @@ move, which is what a viewer reads a bar for.
 
 **`Bar.Set` must not allocate when it does not redraw.** It is called once per
 unit of work — per video frame, in the intended consumers — so the
-non-redrawing path is an atomic store, a clock read and a comparison, with the
-throttle checked outside the mutex.
+non-redrawing path is a clock read, an atomic swap, a load or two and a
+comparison, with the throttle checked outside the mutex, and a store where
+the last noted move is a hundredth of a second old. They note when the count
+moved, and moved again after a stall, as it happens: judged at a
+redraw instead, a move between redraws was seen late, and a hung job kept its
+rate up to twice the stall's five seconds.
 
 **A chart's truthfulness is decided in `chart`, never in a renderer.** Where
 a line breaks (`Segments`), what a column shows (`Bin`), the scale

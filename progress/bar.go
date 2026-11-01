@@ -75,9 +75,31 @@ type Bar struct {
 	lastTime time.Time
 	lastDone int64
 	lastRate float64
-	// lastMoved is when done last changed: a bar that has not moved for
-	// stallAfter shows no rate, rather than the last one it had.
-	lastMoved time.Time
+
+	// moved is when done last changed, to movedGrain: a bar that has not
+	// moved for stallAfter shows no rate and no estimate. It is stored by
+	// Set and Add as the count changes, not judged at a redraw against the
+	// count the last window closed on: judged so, a Set inside the redraw
+	// interval and then a hang was first seen at the stall timer's redraw,
+	// taken for movement there, and kept the rate and estimate on the
+	// screen up to twice stallAfter.
+	//
+	// It and resumedAt are nanoseconds since start, not Unix nanoseconds,
+	// so that they keep the monotonic clock start has: on the wall clock,
+	// a clock stepped back an hour kept a hung job's rate on the screen
+	// for that hour.
+	moved atomic.Int64
+	// resumed is when the count last moved after stallAfter still, and to
+	// what: stored by Set and Add, the count before the time, and read by
+	// observe, which restarts the rate window from it where the time is
+	// not the one it last took, seenResumed (guarded by the Display's
+	// mutex). Noticed only at a window's close, the first rate after a
+	// stall was measured over the whole stall. Two resumes are a stall
+	// apart, so their times differ on any clock; a redraw racing a second
+	// may pair one's time with the other's count, which costs one window's
+	// figure.
+	resumedAt, resumedTo atomic.Int64
+	seenResumed          int64
 
 	// shown is done and total as slots read them for the draw under way:
 	// the layout and the trough are drawn from the same reading as the
@@ -142,7 +164,7 @@ func hidden(r rune) bool {
 func newBar(d *Display, spec BarSpec) *Bar {
 	b := &Bar{d: d, label: printable(spec.Label), unit: printable(spec.Unit), bytes: spec.Bytes, start: d.now(), plainDone: -1}
 	b.total.Store(spec.Total)
-	b.lastTime, b.lastMoved = b.start, b.start
+	b.lastTime = b.start
 	b.reserveSlots()
 	return b
 }
@@ -204,14 +226,16 @@ func (b *Bar) widen(slot int, w int) {
 // Set records that done units are complete and redraws if the display is due.
 //
 // This is called once per unit of work -- per frame, in a render loop -- so
-// the path that does not redraw is an atomic store, a clock read and a
-// comparison. No allocation, no formatting, no lock.
+// the path that does not redraw is a clock read, an atomic swap, a load
+// or two and a comparison, and a store a hundredth of a second. No
+// allocation, no formatting, no lock.
 func (b *Bar) Set(done int64) {
 	if b == nil {
 		return
 	}
-	b.done.Store(done)
-	b.d.redraw(false)
+	now := b.d.now()
+	b.moveFrom(now, b.done.Swap(done), done)
+	b.d.redrawAt(now, false)
 }
 
 // Add records that n more units are complete.
@@ -219,9 +243,61 @@ func (b *Bar) Add(n int64) {
 	if b == nil {
 		return
 	}
-	b.done.Add(n)
-	b.d.redraw(false)
+	now := b.d.now()
+	done := b.done.Add(n)
+	b.moveFrom(now, done-n, done)
+	b.d.redrawAt(now, false)
 }
+
+// movedGrain is how finely moved is kept. It is stored only once it is
+// this old, so that most of the Sets of a busy bar, which several workers
+// may share, read it and do not write it; against a stallAfter of
+// seconds, a hundredth of one is exact enough.
+const movedGrain = 10 * time.Millisecond
+
+// moveFrom notes the count going from old to done at now: when it moved,
+// and when it moved again after a stall, for observe to restart the rate
+// window from. Atomics alone, as it is on Set's path.
+//
+// A count going back is movement as any change is, and ends a stall as
+// one, but it is not taken for a reset of the run. It may be one, but as
+// often it is a hiccup -- a retried chunk rolled back, two workers' Sets
+// arriving out of order -- and taken for one, each restarted the rate
+// window, so that workers in contention kept the rate off the screen for
+// the whole run. observe sees a count below the last window's at a
+// window's close, as before.
+//
+// moved only ever moves forward: two Sets racing, the one that read the
+// clock first may store last, and a worker paused for seconds between the
+// two made a moving bar read as stalled and its next Set a resume. The
+// resume is published after moved, so that a redraw that sees it sees
+// the bar moving too.
+func (b *Bar) moveFrom(now time.Time, old, done int64) {
+	if done == old {
+		return
+	}
+	t := int64(now.Sub(b.start))
+	prev := b.moved.Load()
+	for {
+		if time.Duration(t-prev) < movedGrain {
+			return
+		}
+		if b.moved.CompareAndSwap(prev, t) {
+			break
+		}
+		prev = b.moved.Load()
+	}
+	if time.Duration(t-prev) >= stallAfter {
+		// From the count it moved to: the step that ended the stall is
+		// not work done in the window it starts, and counted, a unit
+		// every eight seconds read as half a unit a second.
+		b.resumedTo.Store(done)
+		b.resumedAt.Store(t)
+	}
+}
+
+// movedAt is when the count last changed.
+func (b *Bar) movedAt() time.Time { return b.start.Add(time.Duration(b.moved.Load())) }
 
 // SetTotal revises how many units the job will take, for a caller that learns
 // the size after starting. A total of zero or less returns the bar to
@@ -513,25 +589,30 @@ const stallAfter = 5 * time.Second
 //
 // A redraw inside the current window leaves the previous rate in place rather
 // than recomputing it over a sliver of time -- see minRateWindow -- and a bar
-// that has not moved for stallAfter has no rate at all.
+// that has not moved for stallAfter has no rate at all. One moving again
+// after a stall starts the window from where it moved to, with no rate
+// until the window has run: the speed before the stall is not the speed
+// after it.
 func (b *Bar) observe(now time.Time, done int64) {
-	if done != b.lastDone {
-		b.lastMoved = now
-	} else if now.Sub(b.lastMoved) >= stallAfter {
+	if at := b.resumedAt.Load(); at != b.seenResumed {
+		b.seenResumed = at
+		b.lastTime = b.start.Add(time.Duration(at))
+		b.lastDone, b.lastRate = b.resumedTo.Load(), 0
+	}
+	if elapsed := now.Sub(b.lastTime); elapsed >= minRateWindow {
+		if done > b.lastDone {
+			b.lastRate = float64(done-b.lastDone) / elapsed.Seconds()
+		} else if done < b.lastDone {
+			// Went backwards: a caller reset the count. Start the window
+			// again rather than reporting a negative rate.
+			b.lastRate = 0
+		}
+		b.lastTime, b.lastDone = now, done
+	}
+	// Last, as a window closing on a stall measures the climb before it.
+	if now.Sub(b.movedAt()) >= stallAfter {
 		b.lastRate = 0
 	}
-	elapsed := now.Sub(b.lastTime)
-	if elapsed < minRateWindow {
-		return
-	}
-	if done > b.lastDone {
-		b.lastRate = float64(done-b.lastDone) / elapsed.Seconds()
-	} else if done < b.lastDone {
-		// Went backwards: a caller reset the count. Start the window again
-		// rather than reporting a negative rate.
-		b.lastRate = 0
-	}
-	b.lastTime, b.lastDone = now, done
 }
 
 // maxETA is the longest estimate given: a year.
@@ -576,7 +657,7 @@ func (b *Bar) eta(now time.Time, done, total int64) string {
 	// Nor for a bar that has stopped: an estimate from the run's average
 	// says when a running job will finish, and a stalled one, with no rate
 	// shown beside it, has no such time.
-	if now.Sub(b.lastMoved) >= stallAfter {
+	if now.Sub(b.movedAt()) >= stallAfter {
 		return ""
 	}
 	elapsed := now.Sub(b.start)
