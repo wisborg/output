@@ -165,6 +165,28 @@ func TestPlotList(t *testing.T) {
 	}
 }
 
+// --list with --out lists the columns, writes no file and says --out was
+// ignored: unsaid, a chart not written read as one written.
+func TestPlotListSaysOutIsIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chart.png")
+	out, errOut, err := plot(t, "x,v\n1,2\n2,3\n", "--list", "--out", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "v ") {
+		t.Errorf("--list --out listed no columns:\n%s", out)
+	}
+	if want := "--out " + path + " ignored: --list writes no chart"; !strings.Contains(errOut, want) {
+		t.Errorf("--list --out says %q, want %q", errOut, want)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("--list --out wrote %s: %v", path, err)
+	}
+	if _, errOut, err := plot(t, "x,v\n1,2\n2,3\n", "--list"); err != nil || strings.Contains(errOut, "ignored") {
+		t.Errorf("--list alone: %v, %q, want no word of --out", err, errOut)
+	}
+}
+
 // --out writes a PNG of the default size, taller for each further column.
 func TestPlotWritesAPNG(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "chart.png")

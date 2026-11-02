@@ -243,6 +243,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		for _, n := range append(t.notes, t.markNotes(cols)...) {
 			fmt.Fprintln(stderr, n)
 		}
+		// Said, not refused: --list added to a command line that charts
+		// is the ordinary way to see why a chart came out as it did, and
+		// with no word an --out unwritten read as a chart written.
+		if o.out != "" {
+			fmt.Fprintf(stderr, "--out %s ignored: --list writes no chart\n", o.out)
+		}
 		return nil
 	}
 
