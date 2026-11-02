@@ -86,7 +86,7 @@ func (c Chart) Braille(width, height int) []string {
 	gutter := 0
 	for _, s := range c.Strips {
 		for _, v := range s.Y.Ticks() {
-			gutter = max(gutter, utf8.RuneCountInString(s.Y.Label(v)))
+			gutter = max(gutter, runewidth.StringWidth(s.Y.Label(v)))
 		}
 	}
 	headed := 0
@@ -262,7 +262,7 @@ func (s Strip) braille(x Scale, gutter, cols, rows int) []string {
 	out := make([]string, 0, rows)
 	for r := range rows {
 		var b strings.Builder
-		b.WriteString(strings.Repeat(" ", gutter-utf8.RuneCountInString(labels[r])))
+		b.WriteString(strings.Repeat(" ", gutter-runewidth.StringWidth(labels[r])))
 		b.WriteString(labels[r])
 		if labels[r] != "" {
 			b.WriteRune('┤')

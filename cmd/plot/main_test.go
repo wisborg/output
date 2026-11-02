@@ -165,6 +165,38 @@ func TestPlotList(t *testing.T) {
 	}
 }
 
+// --x-date with --x 0 is refused for charting against the row, saying
+// that --x 0 is what does: told to say --x, a user who had was sent back
+// to the flag that made it so.
+func TestPlotXDateWithTheRow(t *testing.T) {
+	_, _, err := plot(t, "t,v\n1,2\n2,3\n", "--x", "0", "--x-date", "unix")
+	if err == nil || !strings.Contains(err.Error(), "--x 0 charts against the row: name a column with --x") {
+		t.Errorf("--x 0 --x-date unix: %v, want it to say --x 0 is the row", err)
+	}
+}
+
+// A window too short for the default height is drawn in the least a chart
+// takes, not refused for a height of none: held to its rows less three, a
+// window of two asked for a chart -1 rows tall.
+func TestPlotInAShortWindow(t *testing.T) {
+	for _, data := range []string{"t,v\n1,2\n2,3\n", "t,a,b\n1,2,3\n2,3,4\n"} {
+		lines := func(k string) string {
+			if k == "LINES" {
+				return "2"
+			}
+			return ""
+		}
+		var out, errOut bytes.Buffer
+		if err := run([]string{"--terminal", "braille"}, strings.NewReader(data), &out, &errOut, lines); err != nil {
+			t.Errorf("LINES=2, %q: %v", data, err)
+			continue
+		}
+		if !strings.Contains(out.String(), "┤") {
+			t.Errorf("LINES=2, %q: no chart:\n%s", data, out.String())
+		}
+	}
+}
+
 // --list with --out lists the columns, writes no file and says --out was
 // ignored: unsaid, a chart not written read as one written.
 func TestPlotListSaysOutIsIgnored(t *testing.T) {
@@ -176,7 +208,7 @@ func TestPlotListSaysOutIsIgnored(t *testing.T) {
 	if !strings.Contains(out, "v ") {
 		t.Errorf("--list --out listed no columns:\n%s", out)
 	}
-	if want := "--out " + path + " ignored: --list writes no chart"; !strings.Contains(errOut, want) {
+	if want := fmt.Sprintf("--out %q ignored: --list writes no chart", path); !strings.Contains(errOut, want) {
 		t.Errorf("--list --out says %q, want %q", errOut, want)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {

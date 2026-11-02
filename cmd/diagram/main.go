@@ -333,9 +333,13 @@ func writeFile(o options, lay *diagram.Layout, errOut io.Writer, getenv func(str
 	case ".txt":
 		// A file is read by more than terminals: in colour only when asked.
 		textSizeNote(errOut, o, lay)
-		lines := lay.Text(o.text)
+		// One drawing or the other, not both: the plain one was drawn and
+		// thrown away whenever colour was on.
+		var lines []string
 		if o.color == "always" {
 			lines = lay.ColourText(pal, o.text)
+		} else {
+			lines = lay.Text(o.text)
 		}
 		for _, l := range lines {
 			buf.WriteString(l + "\n")
@@ -375,9 +379,11 @@ func writeTerminal(o options, lay *diagram.Layout, out, errOut io.Writer, getenv
 	}
 	if how == terminal.Braille {
 		textSizeNote(errOut, o, lay)
-		lines := lay.Text(o.text)
+		var lines []string
 		if colour(o.color, tty, getenv) {
 			lines = lay.ColourText(pal, o.text)
+		} else {
+			lines = lay.Text(o.text)
 		}
 		for _, l := range lines {
 			fmt.Fprintln(out, l)

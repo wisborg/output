@@ -247,7 +247,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		// is the ordinary way to see why a chart came out as it did, and
 		// with no word an --out unwritten read as a chart written.
 		if o.out != "" {
-			fmt.Fprintf(stderr, "--out %s ignored: --list writes no chart\n", o.out)
+			fmt.Fprintf(stderr, "--out %q ignored: --list writes no chart\n", o.out)
 		}
 		return nil
 	}
@@ -258,6 +258,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	}
 	if xLayout != "" {
 		if x < 0 {
+			// Told to say --x, a user who had said --x 0 was sent back to
+			// the flag that made the chart against the row.
+			if o.x == "0" {
+				return cli.Usagef("--x-date reads the x column as dates, and --x 0 charts against the row: name a column with --x")
+			}
 			return cli.Usagef("--x-date reads the x column as dates, and the chart is against the row: say --x")
 		}
 		if cols[x] = asDates(t.column(x), xLayout); cols[x].values == cols[x].wrong {
@@ -732,7 +737,16 @@ func chartChars(ts terminal.Size, tty bool, getenv func(string) string, n int, p
 	}
 	w, h = cols, 24+10*(n-1)
 	if rows > 0 {
-		h = min(h, rows-3)
+		// Held to the window, but to no less than the least a chart of n
+		// strips is drawn in -- the title, the axis and its labels, and
+		// two rows a strip, and a heading a strip where there are several
+		// -- which scrolls: held to rows-3 alone, a window three rows tall
+		// asked for a chart -1 rows tall, and the refusal said so.
+		least := 3 + 2*n
+		if n > 1 {
+			least += n
+		}
+		h = max(min(h, rows-3), least)
 	}
 	if width > 0 {
 		w = width
