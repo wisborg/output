@@ -415,7 +415,11 @@ of magnitude between redraws. The previous figure is held until half a second
 has passed -- but not for ever: a bar that has not moved for five seconds
 shows no rate and no estimate, since a hung job showing the speed it last ran
 at reads as a job running. A timer redraws the display to say so: a display
-redraws on its bars' calls, and a hung job's only bar makes none. A bar
+redraws on its bars' calls, and a hung job's only bar makes none. A plain
+display is watched the same way, and writes one line without them, as its
+last line in a log is read as the job's state. The timer draws only where a
+bar has reached its deadline; one firing early, the bars having moved since,
+sets itself again, so a plain log gets no lines between its own. A bar
 moving again after a stall starts the window again from there. A count gone
 back does not, nor the estimate's average: a count back by one -- a retried
 chunk, two workers' Sets out of order -- is a hiccup, not a reset of the

@@ -61,7 +61,9 @@
 // A bar that has not moved for five seconds shows no rate and no estimate,
 // rather than the speed it last ran at: a job that has stopped must not read
 // as one running. The display redraws on a timer for this, since nothing
-// else redraws a display whose only bar has stopped. Moving again, it shows
+// else redraws a display whose only bar has stopped. A plain display writes
+// one more line for it, without the two, as the last line in a log is read
+// as the job's state. Moving again, it shows
 // no rate until half a second has been measured since.
 package progress
 
@@ -454,20 +456,35 @@ func (d *Display) Stop() {
 // average, not the rate's, and may be shown without one: armed for a
 // rate alone, a job that hung just after a reset kept its estimate on the
 // screen for ever. The caller holds the mutex.
-//
-// A timer set for a deadline no later than the new one is kept, not made
-// again: while the bars move the deadline moves with every redraw, a dozen
-// times a second, and the timer that fires early only redraws and is set
-// again from there, once a stallAfter.
 func (d *Display) watchStall(now time.Time, fields [][numSlots]string) {
-	var due time.Time
 	for i, b := range d.bars {
-		if fields[i][slotRate] != "" || fields[i][slotETA] != "" {
+		b.watched = fields[i][slotRate] != "" || fields[i][slotETA] != ""
+	}
+	d.armStall(now)
+}
+
+// stallDueAt is when the first bar watched for a stall will have gone
+// stallAfter without moving, or zero where none is watched. The caller
+// holds the mutex.
+func (d *Display) stallDueAt() time.Time {
+	var due time.Time
+	for _, b := range d.bars {
+		if b.watched {
 			if at := b.movedAt().Add(stallAfter); due.IsZero() || at.Before(due) {
 				due = at
 			}
 		}
 	}
+	return due
+}
+
+// armStall sets the stall timer for stallDueAt. A timer set for a deadline
+// no later than that is kept, not made again: while the bars move the
+// deadline moves with every redraw, a dozen times a second, and the timer
+// that fires early sets itself again from there, once a stallAfter. The
+// caller holds the mutex.
+func (d *Display) armStall(now time.Time) {
+	due := d.stallDueAt()
 	if due.IsZero() {
 		d.stopStall()
 		return
@@ -482,20 +499,34 @@ func (d *Display) watchStall(now time.Time, fields [][numSlots]string) {
 	}
 	d.stallDue = due
 	// A moment past the deadline, so the redraw it makes finds the bar
-	// stalled rather than a hair short of it. Firing, it clears the timer
-	// only if it is still the one set, so that one firing as it is
-	// replaced does not clear its successor; it is set under the mutex the
-	// firing takes, so the comparison sees it.
+	// stalled rather than a hair short of it. It is set under the mutex
+	// the firing takes, so stallFired's comparison sees it.
 	var t *time.Timer
-	t = after(max(due.Sub(now), 0)+time.Millisecond, func() {
-		d.mu.Lock()
-		if d.stall == t {
-			d.stall = nil
-		}
-		d.mu.Unlock()
-		d.redraw(true)
-	})
+	t = after(max(due.Sub(now), 0)+time.Millisecond, func() { d.stallFired(t) })
 	d.stall = t
+}
+
+// stallFired is the stall timer t firing. It does nothing where t has
+// been replaced, as its successor will fire in its place. Where a bar has
+// reached its deadline it draws, the stall taking the bar's rate and
+// estimate off the screen, or writing a plain line without them; where
+// none has -- the bars moved since the timer was set -- it only sets
+// itself again: drawing then wrote every bar's plain line again once a
+// stallAfter, between the lines of their own interval.
+func (d *Display) stallFired(t *time.Timer) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.stall != t || d.stopped {
+		return
+	}
+	d.stall = nil
+	now := d.now()
+	if due := d.stallDueAt(); due.IsZero() || due.After(now) {
+		d.armStall(now)
+		return
+	}
+	d.nextDue.Store(now.Add(d.interval).UnixNano())
+	d.draw()
 }
 
 // stopStall stops the stall timer, if one is set. The caller holds the
@@ -585,11 +616,18 @@ func (d *Display) draw() {
 	}
 	// Plain: one line per bar, appended rather than replaced. erase above is
 	// a no-op here (it does nothing unless live), so there is no cursor
-	// state to keep and nothing to undo.
-	for _, b := range d.bars {
-		d.plainLine(b.renderPlain(now))
+	// state to keep and nothing to undo. Watched for a stall as a live
+	// display is: a plain line is written only when a bar calls, and a
+	// hung job's last line in the log, its rate and its estimate, stood as
+	// the job's state for ever.
+	fields := make([][numSlots]string, len(d.bars))
+	for i, b := range d.bars {
+		var label string
+		label, fields[i] = b.slots(now)
+		d.plainLine(b.plainText(label, fields[i]))
 		b.plainDone = b.done.Load()
 	}
+	d.watchStall(now, fields)
 }
 
 // resolveLayout decides the geometry every bar on this redraw shares: one

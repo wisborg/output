@@ -101,6 +101,11 @@ type Bar struct {
 	resumedAt, resumedTo atomic.Int64
 	seenResumed          int64
 
+	// watched says the last draw showed a rate or an estimate, which a
+	// stall takes off: the stall timer is set for such bars alone. Guarded
+	// by the Display's mutex.
+	watched bool
+
 	// shown is done and total as slots read them for the draw under way:
 	// the layout and the trough are drawn from the same reading as the
 	// fields beside them. Read again, a SetTotal(0) between the two made a
@@ -538,8 +543,11 @@ func (b *Bar) composeLine(label string, fields [numSlots]string, l layout, measu
 // It is deliberately close to what both of this package's intended consumers
 // already wrote to their logs, so adopting this does not silently change the
 // shape of anybody's log file.
-func (b *Bar) renderPlain(now time.Time) string {
-	label, slots := b.slots(now)
+func (b *Bar) renderPlain(now time.Time) string { return b.plainText(b.slots(now)) }
+
+// plainText is renderPlain's line, from the label and the fields slots
+// gave.
+func (b *Bar) plainText(label string, slots [numSlots]string) string {
 
 	// Neither padded nor reserved. These lines accumulate in a log rather
 	// than replacing each other, so nothing is aligned against anything and

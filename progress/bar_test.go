@@ -408,6 +408,107 @@ func stallDisplay(t *testing.T, c *clock) (*Display, *bytes.Buffer, *stallTimer)
 	return d, buf, st
 }
 
+// plainStallDisplay is stallDisplay's plain display, writing a line a
+// second.
+func plainStallDisplay(t *testing.T, c *clock) (*Display, *bytes.Buffer, *stallTimer) {
+	t.Helper()
+	var buf bytes.Buffer
+	d := New(&buf, Options{Mode: Plain, Now: c.now, Interval: time.Second})
+	st := &stallTimer{}
+	d.after = func(dur time.Duration, f func()) *time.Timer {
+		st.due, st.fire = dur, f
+		st.set++
+		return time.NewTimer(time.Hour)
+	}
+	t.Cleanup(d.Stop)
+	return d, &buf, st
+}
+
+// lastLine is the last line a plain display wrote.
+func lastLine(buf *bytes.Buffer) string {
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	return lines[len(lines)-1]
+}
+
+// A plain display whose only bar hangs writes one more line, without the
+// rate and the estimate, stallAfter after the bar last moved: a plain line
+// is written only when a bar calls, and the last one in the log, its rate
+// and its estimate, stood as a hung job's state for ever.
+func TestPlain_StalledBarWritesALine(t *testing.T) {
+	c := newClock()
+	d, buf, st := plainStallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
+	c.add(time.Second)
+	bar.Set(300)
+	if line := lastLine(buf); !strings.Contains(line, "/s") || !strings.Contains(line, "left") {
+		t.Fatalf("a moving bar's line shows no rate or estimate: %q", line)
+	}
+	if st.fire == nil {
+		t.Fatal("no stall was watched for on a plain display")
+	}
+	c.add(st.due)
+	fire := st.fire
+	st.fire = nil
+	fire()
+	if line := lastLine(buf); strings.Contains(line, "/s") || strings.Contains(line, "left") || !strings.Contains(line, "300/100000") {
+		t.Errorf("stalled, the last line reads %q, want the count alone", line)
+	}
+	if st.fire != nil {
+		t.Error("the stall's line set the timer again")
+	}
+}
+
+// A stall timer that fires before any bar has gone stallAfter without
+// moving -- set from a move since followed -- writes nothing and is set
+// again for the rest: drawing then, a plain display wrote every bar's line
+// once more a stallAfter, between the lines of its own interval.
+func TestPlain_EarlyStallTimerWritesNothing(t *testing.T) {
+	c := newClock()
+	d, buf, st := plainStallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
+	c.add(time.Second)
+	bar.Set(300)
+	c.add(500 * time.Millisecond)
+	bar.Set(400) // inside the interval: no line
+	before := buf.String()
+	c.add(st.due - 500*time.Millisecond)
+	fire := st.fire
+	st.fire = nil
+	fire()
+	if buf.String() != before {
+		t.Errorf("an early stall timer wrote %q", buf.String()[len(before):])
+	}
+	if st.fire == nil || st.due > time.Second {
+		t.Errorf("an early stall timer was not set again for the half second left (due %v)", st.due)
+	}
+}
+
+// A stall timer firing after it was replaced does nothing, its successor
+// firing in its place: one that had already fired, its function reaching
+// the mutex late, cleared the timer set since and set another.
+func TestBar_ReplacedStallTimerDoesNothing(t *testing.T) {
+	c := newClock()
+	d, buf, st := stallDisplay(t, c)
+	bar := d.Bar(BarSpec{Label: "x", Total: 100000})
+	c.add(time.Second)
+	bar.Set(300)
+	stale := st.fire
+	st.stall(t, c, buf)
+	c.add(time.Second)
+	bar.Set(400) // moving again: a timer of its own
+	set, current := st.set, st.fire
+	stale()
+	if st.set != set {
+		t.Errorf("a replaced timer firing set %d more", st.set-set)
+	}
+	d.mu.Lock()
+	cleared := d.stall == nil
+	d.mu.Unlock()
+	if cleared || current == nil {
+		t.Error("a replaced timer firing cleared the one set since")
+	}
+}
+
 // stall moves the clock to the timer set last and fires it, and fails if
 // that redraw set another: were it set again, its deadline long past, each
 // redraw of a bar stalled would set another a millisecond on, and the
