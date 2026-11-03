@@ -715,8 +715,10 @@ func TestJointCostKeepsSidesFacing(t *testing.T) {
 	}
 }
 
-// No edge is drawn along rows and columns that could be drawn straight
-// with every straight line between its nodes clear of their joints: an
+// No straight line, set apart as the picture draws it, crosses a box or
+// leaves a record at a joint; and no edge is drawn along rows and columns
+// that could be drawn straight with every straight line between its nodes
+// so clear: an
 // edge taken out to keep one line clear may be clear itself once others
 // are taken out, set apart as they then are, and was once left out for
 // good, a line drawn round where a straight one would do. Each edge left
@@ -750,8 +752,8 @@ func TestStraightLinesTakenOutComeBack(t *testing.T) {
 			straight[i] = e.Straight
 			// Set apart as the picture draws it, not as the check
 			// works it out, so that the two differing fails here.
-			if e.Straight && !lay.clearOfJoints(joints, e.Edge, e.Shift) {
-				t.Fatalf("seed %d: %s -> %s is straight and meets a joint", seed, e.Edge.From, e.Edge.To)
+			if e.Straight && !lay.straightClear(joints, e.Edge, e.Shift) {
+				t.Fatalf("seed %d: %s -> %s is straight and crosses a box or meets a joint", seed, e.Edge.From, e.Edge.To)
 			}
 		}
 		for i, e := range d.Edges {
@@ -762,7 +764,7 @@ func TestStraightLinesTakenOutComeBack(t *testing.T) {
 			tried[i] = true
 			sh, clear := shifts(d.Edges, tried), true
 			for j := range d.Edges {
-				if tried[j] && !lay.clearOfJoints(joints, &d.Edges[j], sh[j]) {
+				if tried[j] && !lay.straightClear(joints, &d.Edges[j], sh[j]) {
 					clear = false
 					break
 				}

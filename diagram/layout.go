@@ -136,6 +136,11 @@ type PlacedEdge struct {
 	// drawn through whatever is in the way, so the promises a searched
 	// path keeps, its tests hold it to only in part.
 	plain bool
+	// joined says the path was found only by a search free to join
+	// another's line, at joinCost, the stricter ones having found none:
+	// what a test holding paths clear of the lines asks before holding
+	// this one to it.
+	joined bool
 	// pictureAt, where pictured, is where a picture writes the label: the
 	// picture of a diagram with straight edges draws other lines than the
 	// text drawing does, and its labels are placed against those.

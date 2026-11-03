@@ -72,7 +72,7 @@ func (l *layouter) route() {
 	for i, e := range l.d.Edges {
 		straight[i] = l.d.Straight && l.out.straightens(e)
 	}
-	l.out.keepClearOfJoints(l.d.Edges, straight)
+	l.out.keepClear(l.d.Edges, straight)
 	sort.SliceStable(order, func(i, j int) bool {
 		if straight[order[i]] != straight[order[j]] {
 			return !straight[order[i]]
@@ -81,7 +81,7 @@ func (l *layouter) route() {
 	})
 	paths := make([][]Point, len(l.d.Edges))
 	dropped := make([]bool, len(l.d.Edges))
-	plain := make([]bool, len(l.d.Edges))
+	plain, joined := make([]bool, len(l.d.Edges)), make([]bool, len(l.d.Edges))
 	parallel := map[[2]string]int{}
 	// The edges the picture draws along their paths keep clear of the
 	// straight lines it draws, which they may cross but not follow, turn
@@ -132,6 +132,7 @@ func (l *layouter) route() {
 			}
 			r.anySide = try.anySide
 			if pts = r.find(from, to, e.Tail, i, try.strict); pts != nil {
+				joined[i] = !try.strict
 				break
 			}
 		}
@@ -147,7 +148,7 @@ func (l *layouter) route() {
 		dropped[i] = sided && !(keepsSides(pts, e.FromSide, e.ToSide) && keepsFields(pts, a, b, r.fields[i]))
 	}
 	for i := range l.d.Edges {
-		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i], SidesDropped: dropped[i], plain: plain[i]})
+		l.out.Edges = append(l.out.Edges, PlacedEdge{Edge: &l.d.Edges[i], Points: paths[i], Straight: straight[i], SidesDropped: dropped[i], plain: plain[i], joined: joined[i]})
 	}
 }
 
@@ -467,51 +468,79 @@ func (r *router) line(a, b Point, i int) {
 // over but not turn on; and where each meets its boxes' outlines as ends
 // no path may end at.
 func (r *router) avoidStraight(l *layouter, straight []bool) {
+	// Where the picture draws them, set apart from the others between the
+	// same two nodes: recorded between the middles, a path ran along a
+	// line drawn half a row or more beside the one kept clear, and the two
+	// read as one.
+	sh := shifts(l.d.Edges, straight)
 	for i, e := range l.d.Edges {
 		if !straight[i] {
 			continue
 		}
 		a, b := l.out.nodeAt[e.From].Rect, l.out.nodeAt[e.To].Rect
-		x0, y0 := centre(a)
-		x1, y1 := centre(b)
-		steps := int(4*max(abs(int(x1-x0)), abs(int(y1-y0)))) + 4
-		var last, onA, onB Point
-		seenA, seenB := false, false
-		for k := 0; k <= steps; k++ {
-			t := float64(k) / float64(steps)
-			p := Point{int(x0 + t*(x1-x0) + 0.5), int(y0 + t*(y1-y0) + 0.5)}
-			if !r.in(p.X, p.Y) || (k > 0 && p == last) {
-				continue
-			}
-			last = p
-			inA := p.X >= a.X && p.X < a.X+a.W && p.Y >= a.Y && p.Y < a.Y+a.H
-			inB := p.X >= b.X && p.X < b.X+b.W && p.Y >= b.Y && p.Y < b.Y+b.H
-			switch {
-			case inA:
-				onA, seenA = p, true
-			case inB:
-				if !seenB {
-					onB, seenB = p, true
-				}
-			case r.box[p.Y][p.X]:
-			case y0 == y1:
-				r.lines[p.Y][p.X] |= left | right
-				r.whose[p.Y][p.X] = append(r.whose[p.Y][p.X], -2)
-				r.bits[p.Y][p.X] = append(r.bits[p.Y][p.X], left|right)
-			case x0 == x1:
-				r.lines[p.Y][p.X] |= up | down
-				r.whose[p.Y][p.X] = append(r.whose[p.Y][p.X], -2)
-				r.bits[p.Y][p.X] = append(r.bits[p.Y][p.X], up|down)
-			default:
-				r.slant[p.Y][p.X] = true
-			}
+		x0, y0, x1, y1 := l.out.ends(PlacedEdge{Edge: &l.d.Edges[i], Shift: sh[i]})
+		// A line along a row half way between two is drawn between them,
+		// and a path along either reads as running along it, so it is
+		// recorded on both; a column's the same. Rounded to one of the
+		// two, paths ran along the other.
+		switch {
+		case y0 == y1 && halfway(y0):
+			r.straightCells(a, b, x0, y0-0.5, x1, y1-0.5)
+			r.straightCells(a, b, x0, y0+0.5, x1, y1+0.5)
+		case x0 == x1 && halfway(x0):
+			r.straightCells(a, b, x0-0.5, y0, x1-0.5, y1)
+			r.straightCells(a, b, x0+0.5, y0, x1+0.5, y1)
+		default:
+			r.straightCells(a, b, x0, y0, x1, y1)
 		}
-		// Where it leaves the one box and enters the other: the last cell
-		// in a, the first in b, are on their outlines.
-		for k, p := range []Point{onA, onB} {
-			if []bool{seenA, seenB}[k] {
-				r.heads[p.Y][p.X] = append(r.heads[p.Y][p.X], -2)
+	}
+}
+
+// halfway says v lies half way between two whole numbers.
+func halfway(v float64) bool { return v-math.Floor(v) == 0.5 }
+
+// straightCells records the straight line from (x0, y0), in a, to (x1,
+// y1), in b, as avoidStraight says.
+func (r *router) straightCells(a, b Rect, x0, y0, x1, y1 float64) {
+	steps := int(4*max(abs(int(x1-x0)), abs(int(y1-y0)))) + 4
+	var last, onA, onB Point
+	seenA, seenB := false, false
+	for k := 0; k <= steps; k++ {
+		t := float64(k) / float64(steps)
+		// Floor, not int, which rounds towards zero: a point half a
+		// cell or more left of the page fell on its first column.
+		p := Point{int(math.Floor(x0 + t*(x1-x0) + 0.5)), int(math.Floor(y0 + t*(y1-y0) + 0.5))}
+		if !r.in(p.X, p.Y) || (k > 0 && p == last) {
+			continue
+		}
+		last = p
+		inA := p.X >= a.X && p.X < a.X+a.W && p.Y >= a.Y && p.Y < a.Y+a.H
+		inB := p.X >= b.X && p.X < b.X+b.W && p.Y >= b.Y && p.Y < b.Y+b.H
+		switch {
+		case inA:
+			onA, seenA = p, true
+		case inB:
+			if !seenB {
+				onB, seenB = p, true
 			}
+		case r.box[p.Y][p.X]:
+		case y0 == y1:
+			r.lines[p.Y][p.X] |= left | right
+			r.whose[p.Y][p.X] = append(r.whose[p.Y][p.X], -2)
+			r.bits[p.Y][p.X] = append(r.bits[p.Y][p.X], left|right)
+		case x0 == x1:
+			r.lines[p.Y][p.X] |= up | down
+			r.whose[p.Y][p.X] = append(r.whose[p.Y][p.X], -2)
+			r.bits[p.Y][p.X] = append(r.bits[p.Y][p.X], up|down)
+		default:
+			r.slant[p.Y][p.X] = true
+		}
+	}
+	// Where it leaves the one box and enters the other: the last cell
+	// in a, the first in b, are on their outlines.
+	for k, p := range []Point{onA, onB} {
+		if []bool{seenA, seenB}[k] {
+			r.heads[p.Y][p.X] = append(r.heads[p.Y][p.X], -2)
 		}
 	}
 }

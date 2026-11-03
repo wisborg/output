@@ -2,6 +2,7 @@ package diagram
 
 import (
 	"math"
+	"slices"
 	"strings"
 )
 
@@ -77,11 +78,7 @@ func shifts(edges []Edge, straight []bool) []float64 {
 		if !straight[i] {
 			continue
 		}
-		key := [2]string{e.From, e.To}
-		if key[1] < key[0] {
-			key[0], key[1] = key[1], key[0]
-		}
-		pairs[key] = append(pairs[key], i)
+		pairs[nodePair(e)] = append(pairs[nodePair(e)], i)
 	}
 	out := make([]float64, len(edges))
 	for _, is := range pairs {
@@ -92,23 +89,34 @@ func shifts(edges []Edge, straight []bool) []float64 {
 	return out
 }
 
-// keepClearOfJoints takes out of straight each edge whose line, set apart
-// from the others between its nodes, would leave a record where a divider
-// meets its outline, as a path along rows and columns never does: in a
-// record of two fields alike that is the middle of a side, where a line
-// between the boxes' middles leaves, and the line reads as the divider
-// running on. Each taken out sets the others between its nodes apart
-// differently, so it looks again until none is. An edge taken out early
-// may be clear once others are, set apart as they then are, so each is
-// then tried back, one at a time, and kept straight where every straight
-// edge is then clear -- those between its nodes being the ones it sets
-// apart differently.
-func (lay *Layout) keepClearOfJoints(edges []Edge, straight []bool) {
-	joints := lay.jointsByNode()
-	if len(joints) == 0 {
+// nodePair is the two nodes e runs between, whichever way it runs.
+func nodePair(e Edge) [2]string {
+	if e.To < e.From {
+		return [2]string{e.To, e.From}
+	}
+	return [2]string{e.From, e.To}
+}
+
+// keepClear takes out of straight each edge whose line, set apart from the
+// others between its nodes, would cross a box, or would leave a record
+// where a divider meets its outline, as a path along rows and columns
+// never does: in a record of two fields alike that is the middle of a
+// side, where a line between the boxes' middles leaves, and the line reads
+// as the divider running on. straightens has looked at each line between
+// the middles; set apart, a line runs up to half a row a line beside it
+// to one side, and crossed a third box straightens had found clear. Each
+// taken out sets the others between its nodes apart differently, so it
+// looks again until none is. An edge taken out early may be clear once
+// others are, set apart as they then are, so each is then tried back, one
+// at a time, and kept straight where every straight edge is then clear --
+// those between its nodes being the ones it sets apart differently, and
+// the only ones looked at again.
+func (lay *Layout) keepClear(edges []Edge, straight []bool) {
+	if !slices.Contains(straight, true) {
 		return
 	}
-	clear := func(i int, sh float64) bool { return lay.clearOfJoints(joints, &edges[i], sh) }
+	joints := lay.jointsByNode()
+	clear := func(i int, sh float64) bool { return lay.straightClear(joints, &edges[i], sh) }
 	out := make([]bool, len(edges))
 	for {
 		sh, changed := shifts(edges, straight), false
@@ -130,7 +138,7 @@ func (lay *Layout) keepClearOfJoints(edges []Edge, straight []bool) {
 			straight[i] = true
 			sh, ok := shifts(edges, straight), true
 			for j := range edges {
-				if straight[j] && !clear(j, sh[j]) {
+				if straight[j] && nodePair(edges[j]) == nodePair(edges[i]) && !clear(j, sh[j]) {
 					ok = false
 					break
 				}
@@ -153,13 +161,32 @@ func (lay *Layout) jointsByNode() map[string][]Point {
 	return joints
 }
 
-// clearOfJoints says e's straight line, shifted sh to one side, leaves
-// both its nodes clear of their joints.
-func (lay *Layout) clearOfJoints(joints map[string][]Point, e *Edge, sh float64) bool {
-	x0, y0, x1, y1 := lay.ends(PlacedEdge{Edge: e, Shift: sh})
+// straightClear says e's straight line, shifted sh to one side, begins and
+// ends inside its own two boxes, crosses no other, and leaves its two
+// clear of their joints, which are joints, by node, as jointsByNode gives
+// them.
+//
+// Inside, not on the outline: the picture draws a line from where it
+// leaves its box, worked out from a point inside it. A line set apart a
+// row or more from the middle of a box three rows tall began on its
+// outline or past it, and was drawn from the box's corner, or from a
+// point beside the box, through cells the router had kept clear for it
+// and the picture never drew in.
+func (lay *Layout) straightClear(joints map[string][]Point, e *Edge, sh float64) bool {
 	a, _ := lay.Node(e.From)
 	b, _ := lay.Node(e.To)
-	return !nearJoint(joints[a.Node.ID], a.Rect, x0, y0, x1, y1) && !nearJoint(joints[b.Node.ID], b.Rect, x1, y1, x0, y0)
+	x0, y0, x1, y1 := lay.ends(PlacedEdge{Edge: e, Shift: sh})
+	if sh != 0 && (!within(a.Rect, x0, y0) || !within(b.Rect, x1, y1)) {
+		return false
+	}
+	return !lay.lineCrossesBox(a, b, x0, y0, x1, y1) &&
+		!nearJoint(joints[a.Node.ID], a.Rect, x0, y0, x1, y1) && !nearJoint(joints[b.Node.ID], b.Rect, x1, y1, x0, y0)
+}
+
+// within says (x, y) is inside r and off its outline. A box's middle is
+// within it even where the box is a row tall, and needs no asking.
+func within(r Rect, x, y float64) bool {
+	return x > float64(r.X) && x < float64(r.X+r.W-1) && y > float64(r.Y) && y < float64(r.Y+r.H-1)
 }
 
 // crossesBox says the line between the middles of a and b passes through
@@ -169,6 +196,12 @@ func (lay *Layout) clearOfJoints(joints map[string][]Point, e *Edge, sh float64)
 func (lay *Layout) crossesBox(a, b PlacedNode) bool {
 	x0, y0 := centre(a.Rect)
 	x1, y1 := centre(b.Rect)
+	return lay.lineCrossesBox(a, b, x0, y0, x1, y1)
+}
+
+// lineCrossesBox says the line from (x0, y0) to (x1, y1), between a and b,
+// passes through a node other than the two, as crossesBox says.
+func (lay *Layout) lineCrossesBox(a, b PlacedNode, x0, y0, x1, y1 float64) bool {
 	for _, n := range lay.Nodes {
 		if n.Node == a.Node || n.Node == b.Node || n.Node.Invisible {
 			continue

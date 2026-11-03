@@ -626,7 +626,7 @@ and the random diagrams' test passed with turns there in its drawings. That hold
 line, not only the search's: a straight
 one leaving a record by a joint -- the middle, or a cell from it once lines
 between the same two nodes are set apart -- is drawn along rows and columns
-instead (`keepClearOfJoints`, before routing, as the other lines are routed
+instead (`keepClear`, before routing, as the other lines are routed
 round the straight ones); a braille stub (`stub`) chooses among the node's
 ends on the side the line reaches, each a cell out, priced as the search
 prices them, so it never sits across from a joint and sits beside one only
@@ -735,7 +735,12 @@ label is written as text: `FuzzParse` holds both to it.
 `splines` set in the DOT, or `--edges straight`, a PNG or an SVG draws an
 edge as one straight line between its boxes, at whatever angle -- but only
 where that line is clear of every other box; one that would cross a box
-keeps its path along rows and columns, for the reason above. The text
+keeps its path along rows and columns, for the reason above. Lines
+between the same two nodes are set apart, and each is judged where it is
+drawn, set apart: it must begin and end inside its own boxes, off their
+outlines, as the picture draws it from where it leaves a box, and the
+router keeps paths off it there -- on both rows, or both columns, where
+it runs half way between two (`straightClear`, `avoidStraight`). The text
 drawing draws them along rows and columns unless `TextOptions.Braille`
 (`--braille thin|thick`) asks for braille: a diagonal of `╱` and `╲` is a
 ragged staircase, but in braille dots, two across and four down a cell, it
