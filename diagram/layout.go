@@ -231,16 +231,18 @@ type layouter struct {
 	d *Diagram
 	// path is each node's groups, outermost first, the root included.
 	path map[string][]*Group
-	out  *Layout
+	// groups is the groups index has met.
+	groups map[*Group]bool
+	out    *Layout
 	// fields is each record's fields as nodeSize measured them.
 	fields map[*Node][]measured
 }
 
 // Layout lays the diagram out, held to the default LayoutOptions. An edge
-// naming a node the diagram does not hold, a node held twice, two items
-// pinned to one cell, a grid or a pin past MaxGrid, an item that is
-// neither a node nor a group, and a page larger than MaxCells (ErrTooLarge)
-// are errors.
+// naming a node the diagram does not hold, a node or a group held twice --
+// a group inside itself among them -- two items pinned to one cell, a grid
+// or a pin past MaxGrid, an item that is neither a node nor a group or is
+// both, and a page larger than MaxCells (ErrTooLarge) are errors.
 func (d *Diagram) Layout() (*Layout, error) { return d.LayoutWith(LayoutOptions{}) }
 
 // LayoutOptions are the limits a layout is made within.
@@ -282,7 +284,7 @@ func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
 		o.MaxCells = DefaultMaxCells
 	}
 	o.MaxCells = min(o.MaxCells, MostCells)
-	l := &layouter{d: d, path: map[string][]*Group{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, fields: map[*Node][]measured{}}
+	l := &layouter{d: d, path: map[string][]*Group{}, groups: map[*Group]bool{}, out: &Layout{Title: d.Title, nodeAt: map[string]PlacedNode{}}, fields: map[*Node][]measured{}}
 	if err := l.index(&d.Root, nil); err != nil {
 		return nil, err
 	}
@@ -307,7 +309,10 @@ func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
 	// top row, with a third between them, had no way round but through the
 	// third. What no line takes of the margin is given back after routing,
 	// so a drawing that does not need it does not change.
-	if w, h := p.w+2*colGap, top+p.h+2*rowGap; w*h > o.MaxCells || w < 0 || h < 0 {
+	// Compared by dividing, not multiplying: where an int is 32 bits, two
+	// sides of fifty thousand cells multiplied to a negative number, and
+	// the page passed.
+	if w, h := p.w+2*colGap, top+p.h+2*rowGap; w < 0 || h < 0 || h > 0 && w > o.MaxCells/h {
 		return nil, fmt.Errorf("%w: a page of %d by %d cells, more than the %d it may have, would take %s -- its labels or its grid are that large", ErrTooLarge, w, h, o.MaxCells, memory.About(float64(w)*float64(h)*BytesPerCell))
 	}
 	l.place(p, colGap, top+rowGap, p.w, p.h)
@@ -411,9 +416,20 @@ func (lay *Layout) placeLegend(lg *Legend) {
 
 // index records each node's groups.
 func (l *layouter) index(g *Group, above []*Group) error {
+	l.groups[g] = true
 	path := append(append([]*Group(nil), above...), g)
 	for _, it := range g.Items {
 		switch {
+		case it.Node != nil && it.Group != nil:
+			// index took it for the node and plan for the group, so the
+			// node was never placed and its edges ran to the page's corner.
+			return fmt.Errorf("%s holds an item that is both the node %q and a group", groupName(g), it.Node.ID)
+		case it.Group != nil && l.groups[it.Group]:
+			// A group inside itself was indexed again inside itself for
+			// ever, until the stack overflowed, which Go cannot recover
+			// from; and one held by two groups was indexed, planned and
+			// placed once a way to it, twice as often each level down.
+			return fmt.Errorf("%s holds %s, which is in the diagram already", groupName(g), groupName(it.Group))
 		case it.Node != nil:
 			if _, ok := l.path[it.Node.ID]; ok {
 				return fmt.Errorf("the node %q is in the diagram twice", it.Node.ID)

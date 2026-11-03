@@ -2,6 +2,7 @@ package diagram
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
 	"math"
 	"strconv"
@@ -636,9 +637,24 @@ func TestOneCellStretchAlongRow(t *testing.T) {
 }
 
 // A diagram built in code is held to what DOT is: a grid of more than
-// MaxGrid rows or columns, a pin past it, and an item that is neither a node
-// nor a group are errors, not gigabytes or a nil dereference.
+// MaxGrid rows or columns, a pin past it, an item that is neither a node
+// nor a group or both, and a group held twice -- inside itself, or by two
+// groups -- are errors, not gigabytes, a nil dereference, a node never
+// placed, a stack overflowed or a layout twice as long each level down.
 func TestLayoutLimits(t *testing.T) {
+	loop := &Group{ID: "g"}
+	loop.Items = []Item{node("x"), {Group: loop}}
+	outer := &Group{ID: "outer"}
+	inner := &Group{ID: "inner", Items: []Item{{Group: outer}}}
+	outer.Items = []Item{node("y"), {Group: inner}}
+	empty := &Group{ID: "empty"}
+	empty.Items = []Item{{Group: empty}}
+	// Thirty levels of a group held twice by the one above: 2^30 ways to
+	// the last, each indexed, planned and placed.
+	shared := &Group{ID: "shared30"}
+	for i := 29; i >= 0; i-- {
+		shared = &Group{ID: fmt.Sprint("shared", i), Items: []Item{{Group: shared}, {Group: shared}}}
+	}
 	for _, c := range []struct {
 		name string
 		d    *Diagram
@@ -647,10 +663,40 @@ func TestLayoutLimits(t *testing.T) {
 		{"columns", &Diagram{Root: Group{Columns: MaxGrid + 1, Items: []Item{node("a")}}}, "columns"},
 		{"a pin", &Diagram{Root: Group{Columns: 2, Items: []Item{{Node: &Node{ID: "a", Row: 3000}}}}}, "pinned to row 3000"},
 		{"an empty item", &Diagram{Root: Group{Items: []Item{node("a"), {}}}}, "neither a node nor a group"},
+		{"an item both", &Diagram{Root: Group{Items: []Item{node("a"), {Node: &Node{ID: "n"}, Group: &Group{ID: "g", Items: []Item{node("b")}}}}}, Edges: []Edge{{From: "a", To: "n"}}}, `both the node "n" and a group`},
+		{"a group in itself", &Diagram{Root: Group{Items: []Item{{Group: loop}}}}, `"g" holds "g", which is in the diagram already`},
+		{"a group in its own group", &Diagram{Root: Group{Items: []Item{{Group: outer}}}}, `"inner" holds "outer", which is in the diagram already`},
+		// With no node in it to be found twice, the stack overflowed.
+		{"a group of nothing but itself", &Diagram{Root: Group{Items: []Item{node("a"), {Group: empty}}}}, `"empty" holds "empty", which is in the diagram already`},
+		{"a group held by two", &Diagram{Root: Group{Items: []Item{node("a"), {Group: shared}}}}, `"shared29" holds "shared30", which is in the diagram already`},
+		{"the diagram inside itself", func() *Diagram {
+			d := &Diagram{Root: Group{Items: []Item{node("a")}}}
+			d.Root.Items = append(d.Root.Items, Item{Group: &Group{ID: "g", Items: []Item{{Group: &d.Root}}}})
+			return d
+		}(), `"g" holds the diagram, which is in the diagram already`},
 	} {
 		if _, err := c.d.Layout(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want an error saying %q", c.name, err, c.want)
 		}
+	}
+}
+
+// A straight line across a gap kept by an invisible node is drawn
+// straight: nothing is drawn there, and the router and the drawing pass
+// through it. Taken for a box, it turned the line into one along rows and
+// columns.
+func TestStraightLineCrossesAnInvisibleNode(t *testing.T) {
+	d := &Diagram{
+		Straight: true,
+		Root:     Group{Columns: 3, Items: []Item{node("a"), {Node: &Node{ID: "gap", Invisible: true}}, node("b")}},
+		Edges:    []Edge{{From: "a", To: "b"}},
+	}
+	lay, err := d.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lay.Edges[0].Straight {
+		t.Error("a line across an invisible node's cell is not drawn straight")
 	}
 }
 

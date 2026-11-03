@@ -20,7 +20,7 @@ func centre(r Rect) (x, y float64) {
 
 // straightens says edge e is drawn straight in a picture: its line from
 // the middle of one node to the middle of the other is clear of every
-// other node. A loop keeps its loop, and an invisible edge is drawn
+// other node that is drawn. A loop keeps its loop, and an invisible edge is drawn
 // neither way.
 func (lay *Layout) straightens(e Edge) bool {
 	// Nor one that asks for a side or a record's field: a straight line
@@ -163,12 +163,14 @@ func (lay *Layout) clearOfJoints(joints map[string][]Point, e *Edge, sh float64)
 }
 
 // crossesBox says the line between the middles of a and b passes through
-// a node other than the two.
+// a node other than the two. Not an invisible one, which is drawn nowhere
+// and which the router and the drawing pass through: a gap kept by one
+// turned a line across it into one along rows and columns.
 func (lay *Layout) crossesBox(a, b PlacedNode) bool {
 	x0, y0 := centre(a.Rect)
 	x1, y1 := centre(b.Rect)
 	for _, n := range lay.Nodes {
-		if n.Node == a.Node || n.Node == b.Node {
+		if n.Node == a.Node || n.Node == b.Node || n.Node.Invisible {
 			continue
 		}
 		r := n.Rect
