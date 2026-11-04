@@ -544,6 +544,7 @@ and a drawing that needs it. Measured, about:
 | a braille chart | 25 bytes a character | a million characters, some 25 MB |
 | a chart as a PNG | 10 bytes a pixel | 67 million pixels, some 650 MB |
 | a diagram's layout | 200 bytes a cell | a million cells, some 200 MB |
+| a diagram's page, past its boxes, as text | 45 bytes a cell | a million cells, some 45 MB |
 | a diagram as a PNG | 20 bytes a pixel | 67 million pixels, some 1.3 GB |
 
 Encoding a PNG takes more besides. Even with `--high-memory` a picture past
@@ -551,8 +552,12 @@ Encoding a PNG takes more besides. Even with `--high-memory` a picture past
 `diagram.MostCells` are refused: Go will not allocate the first two, and the
 router numbers its search in 32 bits. In the library the limits are
 `picture.Options.MaxPixels` and `diagram.LayoutOptions.MaxCells`, and the
-measures `picture.BytesPerPixel`, `diagram.BytesPerCell` and
-`chart.BrailleBytesPerChar`; `chart.Chart.Braille` sets no limit of its own.
+measures `picture.BytesPerPixel`, `diagram.BytesPerCell`,
+`diagram.TextBytesPerCell` and `chart.BrailleBytesPerChar`;
+`chart.Chart.Braille` sets no limit of its own. A diagram's page is held to
+its limit twice: as the router's, the boxes and the margin round them, and
+as the page its edges' labels, its title and its legend make it, which the
+router never searches but every drawing draws.
 
 ## diagram
 

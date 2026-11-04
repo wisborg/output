@@ -53,7 +53,15 @@ func pair(a, b labelBlock) int {
 	}
 	cost := 0
 	a.rows(func(ax0, ax1, ay int) {
-		b.rows(func(bx0, bx1, by int) {
+		// Only b's lines on ay's row and the rows either side can touch
+		// it. Each of a's lines once looked at each of b's: two labels of
+		// three hundred lines took ninety thousand looks a try, and three
+		// such labels three minutes to place.
+		for j := max(ay-1-b.at.Y, 0); j <= min(ay+1-b.at.Y, len(b.widths)-1); j++ {
+			if b.widths[j] == 0 {
+				continue
+			}
+			bx0, bx1, by := b.at.X, b.at.X+b.widths[j]-1, b.at.Y+j
 			switch {
 			case ay == by && ax0 <= bx1 && bx0 <= ax1:
 				cost += overSolidCost
@@ -62,7 +70,7 @@ func pair(a, b labelBlock) int {
 			case abs(ay-by) == 1 && ax0 <= bx1+1 && bx0 <= ax1+1:
 				cost += pairCost
 			}
-		})
+		}
 	})
 	return cost
 }
@@ -359,11 +367,11 @@ func (lay *Layout) placeEdgeLabels(top int) {
 			continue
 		}
 		lines := strings.Split(e.Edge.Label, "\n")
-		width := 0
-		for _, l := range lines {
-			width = max(width, Width(l))
-		}
-		tries := segmentTries(e.Points, shared, width, len(lines))
+		// Measured once, each try sharing the widths: measured again a
+		// try, a label of a thousand lines spent more time measuring
+		// itself and allocating than placing.
+		shape := newBlock(Point{}, lines)
+		tries := segmentTries(e.Points, shared, shape.w, len(lines))
 		// A try past the left edge is moved in to it, rather than passed
 		// over: the tries to the left of a line at the edge were each
 		// refused, and a long label in the bottom row of a grid was
@@ -373,7 +381,8 @@ func (lay *Layout) placeEdgeLabels(top int) {
 		}
 		l := edgeLabel{edge: i, lines: lines, tries: make([]labelBlock, len(tries)), costs: make([]int, len(tries))}
 		for k, t := range tries {
-			l.tries[k] = newBlock(t, lines)
+			l.tries[k] = shape
+			l.tries[k].at = t
 			l.costs[k] = pg.placeCost(i, l.tries[k], k)
 		}
 		labels = append(labels, l)

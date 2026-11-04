@@ -257,8 +257,10 @@ type LayoutOptions struct {
 	// searches them for each edge, so a page's cells are its memory and
 	// its time: one node labelled with four thousand lines of four
 	// thousand letters -- sixteen kilobytes of DOT -- was a page of sixteen
-	// million cells, and 1.4 gigabytes, for one box. Past MostCells it is
-	// held to MostCells.
+	// million cells, and 1.4 gigabytes, for one box. The page the edges'
+	// labels, the title and the legend make larger than the boxes is held
+	// to it too: the router is done with by then, but every cell is
+	// drawn. Past MostCells it is held to MostCells.
 	MaxCells int
 }
 
@@ -278,6 +280,13 @@ const DefaultMaxCells = 1000 * 1000
 // on pages of ten thousand to a million cells. DefaultMaxCells is some
 // 200 MB.
 const BytesPerCell = 200
+
+// TextBytesPerCell is about how much memory drawing a page as text takes,
+// a cell, in colour or not, braille or not: the canvas of every cell,
+// measured on pages of a tenth of a million to four million cells. It is
+// what a refusal quotes for a page its labels make larger than its boxes,
+// past the router's page.
+const TextBytesPerCell = 45
 
 // ErrTooLarge is what a diagram whose page would pass
 // LayoutOptions.MaxCells is refused with.
@@ -314,21 +323,51 @@ func (d *Diagram) LayoutWith(o LayoutOptions) (*Layout, error) {
 	// top row, with a third between them, had no way round but through the
 	// third. What no line takes of the margin is given back after routing,
 	// so a drawing that does not need it does not change.
-	// Compared by dividing, not multiplying: where an int is 32 bits, two
-	// sides of fifty thousand cells multiplied to a negative number, and
-	// the page passed.
-	if w, h := p.w+2*colGap, top+p.h+2*rowGap; w < 0 || h < 0 || h > 0 && w > o.MaxCells/h {
+	if w, h := p.w+2*colGap, top+p.h+2*rowGap; !fits(w, h, o.MaxCells) {
 		return nil, fmt.Errorf("%w: a page of %d by %d cells, more than the %d it may have, would take %s -- its labels or its grid are that large", ErrTooLarge, w, h, o.MaxCells, memory.About(float64(w)*float64(h)*BytesPerCell))
 	}
 	l.place(p, colGap, top+rowGap, p.w, p.h)
 	l.route()
 	l.trim(top, colGap+p.w, top+rowGap+p.h)
+	// The edges' labels, the title and the legend may make the page larger
+	// than its boxes, and it is held to MaxCells too. The router is done
+	// with by then, so it is the drawing's memory a refusal quotes. First
+	// before the labels are placed, as at least as wide as the widest of
+	// them and as tall as the tallest: the cells they are placed among
+	// are sized by both at once, and two labels of a line of two thousand
+	// letters and two thousand lines of one -- 6 KB -- asked for a page of
+	// four million cells. Then once all are placed, the legend last.
+	widest, tallest := l.out.labelExtent()
+	if err := tooLarge(max(l.out.Width, widest), max(l.out.Height, tallest), o.MaxCells, "at least "); err != nil {
+		return nil, err
+	}
 	l.out.placeLabels()
 	if d.Straight {
 		l.out.straighten()
 	}
 	l.out.placeLegend(d.Legend)
+	if err := tooLarge(l.out.Width, l.out.Height, o.MaxCells, ""); err != nil {
+		return nil, err
+	}
 	return l.out, nil
+}
+
+// fits says a page w by h has no more than most cells. Compared by
+// dividing, not multiplying: where an int is 32 bits, two sides of fifty
+// thousand cells multiplied to a negative number, and the page passed.
+func fits(w, h, most int) bool {
+	return w >= 0 && h >= 0 && (h == 0 || w <= most/h)
+}
+
+// tooLarge is the error a page w by h, past the boxes' and so made so by
+// its labels, its title or its legend, is refused with where it has more
+// than most cells, and nil where it has not. least says "at least ",
+// where w and h are what the page will be no smaller than.
+func tooLarge(w, h, most int, least string) error {
+	if fits(w, h, most) {
+		return nil
+	}
+	return fmt.Errorf("%w: a page of %s%d by %d cells, more than the %d it may have, would take %s to draw as text -- its labels, its title or its legend are that large", ErrTooLarge, least, w, h, most, memory.About(float64(w)*float64(h)*TextBytesPerCell))
 }
 
 // trim moves everything placed to the left and up, as far as the leftmost

@@ -798,7 +798,18 @@ someone typed has a default limit -- a braille chart's million characters
 (`plot`'s alone: `Chart.Braille` sets none), a picture's
 `DefaultMaxPixels`, a page's `DefaultMaxCells` -- and its refusal says what
 the drawing would take, from a measured cost a unit (`BrailleBytesPerChar`,
-`BytesPerPixel`, `BytesPerCell`), and that `--high-memory` lifts it. Whether
+`BytesPerPixel`, `BytesPerCell`, `TextBytesPerCell`), and that
+`--high-memory` lifts it. A diagram's page is held to its limit as the
+router's, its boxes and their margin, and again as its labels, its title
+and its legend make it: first at least as wide as the widest edge label
+and as tall as the tallest, before any is placed -- the cells they are
+placed among are sized by both at once, so a line of two thousand
+letters and two thousand lines of one, 6 KB, asked for four million --
+and then as laid out. That page is never routed, so its refusal quotes
+`TextBytesPerCell`, what every cell of it costs to draw. Counting the
+labels into the router's page beforehand was tried and taken out: it was
+an estimate kept in step with the labels' placement by hand, and it
+already disagreed with it three ways. Whether
 the machine has the memory is the user's to know, not the program's: there
 is no cap on what `--high-memory` may take, short of what Go will allocate
 or the router can number, which are refused with no flag named, since none

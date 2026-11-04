@@ -65,14 +65,11 @@ func (o *occupancy) rect(r Rect, inside bool) {
 // past its right edge room for the widest label. A fixed forty once: a
 // label wider than that fitted nowhere, and was written over the boxes.
 func (lay *Layout) labelRoom() int {
-	widest := 0
-	for _, e := range lay.Edges {
-		for _, l := range strings.Split(e.Edge.Label, "\n") {
-			widest = max(widest, Width(l))
-		}
-	}
+	widest, _ := lay.labelExtent()
 	for _, g := range lay.Groups {
-		widest = max(widest, Width(g.Group.Label)+2)
+		if g.Group.Style != Hidden {
+			widest = max(widest, Width(g.Group.Label)+2)
+		}
 	}
 	return lay.Width + widest + 2
 }
@@ -82,11 +79,27 @@ func (lay *Layout) labelRoom() int {
 // four once left a label of more lines nowhere above or below to go, and
 // it was written over its own line.
 func (lay *Layout) labelRows() int {
-	rows := 4
+	_, tallest := lay.labelExtent()
+	return max(4, tallest)
+}
+
+// labelExtent is the widest line of the edges' labels and the most lines
+// one has: of the labels placed, those of edges with a path. An invisible
+// edge's label, placed nowhere and drawn nowhere, once sized the cells the
+// others are placed among, and a few kilobytes of it took hundreds of
+// megabytes.
+func (lay *Layout) labelExtent() (widest, tallest int) {
 	for _, e := range lay.Edges {
-		rows = max(rows, strings.Count(e.Edge.Label, "\n")+1)
+		if e.Edge.Label == "" || len(e.Points) < 2 {
+			continue
+		}
+		lines := strings.Split(e.Edge.Label, "\n")
+		tallest = max(tallest, len(lines))
+		for _, l := range lines {
+			widest = max(widest, Width(l))
+		}
 	}
-	return rows
+	return widest, tallest
 }
 
 // groupLabelAt is where a group's label, with a space either side, begins:

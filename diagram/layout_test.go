@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
@@ -729,6 +730,102 @@ func TestLayoutMaxCells(t *testing.T) {
 	}
 	if _, err := small.LayoutWith(LayoutOptions{MaxCells: math.MaxInt}); err != nil {
 		t.Errorf("a small page with MaxCells at its highest: %v", err)
+	}
+}
+
+// The page the edges' labels, the title or the legend make larger than
+// the boxes is held to MaxCells as the boxes' page is: a few kilobytes of
+// labels laid out a page of millions of cells without a word, to be drawn
+// in hundreds of megabytes. Where the labels alone say the page will be
+// too large -- a line of two thousand letters and two thousand lines of
+// one, which once sized the cells they are placed among at four million
+// -- it is refused before they are placed. A label on an invisible edge
+// is placed nowhere, and is no reason to refuse.
+func TestLabelsHeldToMaxCells(t *testing.T) {
+	two := func(edges ...Edge) *Diagram {
+		return &Diagram{Root: Group{Columns: 2, Items: []Item{node("a"), node("b")}}, Edges: edges}
+	}
+	square := func(n int) string { return strings.Repeat(strings.Repeat("x", n)+"\n", n-1) + strings.Repeat("x", n) }
+	wide, tall := strings.Repeat("x", 2000), strings.Repeat("y\n", 1999)+"y"
+	for _, c := range []struct {
+		name  string
+		d     *Diagram
+		least bool // refused before the labels are placed
+	}{
+		{"a wide label and a tall one", two(Edge{From: "a", To: "b", Label: wide}, Edge{From: "a", To: "b", Label: tall}), true},
+		{"a square label", two(Edge{From: "a", To: "b", Label: square(1100)}), true},
+		{"a title wide and a label tall", &Diagram{Title: wide, Root: Group{Columns: 2, Items: []Item{node("a"), node("b")}}, Edges: []Edge{{From: "a", To: "b", Label: strings.Repeat("y\n", 599) + "y"}}}, true},
+		{"a legend", &Diagram{Root: Group{Items: []Item{node("a")}}, Legend: &Legend{Entries: []LegendEntry{{Label: square(1100)}}}}, false},
+	} {
+		_, err := c.d.Layout()
+		if !errors.Is(err, ErrTooLarge) {
+			t.Errorf("%s: %v, want ErrTooLarge", c.name, err)
+			continue
+		}
+		if got := strings.Contains(err.Error(), "at least"); got != c.least {
+			t.Errorf("%s: %v, refused before its labels were placed %v, want %v", c.name, err, got, c.least)
+		}
+	}
+	// Laid out where they fit -- a page of exactly MaxCells, not one cell
+	// fewer -- and not refused for labels drawn nowhere.
+	labelled := two(Edge{From: "a", To: "b", Label: square(60)})
+	lay, err := labelled.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cells := lay.Width * lay.Height
+	if _, err := labelled.LayoutWith(LayoutOptions{MaxCells: cells}); err != nil {
+		t.Errorf("a label of 60 by 60 on a page of %d cells, MaxCells %d: %v", cells, cells, err)
+	}
+	if _, err := labelled.LayoutWith(LayoutOptions{MaxCells: cells - 1}); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("a label of 60 by 60 on a page of %d cells, MaxCells %d: %v, want ErrTooLarge", cells, cells-1, err)
+	}
+	if _, err := two(Edge{From: "a", To: "b", Label: wide, Invisible: true}, Edge{From: "a", To: "b", Label: tall, Invisible: true}).Layout(); err != nil {
+		t.Errorf("labels on invisible edges: %v", err)
+	}
+}
+
+// pair, looking at the rows of b that can touch each of a's alone, costs
+// two labels' places as looking at every row of each against every row of
+// the other does.
+func TestPairLooksOnlyNear(t *testing.T) {
+	everyRow := func(a, b labelBlock) int {
+		cost := 0
+		a.rows(func(ax0, ax1, ay int) {
+			b.rows(func(bx0, bx1, by int) {
+				switch {
+				case ay == by && ax0 <= bx1 && bx0 <= ax1:
+					cost += overSolidCost
+				case ay == by && (bx0-ax1 <= 3 && bx0 > ax1 || ax0-bx1 <= 3 && ax0 > bx1):
+					cost += pairCost
+				case abs(ay-by) == 1 && ax0 <= bx1+1 && bx0 <= ax1+1:
+					cost += pairCost
+				}
+			})
+		})
+		return cost
+	}
+	rnd := rand.New(rand.NewSource(1))
+	block := func() labelBlock {
+		lines := make([]string, 1+rnd.Intn(6))
+		for i := range lines {
+			lines[i] = strings.Repeat("x", rnd.Intn(8)) // an empty line among them
+		}
+		return newBlock(Point{rnd.Intn(16), rnd.Intn(12)}, lines)
+	}
+	touched := 0
+	for range 20000 {
+		a, b := block(), block()
+		want := everyRow(a, b)
+		if got := pair(a, b); got != want {
+			t.Fatalf("pair(%+v, %+v) = %d, every row against every row %d", a, b, got, want)
+		}
+		if want > 0 {
+			touched++
+		}
+	}
+	if touched < 1000 {
+		t.Fatalf("only %d of the pairs touched: the test tests little", touched)
 	}
 }
 
