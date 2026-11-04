@@ -116,7 +116,7 @@ func (s Scale) Straight(lay *Layout, e PlacedEdge) (xs, ys []float64) {
 		// To the side of the line from the node of the lesser ID to the
 		// other, so that a to b and b to a are set apart, not on one line.
 		ux, uy := bx-ax, by-ay
-		if e.Edge.To < e.Edge.From {
+		if backwards(e.Edge) {
 			ux, uy = -ux, -uy
 		}
 		if l := math.Hypot(ux, uy); l > 0 {

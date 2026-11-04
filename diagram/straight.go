@@ -74,11 +74,12 @@ func (lay *Layout) straighten() {
 // those between the same two nodes set apart, as straighten sets them.
 func shifts(edges []Edge, straight []bool) []float64 {
 	pairs := map[[2]string][]int{}
-	for i, e := range edges {
+	for i := range edges {
 		if !straight[i] {
 			continue
 		}
-		pairs[nodePair(e)] = append(pairs[nodePair(e)], i)
+		key := nodePair(&edges[i])
+		pairs[key] = append(pairs[key], i)
 	}
 	out := make([]float64, len(edges))
 	for _, is := range pairs {
@@ -89,13 +90,22 @@ func shifts(edges []Edge, straight []bool) []float64 {
 	return out
 }
 
-// nodePair is the two nodes e runs between, whichever way it runs.
-func nodePair(e Edge) [2]string {
-	if e.To < e.From {
+// nodePair is the two nodes e runs between, whichever way it runs: the
+// key the straight edges a picture sets apart are grouped by, and the
+// router's count of edges between two nodes.
+func nodePair(e *Edge) [2]string {
+	if backwards(e) {
 		return [2]string{e.To, e.From}
 	}
 	return [2]string{e.From, e.To}
 }
+
+// backwards says e runs from the node of the greater ID to the lesser. A
+// pair of nodes is taken the other way round, and a set-apart line's side
+// is judged from the lesser to the greater, by the router, the labels and
+// the picture alike: one judging it otherwise would keep clear, or label,
+// the mirror image of the line drawn.
+func backwards(e *Edge) bool { return e.To < e.From }
 
 // keepClear takes out of straight each edge whose line, set apart from the
 // others between its nodes, would cross a box, or would leave a record
@@ -138,7 +148,7 @@ func (lay *Layout) keepClear(edges []Edge, straight []bool) {
 			straight[i] = true
 			sh, ok := shifts(edges, straight), true
 			for j := range edges {
-				if straight[j] && nodePair(edges[j]) == nodePair(edges[i]) && !clear(j, sh[j]) {
+				if straight[j] && nodePair(&edges[j]) == nodePair(&edges[i]) && !clear(j, sh[j]) {
 					ok = false
 					break
 				}
@@ -171,7 +181,11 @@ func (lay *Layout) jointsByNode() map[string][]Point {
 // row or more from the middle of a box three rows tall began on its
 // outline or past it, and was drawn from the box's corner, or from a
 // point beside the box, through cells the router had kept clear for it
-// and the picture never drew in.
+// and the picture never drew in. Inside the rectangle is not inside an
+// ellipse or a cylinder's lid, which the picture draws from too: a line
+// set apart far enough from an ellipse's middle still begins beside it.
+// That is a known limit; its fix is one test of a point inside the shape
+// as drawn, which straightClear and Scale.leave would share.
 func (lay *Layout) straightClear(joints map[string][]Point, e *Edge, sh float64) bool {
 	a, _ := lay.Node(e.From)
 	b, _ := lay.Node(e.To)
@@ -257,7 +271,7 @@ func (lay *Layout) ends(e PlacedEdge) (x0, y0, x1, y1 float64) {
 		return x0, y0, x1, y1
 	}
 	ux, uy := (x1-x0)*cellAspect, y1-y0
-	if e.Edge.To < e.Edge.From {
+	if backwards(e.Edge) {
 		ux, uy = -ux, -uy
 	}
 	l := math.Hypot(ux, uy)
@@ -416,7 +430,7 @@ func (lay *Layout) placeStraightLabels() {
 		// by its line and not across the other. The side is Scale's: from
 		// the node of the lesser ID to the other, turned a right angle.
 		ux, uy := x1-x0, y1-y0
-		if e.Edge.To < e.Edge.From {
+		if backwards(e.Edge) {
 			ux, uy = -ux, -uy
 		}
 		// Scale moves the line by (-uy, ux) times Shift: right of a steep

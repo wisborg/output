@@ -110,10 +110,7 @@ func (l *layouter) route() {
 		}
 		from, to := l.out.nodeAt[e.From], l.out.nodeAt[e.To]
 		a, b := from.Rect, to.Rect
-		key := [2]string{e.From, e.To}
-		if e.To < e.From {
-			key = [2]string{e.To, e.From}
-		}
+		key := nodePair(e)
 		nth := parallel[key]
 		parallel[key]++
 		// A loop is searched for as any edge is, from the node back into
@@ -482,16 +479,21 @@ func (r *router) avoidStraight(l *layouter, straight []bool) {
 		// A line along a row half way between two is drawn between them,
 		// and a path along either reads as running along it, so it is
 		// recorded on both; a column's the same. Rounded to one of the
-		// two, paths ran along the other.
+		// two, paths ran along the other. A known limit: a column is
+		// narrower than a row is tall, so a line set apart half a row
+		// runs a quarter of a column off a column's middle, and only the
+		// nearer column is recorded, though in the picture a path along
+		// the other is nearer it than a path along either row is to a
+		// line half way between two.
 		switch {
 		case y0 == y1 && halfway(y0):
-			r.straightCells(a, b, x0, y0-0.5, x1, y1-0.5)
-			r.straightCells(a, b, x0, y0+0.5, x1, y1+0.5)
+			r.recordStraight(a, b, x0, y0-0.5, x1, y1-0.5)
+			r.recordStraight(a, b, x0, y0+0.5, x1, y1+0.5)
 		case x0 == x1 && halfway(x0):
-			r.straightCells(a, b, x0-0.5, y0, x1-0.5, y1)
-			r.straightCells(a, b, x0+0.5, y0, x1+0.5, y1)
+			r.recordStraight(a, b, x0-0.5, y0, x1-0.5, y1)
+			r.recordStraight(a, b, x0+0.5, y0, x1+0.5, y1)
 		default:
-			r.straightCells(a, b, x0, y0, x1, y1)
+			r.recordStraight(a, b, x0, y0, x1, y1)
 		}
 	}
 }
@@ -499,9 +501,9 @@ func (r *router) avoidStraight(l *layouter, straight []bool) {
 // halfway says v lies half way between two whole numbers.
 func halfway(v float64) bool { return v-math.Floor(v) == 0.5 }
 
-// straightCells records the straight line from (x0, y0), in a, to (x1,
+// recordStraight records the straight line from (x0, y0), in a, to (x1,
 // y1), in b, as avoidStraight says.
-func (r *router) straightCells(a, b Rect, x0, y0, x1, y1 float64) {
+func (r *router) recordStraight(a, b Rect, x0, y0, x1, y1 float64) {
 	steps := int(4*max(abs(int(x1-x0)), abs(int(y1-y0)))) + 4
 	var last, onA, onB Point
 	seenA, seenB := false, false
