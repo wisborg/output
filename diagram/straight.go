@@ -172,35 +172,57 @@ func (lay *Layout) jointsByNode() map[string][]Point {
 }
 
 // straightClear says e's straight line, shifted sh to one side, begins and
-// ends inside its own two boxes, crosses no other, and leaves its two
-// clear of their joints, which are joints, by node, as jointsByNode gives
-// them.
+// ends inside its own two shapes, as within judges them, crosses no other
+// box, and leaves its two clear of their joints, which are joints, by
+// node, as jointsByNode gives them.
 //
 // Inside, not on the outline: the picture draws a line from where it
 // leaves its box, worked out from a point inside it. A line set apart a
 // row or more from the middle of a box three rows tall began on its
 // outline or past it, and was drawn from the box's corner, or from a
 // point beside the box, through cells the router had kept clear for it
-// and the picture never drew in. Inside the rectangle is not inside an
-// ellipse or a cylinder's lid, which the picture draws from too: a line
-// set apart far enough from an ellipse's middle still begins beside it.
-// That is a known limit; its fix is one test of a point inside the shape
-// as drawn, which straightClear and Scale.leave would share.
+// and the picture never drew in.
 func (lay *Layout) straightClear(joints map[string][]Point, e *Edge, sh float64) bool {
 	a, _ := lay.Node(e.From)
 	b, _ := lay.Node(e.To)
 	x0, y0, x1, y1 := lay.ends(PlacedEdge{Edge: e, Shift: sh})
-	if sh != 0 && (!within(a.Rect, x0, y0) || !within(b.Rect, x1, y1)) {
+	if sh != 0 && (!within(a, x0, y0) || !within(b, x1, y1)) {
 		return false
 	}
 	return !lay.lineCrossesBox(a, b, x0, y0, x1, y1) &&
 		!nearJoint(joints[a.Node.ID], a.Rect, x0, y0, x1, y1) && !nearJoint(joints[b.Node.ID], b.Rect, x1, y1, x0, y0)
 }
 
-// within says (x, y) is inside r and off its outline. A box's middle is
-// within it even where the box is a row tall, and needs no asking.
-func within(r Rect, x, y float64) bool {
-	return x > float64(r.X) && x < float64(r.X+r.W-1) && y > float64(r.Y) && y < float64(r.Y+r.H-1)
+// within says (x, y), in cell coordinates, is inside n's shape as the
+// picture draws it, and off its outline: inside its box, and inside an
+// ellipse's curve and below a cylinder's lid and above its base. A box's
+// middle is within it even where the box is a row tall, and needs no
+// asking.
+//
+// The shape as drawn, not the rectangle: the picture's line leaves an
+// ellipse or a cylinder where it crosses the curve, worked out from the
+// point it starts at, and a line set apart a row and a half from an
+// ellipse's middle began in the rectangle's corner, outside the curve,
+// and was drawn from there, beside the ellipse. The picture draws an
+// ellipse in the box through its outermost cells' middles, which in cells
+// is the one from r.X to r.X+r.W-1 and r.Y to r.Y+r.H-1, and a cylinder's
+// lid lidRows tall, as Scale.Lid does.
+func within(n PlacedNode, x, y float64) bool {
+	r := n.Rect
+	x0, y0, x1, y1 := float64(r.X), float64(r.Y), float64(r.X+r.W-1), float64(r.Y+r.H-1)
+	if x <= x0 || x >= x1 || y <= y0 || y >= y1 {
+		return false
+	}
+	cx, rx := (x0+x1)/2, (x1-x0)/2
+	switch n.Node.Outline() {
+	case Ellipse:
+		return sq((x-cx)/rx)+sq((y-(y0+y1)/2)/((y1-y0)/2)) < 1
+	case Cylinder:
+		// The lid's curve over x, and the base's under it.
+		d := lidRows * math.Sqrt(1-sq((x-cx)/rx))
+		return y > y0+lidRows-d && y < y1-lidRows+d
+	}
+	return true
 }
 
 // crossesBox says the line between the middles of a and b passes through

@@ -44,7 +44,11 @@ func (s Scale) Box(r Rect) (x0, y0, x1, y1 float64) {
 // Lid is the height of a cylinder's lid, the ellipse its top is drawn as,
 // from its top to its middle: half the cylinder's first row and half its
 // second, where the text drawing draws the lid's line.
-func (s Scale) Lid() float64 { return s.Line / 2 }
+func (s Scale) Lid() float64 { return s.Line * lidRows }
+
+// lidRows is Lid in rows, which the layout asks of a cylinder's shape in
+// cells, as the picture draws it (within).
+const lidRows = 0.5
 
 // Path is the edge's path in the picture's units: through the middles of
 // its cells, with each end on its node's outline -- moved in from the box
@@ -149,16 +153,21 @@ func (s Scale) leave(n PlacedNode, x, y, tx, ty float64) (float64, float64) {
 			return x + t*dx, y + t*dy
 		}
 	case Cylinder:
-		// Through the lid or the base where it leaves by the top or the
-		// bottom, as those are drawn as halves of ellipses.
+		// Through the lid where it leaves the box above the lid's middle,
+		// and the base below the base's, as those are drawn as halves of
+		// ellipses and the sides only between their middles. Taken through
+		// the lid only where it left by the top, a line leaving by a side
+		// above the lid's middle, as one between the middles of two
+		// cylinders side by side but a row apart does, was drawn from
+		// beside the curve.
 		t := exitBox(x, y, dx, dy, x0, y0, x1, y1)
 		ey := y + t*dy
 		lid := s.Lid()
-		if ey <= y0+1e-9 {
+		if ey < y0+lid {
 			if u, ok := exitEllipse(x, y, dx, dy, cx, y0+lid, rx, lid); ok {
 				t = u
 			}
-		} else if ey >= y1-1e-9 {
+		} else if ey > y1-lid {
 			if u, ok := exitEllipse(x, y, dx, dy, cx, y1-lid, rx, lid); ok {
 				t = u
 			}
