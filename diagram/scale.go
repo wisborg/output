@@ -41,14 +41,50 @@ func (s Scale) Box(r Rect) (x0, y0, x1, y1 float64) {
 	return s.X(r.X), s.Y(r.Y), s.X(r.X + r.W - 1), s.Y(r.Y + r.H - 1)
 }
 
-// Lid is the height of a cylinder's lid, the ellipse its top is drawn as,
-// from its top to its middle: half the cylinder's first row and half its
-// second, where the text drawing draws the lid's line.
+// Lid is half the height of a cylinder's lid, the ellipse its top is
+// drawn as: from its top, the middle of the cylinder's first row, to its
+// middle, half a row down. The whole ellipse runs on to the middle of the
+// second row, where the text drawing draws the lid's line.
 func (s Scale) Lid() float64 { return s.Line * lidRows }
 
 // lidRows is Lid in rows, which the layout asks of a cylinder's shape in
 // cells, as the picture draws it (within).
 const lidRows = 0.5
+
+// Corner is the radius of a Rounded node's corners, drawn as quarters of
+// circles: two fifths of a row, a cell wide at ScaleFor's proportions,
+// and no more than half the box's shorter side.
+func (s Scale) Corner(r Rect) float64 {
+	x0, y0, x1, y1 := s.Box(r)
+	return min(s.Line*cornerRows, (x1-x0)/2, (y1-y0)/2)
+}
+
+// cornerRows is Corner in rows, short of a box too small for it, which
+// the layout asks of a rounded box's shape in cells (within).
+const cornerRows = 0.4
+
+// inCorner is the middle of the corner whose square, r on a side, (x, y)
+// is in, of the box from (x0, y0) to (x1, y1), and false where it is in
+// none: by a side, or inside.
+func inCorner(x, y, x0, y0, x1, y1, rx, ry float64) (cx, cy float64, ok bool) {
+	switch {
+	case x < x0+rx:
+		cx = x0 + rx
+	case x > x1-rx:
+		cx = x1 - rx
+	default:
+		return 0, 0, false
+	}
+	switch {
+	case y < y0+ry:
+		cy = y0 + ry
+	case y > y1-ry:
+		cy = y1 - ry
+	default:
+		return 0, 0, false
+	}
+	return cx, cy, true
+}
 
 // Path is the edge's path in the picture's units: through the middles of
 // its cells, with each end on its node's outline -- moved in from the box
@@ -152,6 +188,19 @@ func (s Scale) leave(n PlacedNode, x, y, tx, ty float64) (float64, float64) {
 		if t, ok := exitEllipse(x, y, dx, dy, cx, (y0+y1)/2, rx, (y1-y0)/2); ok {
 			return x + t*dx, y + t*dy
 		}
+	case Rounded:
+		// Through a corner's arc where it leaves the box within a corner's
+		// square, as the corners are drawn round: cut at the box, a line
+		// aimed near a corner was drawn from where the square corner would
+		// be, beside the arc.
+		t := exitBox(x, y, dx, dy, x0, y0, x1, y1)
+		r := s.Corner(n.Rect)
+		if ccx, ccy, ok := inCorner(x+t*dx, y+t*dy, x0, y0, x1, y1, r, r); ok {
+			if u, ok := exitEllipse(x, y, dx, dy, ccx, ccy, r, r); ok {
+				t = u
+			}
+		}
+		return x + t*dx, y + t*dy
 	case Cylinder:
 		// Through the lid where it leaves the box above the lid's middle,
 		// and the base below the base's, as those are drawn as halves of

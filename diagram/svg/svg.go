@@ -254,7 +254,7 @@ func (d *doc) node(pn diagram.PlacedNode) {
 	case diagram.Box, diagram.Rounded:
 		rx := 0.0
 		if n.Outline() == diagram.Rounded {
-			rx = math.Min(d.px*0.6, math.Min(x1-x0, y1-y0)/2)
+			rx = d.s.Corner(pn.Rect)
 		}
 		fmt.Fprintf(&d.b, `<rect x="%s" y="%s" width="%s" height="%s" rx="%s" %s %s/>`+"\n",
 			num(x0), num(y0), num(x1-x0), num(y1-y0), num(rx), filled, stroke)

@@ -10,13 +10,19 @@ import (
 // parallelGrid is a grid of nine nodes, three by three, with labels of
 // different sizes, and edges of which several run between the same two
 // nodes, as the picture sets apart: the case both promises below once
-// failed in, and which randomDiagram seldom makes.
-func parallelGrid(rnd *rand.Rand) *Diagram {
+// failed in, and which randomDiagram seldom makes. Boxes, or with shaped
+// nodes of every shape: chosen from the same numbers otherwise, so that
+// a seed's grid of boxes stays the one that once failed.
+func parallelGrid(rnd *rand.Rand, shaped bool) *Diagram {
 	labels := []string{"a", "ab", "abc", "wide label", "x\ny", "a\nb\nc"}
 	shapes := []Shape{Box, Rounded, Ellipse, Cylinder}
 	d := &Diagram{Straight: true, Root: Group{Columns: 3}}
 	for i := range 9 {
-		d.Root.Items = append(d.Root.Items, Item{Node: &Node{ID: fmt.Sprint("n", i), Label: labels[rnd.Intn(len(labels))], Shape: shapes[rnd.Intn(len(shapes))]}})
+		n := &Node{ID: fmt.Sprint("n", i), Label: labels[rnd.Intn(len(labels))]}
+		if shaped {
+			n.Shape = shapes[rnd.Intn(len(shapes))]
+		}
+		d.Root.Items = append(d.Root.Items, Item{Node: n})
 	}
 	for range 1 + rnd.Intn(3) {
 		from, to := rnd.Intn(9), rnd.Intn(9)
@@ -45,9 +51,11 @@ func parallelGrid(rnd *rand.Rand) *Diagram {
 // draws it from where it leaves a box, worked out from a point inside:
 // set apart further, it was drawn from a box's corner or from beside it.
 // And the picture draws it from its shape's outline, as drawn: an
-// ellipse's curve, a cylinder's sides, lid and base. Held inside the
-// rectangle alone, a line set apart from an ellipse's middle began in
-// the rectangle's corner, beside the curve.
+// ellipse's curve, a cylinder's sides, lid and base, a rounded box's
+// arcs. Held inside the rectangle alone, a line set apart from an
+// ellipse's middle began in the rectangle's corner, beside the curve. The
+// grids of boxes the first promises were found in, and as many again of
+// every shape.
 //
 // The line is judged as drawn, not as the router records it: between its
 // boxes, on the row it runs along, or on both rows where it runs half way
@@ -55,8 +63,8 @@ func parallelGrid(rnd *rand.Rand) *Diagram {
 func TestSetApartStraightLines(t *testing.T) {
 	shifted, curved := 0, 0
 	s := ScaleFor(16)
-	for seed := range int64(400) {
-		d := parallelGrid(rand.New(rand.NewSource(seed)))
+	for seed := range int64(800) {
+		d := parallelGrid(rand.New(rand.NewSource(seed/2)), seed%2 == 1)
 		lay, err := d.Layout()
 		if err != nil {
 			t.Fatal(err)
@@ -82,7 +90,7 @@ func TestSetApartStraightLines(t *testing.T) {
 				if !onDrawnOutline(s, n, x, y) {
 					t.Fatalf("seed %d: %s -> %s, set %v aside, is drawn from (%.1f, %.1f), off the outline of %s, %v drawn from %v", seed, e.Edge.From, e.Edge.To, e.Shift, x, y, n.Node.ID, n.Node.Shape, n.Rect)
 				}
-				if e.Shift != 0 && (n.Node.Shape == Ellipse || n.Node.Shape == Cylinder) {
+				if e.Shift != 0 && n.Node.Shape != Box {
 					curved++
 				}
 			}
@@ -143,17 +151,17 @@ func TestSetApartStraightLines(t *testing.T) {
 		}
 	}
 	if shifted == 0 || curved == 0 {
-		t.Fatalf("%d straight lines set apart, %d ends of them at an ellipse or a cylinder: the test tests too little", shifted, curved)
+		t.Fatalf("%d straight lines set apart, %d ends of them at a shape not a box: the test tests too little", shifted, curved)
 	}
 }
 
 // onDrawnOutline says (x, y), in the picture's units, is on n's outline
 // as the picture draws it: an ellipse's curve; a cylinder's sides between
-// its lid's middle and its base's, or the outer half of either; a box's
-// four sides, its corners included, as a box's are drawn round, if at
-// all, by less than a cell. Worked out from the picture's own
-// measures, Box and Lid, and not from the layout's test of a point
-// inside a shape, so that it judges that test too.
+// its lid's middle and its base's, or the outer half of either; a rounded
+// box's sides between its corners and the arcs that round them; a box's
+// four sides. Worked out from the picture's own measures, Box, Lid and
+// Corner, and not from the layout's test of a point inside a shape, so
+// that it judges that test too.
 func onDrawnOutline(s Scale, n PlacedNode, x, y float64) bool {
 	const eps = 1e-6
 	x0, y0, x1, y1 := s.Box(n.Rect)
@@ -168,6 +176,16 @@ func onDrawnOutline(s Scale, n PlacedNode, x, y float64) bool {
 		lid := s.Lid()
 		side := (near(x, x0) || near(x, x1)) && between(y, y0+lid, y1-lid)
 		return side || onEllipse(y0+lid, lid) && y <= y0+lid+eps || onEllipse(y1-lid, lid) && y >= y1-lid-eps
+	case Rounded:
+		r := s.Corner(n.Rect)
+		sides := (near(x, x0) || near(x, x1)) && between(y, y0+r, y1-r) || (near(y, y0) || near(y, y1)) && between(x, x0+r, x1-r)
+		for _, c := range [4][2]float64{{x0 + r, y0 + r}, {x1 - r, y0 + r}, {x0 + r, y1 - r}, {x1 - r, y1 - r}} {
+			outer := (x-c[0])*(c[0]-cx) >= -eps && (y-c[1])*(c[1]-(y0+y1)/2) >= -eps
+			if outer && near(math.Hypot(x-c[0], y-c[1]), r) {
+				return true
+			}
+		}
+		return sides
 	}
 	return (near(x, x0) || near(x, x1)) && between(y, y0, y1) || (near(y, y0) || near(y, y1)) && between(x, x0, x1)
 }
@@ -197,45 +215,90 @@ func cellsAfter(a, b Point) func(func(Point) bool) {
 	}
 }
 
-// within is the shape as the picture draws it: from any point it says is
-// inside a node, the picture's line, whichever way it runs, leaves from
-// the outline as drawn. Of every shape and of sizes from three cells to
-// a dozen, at points all over each box, as random layouts seldom set a
-// line's end in a cylinder's corner -- held to the rectangle there, 20,000
-// random grids made one -- and never yet in one by its base.
+// within is the shape as the picture draws it: it takes a point inside
+// the outline as drawn, by more than a hair, and no point outside it; and
+// from any point it takes, the picture's line, whichever way it runs,
+// leaves from the outline as drawn. Of every shape and of sizes from two
+// cells to a dozen, at points all over each box, as random layouts seldom
+// set a line's end in a cylinder's corner -- held to the rectangle there,
+// 20,000 random grids made one -- and never yet in one by its base. Both
+// ways, as one too strict draws no line wrong but draws fewer lines
+// straight, which no other test would see.
 func TestWithinIsTheShapeDrawn(t *testing.T) {
 	s := ScaleFor(16)
 	for _, shape := range []Shape{Box, Rounded, Ellipse, Cylinder, Plain} {
 		inside, outside := 0, 0
-		for w := 3; w <= 12; w++ {
-			for h := 3; h <= 6; h++ {
+		// From two cells a side, smaller than any node is laid out, where a
+		// rounded box's corners are held to half its side.
+		for w := 2; w <= 12; w++ {
+			for h := 2; h <= 6; h++ {
 				n := PlacedNode{Node: &Node{ID: "n", Shape: shape}, Rect: Rect{X: 4, Y: 3, W: w, H: h}}
-				for x := float64(n.Rect.X); x <= float64(n.Rect.X+w-1); x += 0.05 {
-					for y := float64(n.Rect.Y); y <= float64(n.Rect.Y+h-1); y += 0.05 {
-						if !within(n, x, y) {
-							// Counted only off the box's outline: inside
-							// the box, outside the curve.
-							if x > float64(n.Rect.X)+1e-9 && x < float64(n.Rect.X+w-1)-1e-9 && y > float64(n.Rect.Y)+1e-9 && y < float64(n.Rect.Y+h-1)-1e-9 {
-								outside++
+				// Counted in tenths, not added up: a tenth added twenty
+				// times is a hair short of two, a point a hair inside a
+				// side, from which a line runs down the side itself.
+				for i := 0; i <= 10*(w-1); i++ {
+					for j := 0; j <= 10*(h-1); j++ {
+						x, y := float64(n.Rect.X)+float64(i)/10, float64(n.Rect.Y)+float64(j)/10
+						// In the picture's units, as Scale.Straight asks.
+						px, py := s.Margin+(x+0.5)*s.Cell, s.Margin+(y+0.5)*s.Line
+						in := within(n, x, y)
+						switch {
+						case in && !insideDrawn(s, n, px, py, 0):
+							t.Fatalf("%v %dx%d: (%.2f, %.2f) is within it, and outside it as drawn", shape, w, h, x, y)
+						case !in && insideDrawn(s, n, px, py, 1e-6):
+							t.Fatalf("%v %dx%d: (%.2f, %.2f) is inside it as drawn, and not within it", shape, w, h, x, y)
+						case !in:
+							if insideDrawn(s, n, px, py, -1e-6) || shape == Box || shape == Plain {
+								continue // on the outline
 							}
+							outside++
 							continue
 						}
 						inside++
-						// In the picture's units, as Scale.Straight asks.
-						px, py := s.Margin+(x+0.5)*s.Cell, s.Margin+(y+0.5)*s.Line
-						for k := range 24 {
-							a := float64(k) * math.Pi / 12
+						for k := range 12 {
+							a := float64(k) * math.Pi / 6
 							ex, ey := s.leave(n, px, py, px+1000*math.Cos(a), py+1000*math.Sin(a))
 							if !onDrawnOutline(s, n, ex, ey) {
-								t.Fatalf("%v %dx%d: a line from (%.2f, %.2f), within it, at %d degrees leaves from (%.1f, %.1f), off its outline", shape, w, h, x, y, k*15, ex, ey)
+								t.Fatalf("%v %dx%d: a line from (%.2f, %.2f), within it, at %d degrees leaves from (%.1f, %.1f), off its outline", shape, w, h, x, y, k*30, ex, ey)
 							}
 						}
 					}
 				}
 			}
 		}
-		if inside == 0 || (shape == Ellipse || shape == Cylinder) && outside == 0 {
-			t.Fatalf("%v: %d points within, %d inside the box but not within: the test tests too little", shape, inside, outside)
+		// Points of the box's outside its curve, which the curve is for.
+		if inside == 0 || (shape == Ellipse || shape == Cylinder || shape == Rounded) && outside == 0 {
+			t.Fatalf("%v: %d points within, %d inside the box but outside the curve: the test tests too little", shape, inside, outside)
 		}
 	}
+}
+
+// insideDrawn says (x, y), in the picture's units, is inside n's shape as
+// the picture draws it by more than d -- or, d less than nought, inside it
+// or no further out than -d: an ellipse's curve, a cylinder's lid and
+// base, a rounded box's corners' arcs, and the box. From Box, Lid and
+// Corner, as onDrawnOutline is.
+func insideDrawn(s Scale, n PlacedNode, x, y, d float64) bool {
+	x0, y0, x1, y1 := s.Box(n.Rect)
+	box := func(x0, y0, x1, y1 float64) bool {
+		return x > x0+d && x < x1-d && y > y0+d && y < y1-d
+	}
+	cx, cy, rx, ry := (x0+x1)/2, (y0+y1)/2, (x1-x0)/2, (y1-y0)/2
+	switch n.Node.Outline() {
+	case Ellipse:
+		return math.Hypot((x-cx)/rx, (y-cy)/ry) < 1-d/max(rx, ry)
+	case Cylinder:
+		lid := s.Lid()
+		u := min(1, math.Abs(x-cx)/rx)
+		c := lid * math.Sqrt(1-u*u)
+		return box(x0, y0+lid-c, x1, y1-lid+c)
+	case Rounded:
+		r := s.Corner(n.Rect)
+		for _, c := range [4][2]float64{{x0 + r, y0 + r}, {x1 - r, y0 + r}, {x0 + r, y1 - r}, {x1 - r, y1 - r}} {
+			if (x-c[0])*(c[0]-cx) > 0 && (y-c[1])*(c[1]-cy) > 0 {
+				return math.Hypot(x-c[0], y-c[1]) < r-d
+			}
+		}
+	}
+	return box(x0, y0, x1, y1)
 }

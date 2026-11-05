@@ -742,13 +742,17 @@ outlines, as the picture draws it from where it leaves a box, and the
 router keeps paths off it there -- on both rows, or both columns, where
 it runs half way between two (`straightClear`, `avoidStraight`). Inside
 the shape as drawn, not the rectangle: an ellipse's curve, below a
-cylinder's lid and above its base, which `within` works out in cells
-from the box and the lid's height (`lidRows`) the picture draws them by;
-held to the rectangle, a line set apart from an ellipse's middle began
-in its corner and was drawn from beside the curve. And a line leaves a
-cylinder through its lid wherever it leaves the box above the lid's
-middle, by a side as well as by the top (`Scale.leave`):
-`TestWithinIsTheShapeDrawn` holds the two to each other. The text
+cylinder's lid and above its base, inside a rounded box's corners' arcs,
+which `within` works out in cells from the box and the lid's height and
+the corners' radius in rows (`lidRows`, `cornerRows`) the picture draws
+them by; held to the rectangle, a line set apart from an ellipse's
+middle began in its corner and was drawn from beside the curve. And a
+line leaves a cylinder through its lid wherever it leaves the box above
+the lid's middle, by a side as well as by the top, and a rounded box
+through an arc wherever it leaves within a corner's square
+(`Scale.leave`): `TestWithinIsTheShapeDrawn` holds the two to each other
+and to the shape drawn, both ways, as a `within` too strict draws no
+line wrong but fewer lines straight. The text
 drawing draws them along rows and columns unless `TextOptions.Braille`
 (`--braille thin|thick`) asks for braille: a diagonal of `╱` and `╲` is a
 ragged staircase, but in braille dots, two across and four down a cell, it

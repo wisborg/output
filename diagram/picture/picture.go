@@ -273,7 +273,7 @@ func (d drawer) node(pn diagram.PlacedNode) {
 		d.cv.Polygon(rect(x0, y0, x1, y1), fill)
 		d.outline(rect(x0, y0, x1, y1), n.Line, line)
 	case diagram.Rounded:
-		pts := rounded(x0, y0, x1, y1, d.px*0.6)
+		pts := rounded(x0, y0, x1, y1, d.s.Corner(pn.Rect))
 		d.cv.Polygon(pts, fill)
 		d.outline(pts, n.Line, line)
 	case diagram.Ellipse:

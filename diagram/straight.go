@@ -195,7 +195,8 @@ func (lay *Layout) straightClear(joints map[string][]Point, e *Edge, sh float64)
 
 // within says (x, y), in cell coordinates, is inside n's shape as the
 // picture draws it, and off its outline: inside its box, and inside an
-// ellipse's curve and below a cylinder's lid and above its base. A box's
+// ellipse's curve, below a cylinder's lid and above its base, and inside a
+// rounded box's corners' arcs. A box's
 // middle is within it even where the box is a row tall, and needs no
 // asking.
 //
@@ -205,22 +206,36 @@ func (lay *Layout) straightClear(joints map[string][]Point, e *Edge, sh float64)
 // ellipse's middle began in the rectangle's corner, outside the curve,
 // and was drawn from there, beside the ellipse. The picture draws an
 // ellipse in the box through its outermost cells' middles, which in cells
-// is the one from r.X to r.X+r.W-1 and r.Y to r.Y+r.H-1, and a cylinder's
-// lid lidRows tall, as Scale.Lid does.
+// is the one from r.X to r.X+r.W-1 and r.Y to r.Y+r.H-1, a cylinder's
+// lid lidRows tall, as Scale.Lid does, and a rounded box's corners
+// cornerRows, as Scale.Corner does, at the picture's proportions,
+// cellAspect. Off the outline by more than a hair: shifts are halves and
+// boxes whole cells, so a start may fall on a curve exactly, and rounding
+// put a point there a hair inside it, from which a line leaving outwards
+// crossed the curve behind it and was cut at the box instead.
 func within(n PlacedNode, x, y float64) bool {
 	r := n.Rect
 	x0, y0, x1, y1 := float64(r.X), float64(r.Y), float64(r.X+r.W-1), float64(r.Y+r.H-1)
-	if x <= x0 || x >= x1 || y <= y0 || y >= y1 {
+	const hair = 1e-9
+	if x <= x0+hair || x >= x1-hair || y <= y0+hair || y >= y1-hair {
 		return false
 	}
 	cx, rx := (x0+x1)/2, (x1-x0)/2
 	switch n.Node.Outline() {
 	case Ellipse:
-		return sq((x-cx)/rx)+sq((y-(y0+y1)/2)/((y1-y0)/2)) < 1
+		return sq((x-cx)/rx)+sq((y-(y0+y1)/2)/((y1-y0)/2)) < 1-hair
 	case Cylinder:
 		// The lid's curve over x, and the base's under it.
 		d := lidRows * math.Sqrt(1-sq((x-cx)/rx))
-		return y > y0+lidRows-d && y < y1-lidRows+d
+		return y > y0+lidRows-d+hair && y < y1-lidRows+d-hair
+	case Rounded:
+		// A corner's radius in rows, as Scale.Corner gives it, and in
+		// columns, which are narrower.
+		ry := min(cornerRows, (x1-x0)*cellAspect/2, (y1-y0)/2)
+		rx := ry / cellAspect
+		if ccx, ccy, ok := inCorner(x, y, x0, y0, x1, y1, rx, ry); ok {
+			return sq((x-ccx)/rx)+sq((y-ccy)/ry) < 1-hair
+		}
 	}
 	return true
 }
