@@ -777,8 +777,9 @@ func TestLabelsHeldToMaxCells(t *testing.T) {
 	if _, err := labelled.LayoutWith(LayoutOptions{MaxCells: cells}); err != nil {
 		t.Errorf("a label of 60 by 60 on a page of %d cells, MaxCells %d: %v", cells, cells, err)
 	}
-	if _, err := labelled.LayoutWith(LayoutOptions{MaxCells: cells - 1}); !errors.Is(err, ErrTooLarge) {
-		t.Errorf("a label of 60 by 60 on a page of %d cells, MaxCells %d: %v, want ErrTooLarge", cells, cells-1, err)
+	// Refused by the labels' page, not the router's, which is smaller.
+	if _, err := labelled.LayoutWith(LayoutOptions{MaxCells: cells - 1}); !errors.Is(err, ErrTooLarge) || !strings.Contains(err.Error(), "to draw as text") {
+		t.Errorf("a label of 60 by 60 on a page of %d cells, MaxCells %d: %v, want ErrTooLarge for the labels' page", cells, cells-1, err)
 	}
 	if _, err := two(Edge{From: "a", To: "b", Label: wide, Invisible: true}, Edge{From: "a", To: "b", Label: tall, Invisible: true}).Layout(); err != nil {
 		t.Errorf("labels on invisible edges: %v", err)

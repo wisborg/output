@@ -392,11 +392,7 @@ func (lay *Layout) placeEdgeLabels(top int) {
 		e := &lay.Edges[l.edge]
 		e.LabelAt = l.tries[l.chosen].at
 		e.LabelAt.X, e.LabelAt.Y = max(e.LabelAt.X, 0), max(e.LabelAt.Y, -top)
-		width := 0
-		for _, line := range l.lines {
-			width = max(width, Width(line))
-		}
-		lay.Width = max(lay.Width, e.LabelAt.X+width)
+		lay.Width = max(lay.Width, e.LabelAt.X+l.tries[l.chosen].w)
 		lay.Height = max(lay.Height, e.LabelAt.Y+len(l.lines))
 	}
 }
