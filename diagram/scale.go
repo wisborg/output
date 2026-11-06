@@ -49,10 +49,12 @@ func (s Scale) Box(r Rect) (x0, y0, x1, y1 float64) {
 func (s Scale) Lid() float64 { return s.Line / 2 }
 
 // Corner is the radius of a Rounded node's corners, drawn as quarters of
-// circles: two fifths of a row, and no more than half the box's shorter
-// side. The layout asks it of a rounded box's shape in cells (within).
+// circles: two fifths of a row, and no more than a cell or half the
+// box's shorter side. The layout asks it of a rounded box's shape in
+// cells (within).
 //
-// No more than a cell wide, and at ScaleFor's proportions a hair less:
+// No more than a cell, which two fifths of a row at ScaleFor's
+// proportions is a hair less than, and which caps it at any other:
 // a line along rows and columns ends a cell or more from a corner, and
 // Path cuts it at the box, so it meets a side's straight part only while
 // the arc reaches no further along the side than that. A larger radius
@@ -60,7 +62,7 @@ func (s Scale) Lid() float64 { return s.Line / 2 }
 // leave cut them at it.
 func (s Scale) Corner(r Rect) float64 {
 	x0, y0, x1, y1 := s.Box(r)
-	return min(s.Line*2/5, (x1-x0)/2, (y1-y0)/2)
+	return min(s.Line*2/5, s.Cell, (x1-x0)/2, (y1-y0)/2)
 }
 
 // inCorner is the middle of the corner whose square, r on a side, (x, y)

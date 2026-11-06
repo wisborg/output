@@ -10,9 +10,12 @@ import (
 // parallelGrid is a grid of nine nodes, three by three, with labels of
 // different sizes, and edges of which several run between the same two
 // nodes, as the picture sets apart: the case both promises below once
-// failed in, and which randomDiagram seldom makes. Boxes, or with shaped
-// nodes of every shape: chosen from the same numbers otherwise, so that
-// a seed's grid of boxes stays the one that once failed.
+// failed in, and which randomDiagram seldom makes. All boxes, or, shaped,
+// nodes of every shape. A grid of boxes takes no number for its shapes,
+// so a seed's grid of boxes is the one it made before there were shaped
+// grids, among which the promises below once failed; a shaped grid of
+// the same seed is another grid, its labels and edges drawn from the
+// numbers after its first shape.
 func parallelGrid(rnd *rand.Rand, shaped bool) *Diagram {
 	labels := []string{"a", "ab", "abc", "wide label", "x\ny", "a\nb\nc"}
 	shapes := []Shape{Box, Rounded, Ellipse, Cylinder}
@@ -63,8 +66,11 @@ func parallelGrid(rnd *rand.Rand, shaped bool) *Diagram {
 func TestSetApartStraightLines(t *testing.T) {
 	shifted, curved := 0, 0
 	s := ScaleFor(16)
-	for seed := range int64(800) {
-		d := parallelGrid(rand.New(rand.NewSource(seed/2)), seed%2 == 1)
+	for k := range int64(800) {
+		// Named in a failure as parallelGrid is called, so that it
+		// reproduces: the seed, and shaped or not.
+		seed, shaped := k/2, k%2 == 1
+		d := parallelGrid(rand.New(rand.NewSource(seed)), shaped)
 		lay, err := d.Layout()
 		if err != nil {
 			t.Fatal(err)
@@ -79,7 +85,7 @@ func TestSetApartStraightLines(t *testing.T) {
 			b, _ := lay.Node(e.Edge.To)
 			x0, y0, x1, y1 := lay.ends(e)
 			if lay.lineCrossesBox(a, b, x0, y0, x1, y1) {
-				t.Fatalf("seed %d: %s -> %s, set %v aside, crosses a box", seed, e.Edge.From, e.Edge.To, e.Shift)
+				t.Fatalf("seed %d, shaped %v: %s -> %s, set %v aside, crosses a box", seed, shaped, e.Edge.From, e.Edge.To, e.Shift)
 			}
 			if e.Shift != 0 {
 				shifted++
@@ -88,7 +94,7 @@ func TestSetApartStraightLines(t *testing.T) {
 			for k, n := range []PlacedNode{a, b} {
 				x, y := xs[k*(len(xs)-1)], ys[k*(len(ys)-1)]
 				if !onDrawnOutline(s, n, x, y) {
-					t.Fatalf("seed %d: %s -> %s, set %v aside, is drawn from (%.1f, %.1f), off the outline of %s, %v drawn from %v", seed, e.Edge.From, e.Edge.To, e.Shift, x, y, n.Node.ID, n.Node.Shape, n.Rect)
+					t.Fatalf("seed %d, shaped %v: %s -> %s, set %v aside, is drawn from (%.1f, %.1f), off the outline of %s, %v drawn from %v", seed, shaped, e.Edge.From, e.Edge.To, e.Shift, x, y, n.Node.ID, n.Node.Shape, n.Rect)
 				}
 				// Drawn from a curve: inside the rectangle, off its sides.
 				if bx0, by0, bx1, by1 := s.Box(n.Rect); e.Shift != 0 && x > bx0+1e-6 && x < bx1-1e-6 && y > by0+1e-6 && y < by1-1e-6 {
@@ -100,7 +106,7 @@ func TestSetApartStraightLines(t *testing.T) {
 				x, y float64
 			}{{a.Rect, x0, y0}, {b.Rect, x1, y1}} {
 				if e.Shift != 0 && (c.x <= float64(c.r.X) || c.x >= float64(c.r.X+c.r.W-1) || c.y <= float64(c.r.Y) || c.y >= float64(c.r.Y+c.r.H-1)) {
-					t.Fatalf("seed %d: %s -> %s, set %v aside, ends at (%v, %v), not inside its box %v", seed, e.Edge.From, e.Edge.To, e.Shift, c.x, c.y, c.r)
+					t.Fatalf("seed %d, shaped %v: %s -> %s, set %v aside, ends at (%v, %v), not inside its box %v", seed, shaped, e.Edge.From, e.Edge.To, e.Shift, c.x, c.y, c.r)
 				}
 			}
 			switch {
@@ -144,7 +150,7 @@ func TestSetApartStraightLines(t *testing.T) {
 						along = on[1]
 					}
 					if along[p] && along[prev] {
-						t.Fatalf("seed %d: %s -> %s runs along a straight line at %v", seed, e.Edge.From, e.Edge.To, p)
+						t.Fatalf("seed %d, shaped %v: %s -> %s runs along a straight line at %v", seed, shaped, e.Edge.From, e.Edge.To, p)
 					}
 					prev = p
 				}
@@ -302,4 +308,18 @@ func insideDrawn(s Scale, n PlacedNode, x, y, d float64) bool {
 		}
 	}
 	return box(x0, y0, x1, y1)
+}
+
+// A rounded box's corner is no wider than a cell at any proportions, as
+// a line along rows and columns ending a cell from the corner meets the
+// side's straight part only so; at ScaleFor's, two fifths of a row is a
+// hair less than a cell already, and no other test sees the cap.
+func TestCornerNoWiderThanACell(t *testing.T) {
+	r := Rect{W: 10, H: 10}
+	if c := (Scale{Cell: 6, Line: 24}).Corner(r); c != 6 {
+		t.Errorf("a cell 6 wide and a row 24 tall: a corner of %v, want 6", c)
+	}
+	if s := ScaleFor(16); s.Corner(r) != s.Line*2/5 {
+		t.Errorf("at ScaleFor's proportions: a corner of %v, want two fifths of a row, %v", s.Corner(r), s.Line*2/5)
+	}
 }
