@@ -743,9 +743,9 @@ router keeps paths off it there -- on both rows, or both columns, where
 it runs half way between two (`straightClear`, `avoidStraight`). Inside
 the shape as drawn, not the rectangle: an ellipse's curve, below a
 cylinder's lid and above its base, inside a rounded box's corners' arcs,
-which `within` works out in cells from the box and the lid's height and
-the corners' radius in rows (`lidRows`, `cornerRows`) the picture draws
-them by; held to the rectangle, a line set apart from an ellipse's
+which `within` works out in cells from the box and from the lid's height
+and the corners' radius the picture draws them by, `Scale.Lid` and
+`Scale.Corner`, asked of `ScaleFor`'s; held to the rectangle, a line set apart from an ellipse's
 middle began in its corner and was drawn from beside the curve. And a
 line leaves a cylinder through its lid wherever it leaves the box above
 the lid's middle, by a side as well as by the top, and a rounded box

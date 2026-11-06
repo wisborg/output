@@ -108,11 +108,13 @@ func nodePair(e *Edge) [2]string {
 func backwards(e *Edge) bool { return e.To < e.From }
 
 // keepClear takes out of straight each edge whose line, set apart from the
-// others between its nodes, would cross a box, or would leave a record
-// where a divider meets its outline, as a path along rows and columns
-// never does: in a record of two fields alike that is the middle of a
-// side, where a line between the boxes' middles leaves, and the line reads
-// as the divider running on. straightens has looked at each line between
+// others between its nodes, would cross a box, would begin outside its
+// own node's shape as the picture draws it, which the picture would draw
+// it from beside, or would leave a record where a divider meets its
+// outline, as a path along rows and columns never does: in a record of
+// two fields alike that is the middle of a side, where a line between the
+// boxes' middles leaves, and the line reads as the divider running on.
+// straightClear judges all three. straightens has looked at each line between
 // the middles; set apart, a line runs up to half a row a line beside it
 // to one side, and crossed a third box straightens had found clear. Each
 // taken out sets the others between its nodes apart differently, so it
@@ -206,14 +208,16 @@ func (lay *Layout) straightClear(joints map[string][]Point, e *Edge, sh float64)
 // ellipse's middle began in the rectangle's corner, outside the curve,
 // and was drawn from there, beside the ellipse. The picture draws an
 // ellipse in the box through its outermost cells' middles, which in cells
-// is the one from r.X to r.X+r.W-1 and r.Y to r.Y+r.H-1, a cylinder's
-// lid lidRows tall, as Scale.Lid does, and a rounded box's corners
-// cornerRows, as Scale.Corner does, at the picture's proportions,
-// cellAspect. Off the outline by more than a hair: shifts are halves and
+// is the one from r.X to r.X+r.W-1 and r.Y to r.Y+r.H-1, and a cylinder's
+// lid and a rounded box's corners as Scale.Lid and Scale.Corner give
+// them, asked of ScaleFor's, whose cell is cellAspect of a row, and
+// brought back to columns and rows: one rule for each, which the picture
+// draws by. Off the outline by more than a hair: shifts are halves and
 // boxes whole cells, so a start may fall on a curve exactly, and rounding
 // put a point there a hair inside it, from which a line leaving outwards
 // crossed the curve behind it and was cut at the box instead.
 func within(n PlacedNode, x, y float64) bool {
+	unit := ScaleFor(1)
 	r := n.Rect
 	x0, y0, x1, y1 := float64(r.X), float64(r.Y), float64(r.X+r.W-1), float64(r.Y+r.H-1)
 	const hair = 1e-9
@@ -225,14 +229,14 @@ func within(n PlacedNode, x, y float64) bool {
 	case Ellipse:
 		return sq((x-cx)/rx)+sq((y-(y0+y1)/2)/((y1-y0)/2)) < 1-hair
 	case Cylinder:
-		// The lid's curve over x, and the base's under it.
-		d := lidRows * math.Sqrt(1-sq((x-cx)/rx))
-		return y > y0+lidRows-d+hair && y < y1-lidRows+d-hair
+		// The lid's curve over x, and the base's under it, in rows.
+		lid := unit.Lid() / unit.Line
+		d := lid * math.Sqrt(1-sq((x-cx)/rx))
+		return y > y0+lid-d+hair && y < y1-lid+d-hair
 	case Rounded:
-		// A corner's radius in rows, as Scale.Corner gives it, and in
-		// columns, which are narrower.
-		ry := min(cornerRows, (x1-x0)*cellAspect/2, (y1-y0)/2)
-		rx := ry / cellAspect
+		// A corner's radius in rows, and in columns, which are narrower.
+		c := unit.Corner(r)
+		rx, ry := c/unit.Cell, c/unit.Line
 		if ccx, ccy, ok := inCorner(x, y, x0, y0, x1, y1, rx, ry); ok {
 			return sq((x-ccx)/rx)+sq((y-ccy)/ry) < 1-hair
 		}

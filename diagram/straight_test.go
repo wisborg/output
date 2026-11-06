@@ -90,7 +90,8 @@ func TestSetApartStraightLines(t *testing.T) {
 				if !onDrawnOutline(s, n, x, y) {
 					t.Fatalf("seed %d: %s -> %s, set %v aside, is drawn from (%.1f, %.1f), off the outline of %s, %v drawn from %v", seed, e.Edge.From, e.Edge.To, e.Shift, x, y, n.Node.ID, n.Node.Shape, n.Rect)
 				}
-				if e.Shift != 0 && n.Node.Shape != Box {
+				// Drawn from a curve: inside the rectangle, off its sides.
+				if bx0, by0, bx1, by1 := s.Box(n.Rect); e.Shift != 0 && x > bx0+1e-6 && x < bx1-1e-6 && y > by0+1e-6 && y < by1-1e-6 {
 					curved++
 				}
 			}
@@ -151,7 +152,7 @@ func TestSetApartStraightLines(t *testing.T) {
 		}
 	}
 	if shifted == 0 || curved == 0 {
-		t.Fatalf("%d straight lines set apart, %d ends of them at a shape not a box: the test tests too little", shifted, curved)
+		t.Fatalf("%d straight lines set apart, %d ends of them drawn from a curve: the test tests too little", shifted, curved)
 	}
 }
 

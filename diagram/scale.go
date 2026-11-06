@@ -45,23 +45,23 @@ func (s Scale) Box(r Rect) (x0, y0, x1, y1 float64) {
 // drawn as: from its top, the middle of the cylinder's first row, to its
 // middle, half a row down. The whole ellipse runs on to the middle of the
 // second row, where the text drawing draws the lid's line.
-func (s Scale) Lid() float64 { return s.Line * lidRows }
-
-// lidRows is Lid in rows, which the layout asks of a cylinder's shape in
-// cells, as the picture draws it (within).
-const lidRows = 0.5
+// The layout asks it of a cylinder's shape in cells (within).
+func (s Scale) Lid() float64 { return s.Line / 2 }
 
 // Corner is the radius of a Rounded node's corners, drawn as quarters of
-// circles: two fifths of a row, a cell wide at ScaleFor's proportions,
-// and no more than half the box's shorter side.
+// circles: two fifths of a row, and no more than half the box's shorter
+// side. The layout asks it of a rounded box's shape in cells (within).
+//
+// No more than a cell wide, and at ScaleFor's proportions a hair less:
+// a line along rows and columns ends a cell or more from a corner, and
+// Path cuts it at the box, so it meets a side's straight part only while
+// the arc reaches no further along the side than that. A larger radius
+// would end those lines beside the arc, as straight lines were before
+// leave cut them at it.
 func (s Scale) Corner(r Rect) float64 {
 	x0, y0, x1, y1 := s.Box(r)
-	return min(s.Line*cornerRows, (x1-x0)/2, (y1-y0)/2)
+	return min(s.Line*2/5, (x1-x0)/2, (y1-y0)/2)
 }
-
-// cornerRows is Corner in rows, short of a box too small for it, which
-// the layout asks of a rounded box's shape in cells (within).
-const cornerRows = 0.4
 
 // inCorner is the middle of the corner whose square, r on a side, (x, y)
 // is in, of the box from (x0, y0) to (x1, y1), and false where it is in
@@ -145,8 +145,10 @@ func sq(x float64) float64 { return x * x }
 
 // Straight is a straight edge's line in the picture's units: from the
 // middle of its tail node towards the middle of its head, Shift rows
-// to one side, cut where it leaves the one's outline and meets the other's
-// -- an ellipse's curve and a cylinder's lid included.
+// to one side, cut where it leaves the one's outline and meets the
+// other's as drawn, as leave finds it -- an ellipse's curve, a cylinder's
+// lid and base, by a side too where the line leaves above the lid's
+// middle or below the base's, and a rounded box's arcs included.
 func (s Scale) Straight(lay *Layout, e PlacedEdge) (xs, ys []float64) {
 	from, _ := lay.Node(e.Edge.From)
 	to, _ := lay.Node(e.Edge.To)
