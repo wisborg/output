@@ -198,18 +198,56 @@ func onDrawnOutline(s Scale, n PlacedNode, x, y float64) bool {
 }
 
 // rowsOf is the rows, or the columns, a line along one at v is drawn on:
-// every one less than one away from it, the row or the column v is at
-// where it is a whole one, and both either side where it is not. A path
-// along the column beside a line in a column's middle runs a column from
-// it, and is no fault; one along a column three quarters of a column from
-// a line set apart, as a line half a row aside is, runs nearer it than
-// that, and nearer than a path along a row runs to a line half way
-// between two rows, which is one.
+// every one whose middle is less than one from it, short of a hair. A
+// path along the column beside a line in a column's middle runs a column
+// from it, and is no fault; one along a column three quarters of a column
+// from a line set apart, as a line half a row aside is, runs nearer it
+// than that, and nearer than a path along a row runs to a line half way
+// between two rows, which is one. Measured by the distance to each, not
+// by the router's floor and ceiling (beside), so that it judges them.
 func rowsOf(v float64) []int {
-	if f := math.Floor(v); v != f {
-		return []int{int(f), int(f) + 1}
+	var rows []int
+	for c := int(math.Floor(v)) - 1; c <= int(math.Ceil(v))+1; c++ {
+		if math.Abs(float64(c)-v) < 1-besideHair {
+			rows = append(rows, c)
+		}
 	}
-	return []int{int(v)}
+	return rows
+}
+
+// beside keeps a straight line clear on the columns less than one from
+// it, and only those: not one a hair under one from it, where a line set
+// apart a whole number of rows runs, as cellAspect is a hair over two
+// fifths, which paths in the column beside a line in a column's middle
+// run as far from.
+func TestBesideWholeOrBoth(t *testing.T) {
+	aside := func(rows float64) float64 { return 2.5 + rows/cellAspect } // in a box 6 wide
+	for _, c := range []struct {
+		v    float64
+		want []float64
+	}{
+		{5, []float64{5}},
+		{4.5, []float64{4, 5}},
+		{4.25, []float64{4, 5}},
+		{4.75, []float64{4, 5}},
+		{aside(0.5), []float64{3, 4}}, // 3.7498: a quarter off a middle
+		{aside(1), []float64{5}},      // 4.9996: a hair short of one
+		{aside(-1), []float64{0}},     // 0.0004: a hair past one
+		{-1.0004, []float64{-1}},      // a hair, below nought
+		{4.98, []float64{4, 5}},       // two hundredths is no hair
+	} {
+		got := beside(c.v)
+		if fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("beside(%v) = %v, want %v", c.v, got, c.want)
+		}
+		var rows []float64
+		for _, r := range rowsOf(c.v) {
+			rows = append(rows, float64(r))
+		}
+		if fmt.Sprint(rows) != fmt.Sprint(c.want) {
+			t.Errorf("rowsOf(%v) = %v, want %v, as beside", c.v, rows, c.want)
+		}
+	}
 }
 
 // cellsAfter yields the cells from a to b along a row or a column, b

@@ -476,27 +476,53 @@ func (r *router) avoidStraight(l *layouter, straight []bool) {
 		}
 		a, b := l.out.nodeAt[e.From].Rect, l.out.nodeAt[e.To].Rect
 		x0, y0, x1, y1 := l.out.ends(PlacedEdge{Edge: &l.d.Edges[i], Shift: sh[i]})
-		// A line along a row between two is drawn between them, and a
-		// path along either reads as running along it, so it is recorded
-		// on both, every row less than one from it; a column's the same.
-		// Rounded to the nearer, paths ran along the other: half way
-		// between two rows, half a row from the line, and a quarter of a
-		// column off a column's middle, where a line set apart half a row
-		// runs, as a column is narrower than a row is tall, three
-		// quarters of a column from it -- nearer than a path in the column
-		// beside a line in a column's middle, which is no fault.
+		// Along a row, on each row beside it; along a column, on each
+		// column.
 		switch {
-		case y0 == y1 && y0 != math.Floor(y0):
-			r.recordStraight(a, b, x0, math.Floor(y0), x1, math.Floor(y1))
-			r.recordStraight(a, b, x0, math.Ceil(y0), x1, math.Ceil(y1))
-		case x0 == x1 && x0 != math.Floor(x0):
-			r.recordStraight(a, b, math.Floor(x0), y0, math.Floor(x1), y1)
-			r.recordStraight(a, b, math.Ceil(x0), y0, math.Ceil(x1), y1)
+		case y0 == y1:
+			for _, y := range beside(y0) {
+				r.recordStraight(a, b, x0, y, x1, y)
+			}
+		case x0 == x1:
+			for _, x := range beside(x0) {
+				r.recordStraight(a, b, x, y0, x, y1)
+			}
 		default:
 			r.recordStraight(a, b, x0, y0, x1, y1)
 		}
 	}
 }
+
+// beside is the rows a line along a row at v is kept clear on, or the
+// columns of one along a column: every one less than one from it, the
+// one it runs in where it runs in a middle, and both either side where
+// it runs between two, as a path along either reads as running along it.
+// Rounded to the nearer, paths ran along the other: half way between two
+// rows, half a row from the line, and a quarter of a column off a
+// column's middle, where a line set apart half a row runs, as a column
+// is narrower than a row is tall, three quarters of a column from it --
+// nearer than a path in the column beside a line in a column's middle,
+// which is no fault.
+//
+// Within besideHair of a middle is in it: cellAspect is a hair over two
+// fifths, so a line set apart a whole number of rows is a hair short of
+// a column's middle, never in it -- three lines between boxes of an even
+// width, one above the other, are drawn 2.9996 columns either side of the
+// middle -- and a column a hair under one from it, as far from it as the
+// column beside a line in its middle, was kept clear for nothing.
+func beside(v float64) []float64 {
+	if m := math.Round(v); math.Abs(v-m) < besideHair {
+		return []float64{m}
+	}
+	return []float64{math.Floor(v), math.Ceil(v)}
+}
+
+// besideHair is how near a middle beside counts a line as in it: a
+// hundredth of a column, which cellAspect's hair, four ten-thousandths of
+// a column a row of shift, reaches only at some twenty-five rows, and a
+// quarter of a column, where a line set apart half a row runs, is far
+// from.
+const besideHair = 0.01
 
 // recordStraight records the straight line from (x0, y0), in a, to (x1,
 // y1), in b, as avoidStraight says.
