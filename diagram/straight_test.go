@@ -61,8 +61,8 @@ func parallelGrid(rnd *rand.Rand, shaped bool) *Diagram {
 // every shape.
 //
 // The line is judged as drawn, not as the router records it: between its
-// boxes, on the row it runs along, or on both rows where it runs half way
-// between two.
+// boxes, on the row it runs along, or on both rows where it runs between
+// two, as rowsOf says, and the same of a column.
 func TestSetApartStraightLines(t *testing.T) {
 	shifted, curved := 0, 0
 	s := ScaleFor(16)
@@ -198,15 +198,18 @@ func onDrawnOutline(s Scale, n PlacedNode, x, y float64) bool {
 }
 
 // rowsOf is the rows, or the columns, a line along one at v is drawn on:
-// the nearest to v, or both where v is half way between two. A column is
-// narrower than a row is tall, so a line set apart half a row is set
-// apart a fraction of a column other than a half, and is drawn in the
-// nearer column.
+// every one less than one away from it, the row or the column v is at
+// where it is a whole one, and both either side where it is not. A path
+// along the column beside a line in a column's middle runs a column from
+// it, and is no fault; one along a column three quarters of a column from
+// a line set apart, as a line half a row aside is, runs nearer it than
+// that, and nearer than a path along a row runs to a line half way
+// between two rows, which is one.
 func rowsOf(v float64) []int {
-	if f := math.Floor(v); v-f == 0.5 {
+	if f := math.Floor(v); v != f {
 		return []int{int(f), int(f) + 1}
 	}
-	return []int{int(math.Floor(v + 0.5))}
+	return []int{int(v)}
 }
 
 // cellsAfter yields the cells from a to b along a row or a column, b

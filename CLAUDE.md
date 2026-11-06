@@ -740,7 +740,12 @@ between the same two nodes are set apart, and each is judged where it is
 drawn, set apart: it must begin and end inside its own boxes, off their
 outlines, as the picture draws it from where it leaves a box, and the
 router keeps paths off it there -- on both rows, or both columns, where
-it runs half way between two (`straightClear`, `avoidStraight`). Inside
+it runs between two, every one less than one from it: a column is
+narrower than a row is tall, so a line set apart half a row runs a
+quarter of a column off a column's middle, and a path in the farther
+column, three quarters of a column from it, runs nearer it than one in
+the column beside an unshifted line, which is allowed
+(`straightClear`, `avoidStraight`). Inside
 the shape as drawn, not the rectangle: an ellipse's curve, below a
 cylinder's lid and above its base, inside a rounded box's corners' arcs,
 which `within` works out in cells from the box and from the lid's height

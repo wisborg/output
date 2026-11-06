@@ -476,30 +476,27 @@ func (r *router) avoidStraight(l *layouter, straight []bool) {
 		}
 		a, b := l.out.nodeAt[e.From].Rect, l.out.nodeAt[e.To].Rect
 		x0, y0, x1, y1 := l.out.ends(PlacedEdge{Edge: &l.d.Edges[i], Shift: sh[i]})
-		// A line along a row half way between two is drawn between them,
-		// and a path along either reads as running along it, so it is
-		// recorded on both; a column's the same. Rounded to one of the
-		// two, paths ran along the other. A known limit: a column is
-		// narrower than a row is tall, so a line set apart half a row
-		// runs a quarter of a column off a column's middle, and only the
-		// nearer column is recorded, though in the picture a path along
-		// the other is nearer it than a path along either row is to a
-		// line half way between two.
+		// A line along a row between two is drawn between them, and a
+		// path along either reads as running along it, so it is recorded
+		// on both, every row less than one from it; a column's the same.
+		// Rounded to the nearer, paths ran along the other: half way
+		// between two rows, half a row from the line, and a quarter of a
+		// column off a column's middle, where a line set apart half a row
+		// runs, as a column is narrower than a row is tall, three
+		// quarters of a column from it -- nearer than a path in the column
+		// beside a line in a column's middle, which is no fault.
 		switch {
-		case y0 == y1 && halfway(y0):
-			r.recordStraight(a, b, x0, y0-0.5, x1, y1-0.5)
-			r.recordStraight(a, b, x0, y0+0.5, x1, y1+0.5)
-		case x0 == x1 && halfway(x0):
-			r.recordStraight(a, b, x0-0.5, y0, x1-0.5, y1)
-			r.recordStraight(a, b, x0+0.5, y0, x1+0.5, y1)
+		case y0 == y1 && y0 != math.Floor(y0):
+			r.recordStraight(a, b, x0, math.Floor(y0), x1, math.Floor(y1))
+			r.recordStraight(a, b, x0, math.Ceil(y0), x1, math.Ceil(y1))
+		case x0 == x1 && x0 != math.Floor(x0):
+			r.recordStraight(a, b, math.Floor(x0), y0, math.Floor(x1), y1)
+			r.recordStraight(a, b, math.Ceil(x0), y0, math.Ceil(x1), y1)
 		default:
 			r.recordStraight(a, b, x0, y0, x1, y1)
 		}
 	}
 }
-
-// halfway says v lies half way between two whole numbers.
-func halfway(v float64) bool { return v-math.Floor(v) == 0.5 }
 
 // recordStraight records the straight line from (x0, y0), in a, to (x1,
 // y1), in b, as avoidStraight says.
